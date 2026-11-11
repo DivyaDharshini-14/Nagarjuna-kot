@@ -19,12 +19,15 @@ class Kitchen extends Model
         'code',
         'description',
         'is_active',
+        'display_token_hash',
+        'display_token_created_at',
     ];
 
     protected function casts(): array
     {
         return [
             'is_active' => 'boolean',
+            'display_token_created_at' => 'datetime',
         ];
     }
 

@@ -62,5 +62,10 @@ class Order extends Model
     {
         return $this->hasMany(KotTicket::class);
     }
+
+    public function itemCancellations(): HasMany
+    {
+        return $this->hasMany(ItemCancellation::class);
+    }
 }
 

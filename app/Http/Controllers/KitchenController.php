@@ -9,6 +9,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Support\Str;
 use Illuminate\View\View;
 
 class KitchenController extends Controller
@@ -82,6 +83,28 @@ class KitchenController extends Controller
         $kitchen->delete();
 
         return redirect()->route('kitchens.index')->with('success', 'Kitchen deleted successfully.');
+    }
+
+    public function registerDisplay(Request $request, Kitchen $kitchen): RedirectResponse
+    {
+        $this->authorizeBranch($kitchen->branch);
+        abort_unless($request->user()->hasPermission('kitchen.edit'), 403);
+        $token = Str::random(64);
+        $kitchen->forceFill([
+            'display_token_hash' => hash('sha256', $token),
+            'display_token_created_at' => now(),
+        ])->save();
+
+        return back()->with('registered_display_url', route('kds.registered-display', $token));
+    }
+
+    public function revokeDisplay(Request $request, Kitchen $kitchen): RedirectResponse
+    {
+        $this->authorizeBranch($kitchen->branch);
+        abort_unless($request->user()->hasPermission('kitchen.edit'), 403);
+        $kitchen->forceFill(['display_token_hash' => null, 'display_token_created_at' => null])->save();
+
+        return back()->with('success', 'Kitchen display access revoked.');
     }
 
     public function options(Request $request): JsonResponse

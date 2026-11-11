@@ -117,6 +117,7 @@ class BranchController extends Controller
             'phone' => ['nullable', 'string', 'max:20'],
             'address' => ['nullable', 'string'],
             'is_active' => ['required', 'boolean'],
+            'cancellation_approval_required' => ['required', 'boolean'],
         ]);
     }
 

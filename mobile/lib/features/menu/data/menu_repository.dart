@@ -36,6 +36,7 @@ class ApiMenuRepository implements MenuRepository {
         .toList(growable: false);
 
     return MenuSnapshot(
+      branchId: _int(branch['id'], 'branch id'),
       branchName: _string(branch['name'], fallback: 'Assigned branch'),
       categories: categories,
     );

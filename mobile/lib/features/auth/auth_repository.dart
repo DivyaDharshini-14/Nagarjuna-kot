@@ -4,5 +4,7 @@ abstract interface class AuthRepository {
   /// Validates a saved token with Laravel. Returns false if no valid session exists.
   Future<bool> restoreSession();
 
+  Future<Set<String>> loadPermissions();
+
   Future<void> signOut();
 }

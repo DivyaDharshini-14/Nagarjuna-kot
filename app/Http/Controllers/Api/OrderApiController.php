@@ -96,6 +96,9 @@ class OrderApiController extends Controller
             'table',
             'waiter',
             'items.menuItem',
+            'items.cancellations:id,order_item_id,quantity,reason,status,requested_by,decided_by,decided_at,decision_note,stock_reversed_quantity,wastage_quantity,created_at',
+            'items.cancellations.requester:id,name',
+            'items.cancellations.decider:id,name',
             'kotTickets.kitchen',
             'kotTickets.items.menuItem',
         ]);
@@ -125,13 +128,75 @@ class OrderApiController extends Controller
         ]);
     }
 
+    /** Request an authorized, reasoned item or full-order cancellation. */
+    public function cancel(Request $request, Order $order): JsonResponse
+    {
+        $user = $request->user();
+        abort_unless($user && $user->hasPermission('order.cancel'), 403);
+
+        if (! $request->exists('cancel_all') && ! $request->exists('items')) {
+            $request->merge(['cancel_all' => true]);
+        }
+        $validated = $request->validate([
+            'reason' => ['required', 'string', 'min:3', 'max:500'],
+            'cancel_all' => ['sometimes', 'boolean'],
+            'items' => ['required_unless:cancel_all,true', 'array', 'min:1', 'max:100'],
+            'items.*.order_item_id' => ['required_with:items', 'integer', 'min:1'],
+            'items.*.quantity' => ['required_with:items', 'integer', 'min:1', 'max:99'],
+        ]);
+
+        $scope = Order::query()->whereKey($order->id);
+        if ($user->company_id) {
+            $scope->where('company_id', $user->company_id);
+        } elseif (! $user->isAdmin()) {
+            abort(403);
+        }
+        if ($user->branch_id) {
+            $scope->where('branch_id', $user->branch_id);
+        } elseif (! $user->isAdmin()) {
+            abort(403);
+        }
+        $order = $scope->firstOrFail();
+
+        [$batch, $cancellations] = $this->orderService->requestItemCancellations(
+            $order,
+            $validated['items'] ?? [],
+            trim($validated['reason']),
+            (bool) ($validated['cancel_all'] ?? false),
+            $user,
+        );
+
+        $approved = $cancellations->every(fn ($cancellation) => $cancellation->status === 'approved');
+        return response()->json([
+            'message' => $approved
+                ? 'Cancellation approved and sent to the kitchen.'
+                : 'Cancellation request sent for manager approval.',
+            'data' => [
+                'request_batch' => $batch,
+                'cancellations' => $cancellations->map(fn ($cancellation) => [
+                    'order_item_id' => $cancellation->order_item_id,
+                    'quantity' => $cancellation->quantity,
+                    'status' => $cancellation->status,
+                    'reason' => $cancellation->reason,
+                ])->values(),
+                'order' => $order->fresh(['items', 'kotTickets.items']),
+            ],
+        ], $approved ? Response::HTTP_OK : Response::HTTP_ACCEPTED);
+    }
+
     /**
      * Retrieve KOT tickets for an order.
      * GET /api/v1/orders/{order}/kot
      */
     public function orderKot(Order $order): JsonResponse
     {
-        $tickets = $order->kotTickets()->with(['kitchen', 'items.menuItem'])->get();
+        $tickets = $order->kotTickets()->with([
+            'kitchen',
+            'items.menuItem',
+            'items.orderItem.cancellations:id,order_item_id,quantity,reason,status,requested_by,decided_by,decided_at,decision_note,stock_reversed_quantity,wastage_quantity,created_at',
+            'items.orderItem.cancellations.requester:id,name',
+            'items.orderItem.cancellations.decider:id,name',
+        ])->get();
 
         return response()->json([
             'order_number' => $order->order_number,
@@ -169,7 +234,7 @@ class OrderApiController extends Controller
     public function updateTicketStatus(Request $request, KotTicket $ticket): JsonResponse
     {
         $validated = $request->validate([
-            'status' => ['required', 'string', 'in:new,accepted,preparing,ready,served,cancelled'],
+            'status' => ['required', 'string', 'in:new,accepted,preparing,ready,served'],
         ]);
 
         $updated = $this->orderService->updateKotTicketStatus($ticket, $validated['status']);
@@ -187,7 +252,7 @@ class OrderApiController extends Controller
     public function updateItemStatus(Request $request, KotItem $item): JsonResponse
     {
         $validated = $request->validate([
-            'status' => ['required', 'string', 'in:new,accepted,preparing,ready,served,cancelled'],
+            'status' => ['required', 'string', 'in:new,accepted,preparing,ready,served'],
         ]);
 
         $updated = $this->orderService->updateKotItemStatus($item, $validated['status']);

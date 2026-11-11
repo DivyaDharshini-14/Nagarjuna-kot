@@ -82,6 +82,12 @@
         <div class="text-danger small mt-1">{{ $message }}</div>
     @enderror
 </div>
+<div class="mb-3">
+    <label class="form-label" for="stock_adjustment_reason">Stock or availability change reason</label>
+    <input class="form-control" id="stock_adjustment_reason" name="stock_adjustment_reason" value="{{ old('stock_adjustment_reason') }}" maxlength="500" placeholder="Required when changing stock or availability">
+    <div class="form-text">Stock movements and availability changes are recorded in the transaction history.</div>
+    @error('stock_adjustment_reason')<div class="text-danger small mt-1">{{ $message }}</div>@enderror
+</div>
 @include('partials.checkbox', ['name' => 'is_active', 'label' => 'Active', 'checked' => $menuItem?->is_active ?? true])
 <div class="d-flex gap-2">
     <button class="btn btn-primary">Save</button>

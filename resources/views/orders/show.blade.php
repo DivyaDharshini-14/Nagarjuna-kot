@@ -33,7 +33,7 @@
                     Status Action
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end">
-                    @foreach(['confirmed', 'preparing', 'ready', 'served', 'completed', 'cancelled'] as $st)
+                    @foreach(['confirmed', 'preparing', 'ready', 'served', 'completed'] as $st)
                         <li>
                             <form method="POST" action="{{ route('orders.update-status', $order) }}">
                                 @csrf

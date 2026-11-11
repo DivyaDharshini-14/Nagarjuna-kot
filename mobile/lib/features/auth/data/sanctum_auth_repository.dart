@@ -48,6 +48,19 @@ class SanctumAuthRepository implements AuthRepository {
   }
 
   @override
+  Future<Set<String>> loadPermissions() async {
+    final response = await api.get('auth/me');
+    final data = response['data'];
+    final user = data is Map<String, dynamic> ? data['user'] : null;
+    final permissions = user is Map<String, dynamic>
+        ? user['permissions']
+        : null;
+    return permissions is List
+        ? permissions.whereType<String>().toSet()
+        : const <String>{};
+  }
+
+  @override
   Future<void> signOut() async {
     try {
       if (await tokens.read() != null) await api.post('auth/logout');

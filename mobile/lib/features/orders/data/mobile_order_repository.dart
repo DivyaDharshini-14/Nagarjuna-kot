@@ -3,6 +3,7 @@ import 'dart:math';
 import '../../../core/network/mobile_api_client.dart';
 import '../../menu/domain/menu.dart';
 import '../domain/order_confirmation.dart';
+import '../domain/cancellation_request.dart';
 import '../domain/order_status.dart';
 
 abstract interface class MobileOrderRepository {
@@ -25,6 +26,29 @@ abstract interface class MobileOrderRepository {
   });
 
   Future<OrderStatusSnapshot> getOrderStatus(int orderId);
+
+  Future<void> completeOrder(int orderId);
+
+  Future<String> requestCancellation({
+    required int orderId,
+    required String reason,
+    required bool cancelAll,
+    List<Map<String, int>> items,
+  });
+
+  Future<void> updateItemInstructions({
+    required int orderId,
+    required int orderItemId,
+    required String? instructions,
+  });
+
+  Future<List<CancellationRequest>> pendingCancellations();
+
+  Future<void> decideCancellation({
+    required String batch,
+    required bool approve,
+    String? decisionNote,
+  });
 }
 
 class ApiMobileOrderRepository implements MobileOrderRepository {
@@ -118,6 +142,50 @@ class ApiMobileOrderRepository implements MobileOrderRepository {
                         ? item['name'] as String
                         : 'Menu item',
                     quantity: _int(item['quantity'], 'item quantity'),
+                    cancellableQuantity: _intOptional(
+                      item['cancellable_quantity'],
+                    ),
+                    cancelledQuantity: _intOptional(item['cancelled_quantity']),
+                    pendingCancellationQuantity: _intOptional(
+                      item['pending_cancellation_quantity'],
+                    ),
+                    canModify: item['can_modify'] == true,
+                    cancellations: item['cancellations'] is List
+                        ? (item['cancellations'] as List)
+                              .whereType<Map<String, dynamic>>()
+                              .map(
+                                (cancellation) => ItemCancellationProgress(
+                                  quantity: _intOptional(
+                                    cancellation['quantity'],
+                                  ),
+                                  status:
+                                      cancellation['status'] as String? ??
+                                      'pending',
+                                  reason:
+                                      cancellation['reason'] as String? ?? '',
+                                  stockReversedQuantity: _intOptional(
+                                    cancellation['stock_reversed_quantity'],
+                                  ),
+                                  wastageQuantity: _intOptional(
+                                    cancellation['wastage_quantity'],
+                                  ),
+                                  requestedAt: DateTime.tryParse(
+                                    cancellation['requested_at'] as String? ??
+                                        '',
+                                  ),
+                                  decidedAt: DateTime.tryParse(
+                                    cancellation['decided_at'] as String? ?? '',
+                                  ),
+                                  requestedBy:
+                                      cancellation['requested_by'] as String?,
+                                  decidedBy:
+                                      cancellation['decided_by'] as String?,
+                                  decisionNote:
+                                      cancellation['decision_note'] as String?,
+                                ),
+                              )
+                              .toList(growable: false)
+                        : const <ItemCancellationProgress>[],
                     status: item['status'] is String
                         ? item['status'] as String
                         : 'new',
@@ -149,6 +217,72 @@ class ApiMobileOrderRepository implements MobileOrderRepository {
       updatedAt: order['updated_at'] is String
           ? DateTime.tryParse(order['updated_at'] as String)
           : null,
+    );
+  }
+
+  @override
+  Future<void> completeOrder(int orderId) async {
+    await api.post('mobile/orders/$orderId/complete');
+  }
+
+  @override
+  Future<String> requestCancellation({
+    required int orderId,
+    required String reason,
+    required bool cancelAll,
+    List<Map<String, int>> items = const [],
+  }) async {
+    final response = await api.post(
+      'mobile/orders/$orderId/cancellations',
+      body: {
+        'reason': reason,
+        'cancel_all': cancelAll,
+        if (!cancelAll) 'items': items,
+      },
+    );
+    return response['message'] is String
+        ? response['message'] as String
+        : 'Cancellation request recorded.';
+  }
+
+  @override
+  Future<void> updateItemInstructions({
+    required int orderId,
+    required int orderItemId,
+    required String? instructions,
+  }) async {
+    await api.patch(
+      'mobile/orders/$orderId/items/$orderItemId/instructions',
+      body: {'special_instructions': instructions},
+    );
+  }
+
+  @override
+  Future<List<CancellationRequest>> pendingCancellations() async {
+    final response = await api.get('mobile/cancellation-requests');
+    final data = response['data'];
+    final rawRequests = data is Map<String, dynamic> ? data['requests'] : null;
+    if (rawRequests is! List) {
+      throw const ApiException(
+        502,
+        'The server did not return cancellation requests.',
+      );
+    }
+    return rawRequests
+        .whereType<Map<String, dynamic>>()
+        .map(CancellationRequest.fromJson)
+        .toList(growable: false);
+  }
+
+  @override
+  Future<void> decideCancellation({
+    required String batch,
+    required bool approve,
+    String? decisionNote,
+  }) async {
+    await api.post(
+      'mobile/cancellation-requests/$batch/${approve ? 'approve' : 'reject'}',
+      body: approve ? const {} : {'decision_note': decisionNote ?? ''},
     );
   }
 
@@ -208,6 +342,8 @@ class ApiMobileOrderRepository implements MobileOrderRepository {
     if (value is num) return value.toInt();
     throw ApiException(502, 'The server returned an invalid $label.');
   }
+
+  int _intOptional(Object? value) => value is num ? value.toInt() : 0;
 
   String _string(Object? value, String label) {
     if (value is String && value.isNotEmpty) return value;

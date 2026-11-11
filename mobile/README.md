@@ -4,7 +4,9 @@ Flutter mobile client for Nagarjuna's waiter and captain workflow. The Laravel w
 
 ## Current phase: Phase 6 release readiness
 
-The app contains staff sign-in, branch-scoped floor/table selection, menu browsing, cart review, order submission/additions, and order progress. Credentials are sent only to the configured Laravel API, and the returned bearer token is stored with platform secure storage. The app never stores the password. Android release setup is documented below; signing and full manual UAT remain pending.
+The app contains staff sign-in, branch-scoped floor/table selection, menu browsing, cart review, order submission/additions, order progress, and waiter-side order completion. A waiter can complete an order only after all kitchen tickets are ready or served; confirming that guests have left releases the table and returns to a freshly loaded floor view. Credentials are sent only to the configured Laravel API, and the returned bearer token is stored with platform secure storage. The app never stores the password. Android release setup is documented below; signing and full manual UAT remain pending.
+
+Cancellation supports item and whole-order requests, partial quantities, mandatory reasons, manager approval/rejection in the mobile app or web queue, kitchen notifications, and order-level audit history. A branch can require a different approver, including for requests made by users with approval permission. Dish notes can be edited while every linked KOT remains new or accepted. The waiter also persists an uncertain order submission's draft and idempotency key in secure storage so a retry can recover after app restart. Stock is reversed for tracked portions whose KOT work has not started; later cancellations are logged as wastage.
 
 ## Run on an Android device or emulator
 
@@ -29,9 +31,21 @@ To check Dart code and lint issues:
 flutter analyze
 ```
 
+## Live waiter updates
+
+The order-progress screen subscribes to a private order channel when Reverb is available. Configure Reverb in Laravel and keep both the Reverb server and a queue worker running. Without those services, the screen continues to refresh order status every 12 seconds while open.
+
+From the Laravel project root, run `php artisan reverb:install` once, set `BROADCAST_CONNECTION=reverb`, then start `php artisan queue:work` and `php artisan reverb:start --host=0.0.0.0` in separate terminals. For the standard Android emulator, launch the waiter app with the matching local Reverb values:
+
+```powershell
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000/api/v1 --dart-define=REVERB_APP_KEY=your-public-app-key --dart-define=REVERB_HOST=10.0.2.2 --dart-define=REVERB_PORT=8080 --dart-define=REVERB_SCHEME=http
+```
+
+The order screen displays whether live updates are connected. The 12-second API refresh remains active as a fallback and catches up after reconnect. Firebase Cloud Messaging sends kitchen-ready alerts in the background after the app registers its device token; foreground ready events appear in the app. Configure the Firebase project and this app's `google-services.json` before release.
+
 ## Release build setup
 
-Release builds require an HTTPS API URL ending in `/api/v1` and an owner-managed Android upload keystore. The release client rejects HTTP, emulator/localhost, placeholder, or malformed API addresses. Gradle now stops a release build if `android/key.properties` or the referenced keystore is missing; it never falls back to the debug key.
+Release builds require an HTTPS API URL ending in `/api/v1`, TLS Reverb settings with a public app key, an owner-managed Android upload keystore, and this app's Firebase `google-services.json`. The release client rejects HTTP, emulator/localhost, placeholder, or malformed API addresses. Gradle stops a release build if the signing file, keystore, Firebase configuration, or valid WSS configuration is missing; it never falls back to the debug key.
 
 Create `android/key.properties` locally (it is ignored by Git) with the values for your upload keystore:
 
@@ -53,7 +67,7 @@ keytool -genkey -v -keystore android/upload-keystore.jks -keyalg RSA -keysize 20
 Increment the `version` build number in `pubspec.yaml` for each store release. Build an obfuscated, signed release bundle after configuring the HTTPS API host and local signing file. Keep the generated symbols with the matching release for crash analysis:
 
 ```powershell
-flutter build appbundle --release --dart-define=API_BASE_URL=https://api.your-domain.example/api/v1 --obfuscate --split-debug-info=build/symbols/waiter-1.0.0
+flutter build appbundle --release --dart-define=API_BASE_URL=https://api.your-domain.example/api/v1 --dart-define=REVERB_APP_KEY=your-public-app-key --dart-define=REVERB_HOST=realtime.your-domain.example --dart-define=REVERB_PORT=443 --dart-define=REVERB_SCHEME=https --obfuscate --split-debug-info=build/symbols/waiter-1.0.0
 ```
 
 The signed Play Store bundle is written to `build/app/outputs/bundle/release/app-release.aab`. Replace the example domain with the production API host. The bundle cannot be built until the upload keystore is configured.
@@ -71,11 +85,12 @@ Run these checks on the agreed Android phone/emulator against staging or a desig
 5. Submit an order and confirm the server order number/KOT. Simulate a lost response and retry the same submission; confirm only one order and one stock deduction exist.
 6. Add items to an active order; confirm a new KOT is created and existing lines remain visible.
 7. Change KOT item states in the kitchen workflow through New, Accepted, Preparing, Ready, and Served; confirm each state appears in the waiter view and the Ready alert appears while that view is open.
-8. Disable network during menu/status refresh and during a pending submission; restore it and verify retry/reconnect behavior without losing the current order or creating duplicates.
-9. Check small and large display sizes, keyboard visibility, system text scaling, screen reader labels, and sign-in validation.
-10. On the release candidate, verify HTTPS succeeds, HTTP is rejected, the Nagarjuna launcher icon/name appear, and the bundle is signed with the approved upload key.
+8. Complete an order from the waiter app after every active kitchen ticket is ready or served and any cancelled ticket is terminal; verify the table becomes Available and a new order can be started there. Confirm completion is rejected while an active KOT is still in progress.
+9. Disable network during menu/status refresh, order completion, and a pending submission; restore it and verify retry/reconnect behavior without losing the current order or creating duplicates.
+10. Check small and large display sizes, keyboard visibility, system text scaling, screen reader labels, and sign-in validation.
+11. On the release candidate, verify HTTPS succeeds, HTTP is rejected, the Nagarjuna launcher icon/name appear, and the bundle is signed with the approved upload key.
 
-Background ready notifications and WebSocket delivery are not available until a broadcaster is configured; item 7 currently refreshes while the progress screen is open.
+The order screen receives live WebSocket events when Reverb is configured and otherwise refreshes every 12 seconds while open. Background ready notifications use Firebase Cloud Messaging and open the relevant order when tapped.
 
 Completed here: the updated debug app installed on the connected emulator, showed the Nagarjuna icon, restored its saved waiter session, loaded assigned branch/floor/table data, and displayed the order/dish/KOT statuses for an existing occupied table. Floor/table and order-progress layouts were visually checked. These were read-only checks; no order was submitted. The remaining checklist items still need manual UAT.
 
@@ -98,9 +113,14 @@ Completed here: the updated debug app installed on the connected emulator, showe
 - `POST /api/v1/mobile/orders` submits a new table order.
 - `POST /api/v1/mobile/orders/{id}/items` adds dishes to the active table order.
 - `GET /api/v1/mobile/orders/{id}` returns order, dish, and kitchen-ticket status when the order belongs to the signed-in user's branch.
+- `POST /api/v1/mobile/orders/{id}/complete` closes an eligible order and releases its table when no other active order uses it.
 
 Order submission sends a UUID `Idempotency-Key`; the server validates the request hash and safely returns the original result when a request is retried. Laravel rechecks branch scope, menu availability, prices, and tracked stock inside its transaction, then reuses `OrderService` to create the order and kitchen tickets. The app shows the generated order and KOT numbers. The menu manager can enable prepared-stock tracking and enter the current portions available. Items with tracked stock set to zero (or with no quantity configured) cannot be added to a mobile cart.
 
-Before using a new environment, apply the Laravel Sanctum `personal_access_tokens`, prepared-stock quantity, and mobile API idempotency migrations using the normal project deployment procedure. All three are applied to the connected development database. Do not reset a database containing project data.
+Before using a new environment, apply all Laravel migrations using the normal project deployment procedure. Do not reset a database containing project data.
 
-The order-progress screen refreshes every 12 seconds while it is open and refreshes again when the app returns to the foreground. It can show an in-app Ready alert while the screen is active. This Laravel project does not yet have a configured broadcaster/WebSocket service, so real-time delivery and background notifications require that infrastructure and an authenticated mobile connection.
+The order-progress screen listens for authenticated KOT events over the private order channel when Reverb is configured. It also refreshes every 12 seconds while open and when the app returns to the foreground, and shows an in-app Ready alert. The development `.env` defaults to the log broadcaster; live delivery requires Reverb, a queue worker, reachable WSS in production, and the launch defines shown above. Background Ready alerts require the Firebase and server configuration described in the production readiness guide.
+
+Apply the cancellation, stock-ledger, registered-display, and mobile-device-token migrations in each environment, then seed updated role permissions. Configure `FCM_PROJECT_ID` and a protected service-account file path on Laravel, and provide this app's Firebase Android config as `android/app/google-services.json`. See [`docs/mobile-production-readiness.md`](../docs/mobile-production-readiness.md) for deployment and staging acceptance steps.
+
+The cancellation endpoint is `POST /api/v1/mobile/orders/{id}/cancellations`; send a required `reason` and either `cancel_all: true` or item/quantity lines. Waiters without `order.approve` receive a pending request; managers can review and approve/reject from the mobile cancellation queue or web cancellation queue. Item instructions can be edited through `PATCH /api/v1/mobile/orders/{order}/items/{item}/instructions` before preparation starts. Apply the cancellation-history and branch approval-setting migrations with the other mobile workflow migrations in each environment.

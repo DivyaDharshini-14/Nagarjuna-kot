@@ -2,14 +2,18 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Events\MenuAvailabilityChanged;
 use App\Http\Controllers\Controller;
 use App\Models\Kitchen;
 use App\Models\KotTicket;
+use App\Models\MenuItem;
+use App\Models\StockTransaction;
 use App\Models\User;
 use App\Services\OrderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class MobileKitchenController extends Controller
@@ -64,17 +68,8 @@ class MobileKitchenController extends Controller
     public function kitchens(Request $request): JsonResponse
     {
         $user = $request->user();
-        $kitchens = $user->kitchens()
-            ->where('kitchens.company_id', $user->company_id)
-            ->where('kitchens.branch_id', $user->branch_id)
-            ->where('kitchens.is_active', true)
-            ->orderBy('kitchens.name')
-            ->get(['kitchens.id', 'kitchens.name', 'kitchens.code'])
-            ->map(fn (Kitchen $kitchen) => [
-                'id' => $kitchen->id,
-                'name' => $kitchen->name,
-                'code' => $kitchen->code,
-            ]);
+        $kitchens = $this->assignedKitchens($user)
+            ->map(fn (Kitchen $kitchen) => $this->kitchenPayload($kitchen));
 
         return response()->json([
             'data' => [
@@ -88,29 +83,28 @@ class MobileKitchenController extends Controller
         ]);
     }
 
+    public function allTickets(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $kitchens = $this->assignedKitchens($user);
+        $tickets = $this->ticketsForKitchens(
+            $user,
+            $kitchens->modelKeys(),
+        );
+
+        return response()->json([
+            'data' => [
+                'kitchens' => $kitchens->map(fn (Kitchen $kitchen) => $this->kitchenPayload($kitchen))->values(),
+                'tickets' => $tickets,
+                'refreshed_at' => now()->toIso8601String(),
+            ],
+        ]);
+    }
+
     public function tickets(Request $request, Kitchen $kitchen): JsonResponse
     {
         $this->authorizeKitchen($request->user(), $kitchen);
-
-        $tickets = KotTicket::query()
-            ->where('company_id', $request->user()->company_id)
-            ->where('branch_id', $request->user()->branch_id)
-            ->where('kitchen_id', $kitchen->id)
-            ->where(function ($query) {
-                $query->whereIn('ticket_status', ['new', 'accepted', 'preparing', 'ready'])
-                    ->orWhere(fn ($cancelled) => $cancelled
-                        ->where('ticket_status', 'cancelled')
-                        ->where('updated_at', '>=', now()->subMinutes(15)));
-            })
-            ->with([
-                'order:id,order_number,table_id,created_at,special_instructions',
-                'order.table:id,name',
-                'items:id,kot_ticket_id,menu_item_id,quantity,special_instructions,item_status',
-                'items.menuItem:id,name,menu_type_id',
-                'items.menuItem.menuType:id,name',
-            ])
-            ->orderBy('created_at')
-            ->get();
+        $tickets = $this->ticketsForKitchens($request->user(), [$kitchen->id]);
 
         return response()->json([
             'data' => [
@@ -123,6 +117,48 @@ class MobileKitchenController extends Controller
                 'refreshed_at' => now()->toIso8601String(),
             ],
         ]);
+    }
+
+    private function assignedKitchens(User $user)
+    {
+        return $user->kitchens()
+            ->where('kitchens.company_id', $user->company_id)
+            ->where('kitchens.branch_id', $user->branch_id)
+            ->where('kitchens.is_active', true)
+            ->orderBy('kitchens.name')
+            ->get(['kitchens.id', 'kitchens.company_id', 'kitchens.branch_id', 'kitchens.name', 'kitchens.code']);
+    }
+
+    private function kitchenPayload(Kitchen $kitchen): array
+    {
+        return [
+            'id' => $kitchen->id,
+            'name' => $kitchen->name,
+            'code' => $kitchen->code,
+        ];
+    }
+
+    private function ticketsForKitchens(User $user, array $kitchenIds)
+    {
+        return KotTicket::query()
+            ->where('company_id', $user->company_id)
+            ->where('branch_id', $user->branch_id)
+            ->whereIn('kitchen_id', $kitchenIds)
+            ->where(function ($query) {
+                $query->whereIn('ticket_status', ['new', 'accepted', 'preparing', 'ready'])
+                    ->orWhere(fn ($cancelled) => $cancelled
+                        ->where('ticket_status', 'cancelled')
+                        ->where('updated_at', '>=', now()->subMinutes(15)));
+            })
+            ->with([
+                'order:id,order_number,table_id,created_at,special_instructions',
+                'order.table:id,name',
+                'items:id,kot_ticket_id,menu_item_id,quantity,cancelled_quantity,special_instructions,item_status',
+                'items.menuItem:id,name,menu_type_id',
+                'items.menuItem.menuType:id,name',
+            ])
+            ->orderBy('created_at')
+            ->get();
     }
 
     public function updateTicketStatus(Request $request, KotTicket $ticket): JsonResponse
@@ -165,6 +201,175 @@ class MobileKitchenController extends Controller
         ]);
     }
 
+    public function stock(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $kitchenIds = $this->assignedKitchens($user)->modelKeys();
+        $items = MenuItem::query()
+            ->where('company_id', $user->company_id)
+            ->where('branch_id', $user->branch_id)
+            ->where('is_active', true)
+            ->whereHas('kitchenMenuItems', fn ($query) => $query
+                ->whereIn('kitchen_id', $kitchenIds)
+                ->where('is_active', true))
+            ->with(['kitchenMenuItems' => fn ($query) => $query
+                ->whereIn('kitchen_id', $kitchenIds)
+                ->where('is_active', true)
+                ->with('kitchen:id,name')])
+            ->orderBy('name')
+            ->get()
+            ->map(fn (MenuItem $item) => $this->stockPayload($item));
+
+        return response()->json(['data' => ['items' => $items, 'can_manage_stock' => $user->hasPermission('menu-item.stock-adjustment')]]);
+    }
+
+    public function adjustStock(Request $request, MenuItem $menuItem): JsonResponse
+    {
+        $user = $request->user();
+        abort_unless($user->hasPermission('menu-item.stock-adjustment'), 403);
+        $this->authorizeMenuItem($user, $menuItem);
+
+        $validated = $request->validate([
+            'type' => ['required', 'string', 'in:stock_in,wastage,damaged,manual_adjustment'],
+            'quantity' => ['required', 'integer', 'min:1', 'max:999999'],
+            'direction' => ['required_if:type,manual_adjustment', 'nullable', 'in:increase,decrease'],
+            'reason' => ['required', 'string', 'min:3', 'max:500'],
+        ]);
+
+        $updated = \Illuminate\Support\Facades\DB::transaction(function () use ($menuItem, $user, $validated) {
+            $locked = MenuItem::query()->whereKey($menuItem->id)->lockForUpdate()->firstOrFail();
+            abort_unless($locked->stock_tracking_enabled, 422, 'Prepared stock tracking must be enabled in menu management first.');
+            $wasConfigured = $locked->prepared_stock_quantity !== null;
+            $before = (int) ($locked->prepared_stock_quantity ?? 0);
+            $increases = $validated['type'] === 'stock_in'
+                || ($validated['type'] === 'manual_adjustment' && $validated['direction'] === 'increase');
+            $delta = $increases ? (int) $validated['quantity'] : -(int) $validated['quantity'];
+            $after = $before + $delta;
+            abort_if($after < 0, 422, 'Stock cannot be reduced below zero.');
+
+            $locked->prepared_stock_quantity = $after;
+            $locked->save();
+            StockTransaction::create([
+                'company_id' => $locked->company_id,
+                'branch_id' => $locked->branch_id,
+                'menu_item_id' => $locked->id,
+                'user_id' => $user->id,
+                'transaction_type' => ! $wasConfigured && $increases ? 'opening_stock' : $validated['type'],
+                'quantity' => (int) $validated['quantity'],
+                'quantity_delta' => $delta,
+                'stock_before' => $before,
+                'stock_after' => $after,
+                'reason' => trim($validated['reason']),
+            ]);
+
+            return $locked->fresh(['kitchenMenuItems.kitchen:id,name']);
+        });
+        event(new MenuAvailabilityChanged(
+            (int) $updated->branch_id,
+            (int) $updated->id,
+            (string) $updated->availability,
+            $updated->prepared_stock_quantity === null ? null : (int) $updated->prepared_stock_quantity,
+        ));
+
+        return response()->json(['message' => 'Prepared stock updated.', 'data' => ['item' => $this->stockPayload($updated)]]);
+    }
+
+    public function stockTransactions(Request $request, MenuItem $menuItem): JsonResponse
+    {
+        $user = $request->user();
+        $this->authorizeMenuItem($user, $menuItem);
+        $transactions = StockTransaction::query()
+            ->where('company_id', $user->company_id)
+            ->where('branch_id', $user->branch_id)
+            ->where('menu_item_id', $menuItem->id)
+            ->with('user:id,name')
+            ->latest()
+            ->limit(50)
+            ->get()
+            ->map(fn (StockTransaction $transaction) => [
+                'id' => $transaction->id,
+                'type' => $transaction->transaction_type,
+                'quantity' => $transaction->quantity,
+                'quantity_delta' => $transaction->quantity_delta,
+                'stock_before' => $transaction->stock_before,
+                'stock_after' => $transaction->stock_after,
+                'reason' => $transaction->reason,
+                'user' => $transaction->user?->name ?? 'Former staff account',
+                'created_at' => $transaction->created_at?->toIso8601String(),
+            ]);
+
+        return response()->json(['data' => ['transactions' => $transactions]]);
+    }
+
+    public function setAvailability(Request $request, MenuItem $menuItem): JsonResponse
+    {
+        $user = $request->user();
+        abort_unless($user->hasPermission('menu-item.stock-adjustment'), 403);
+        $this->authorizeMenuItem($user, $menuItem);
+        $validated = $request->validate([
+            'availability' => ['required', 'string', 'in:available,temporarily_unavailable,sold_out'],
+            'reason' => ['required', 'string', 'min:3', 'max:500'],
+        ]);
+        $updated = DB::transaction(function () use ($menuItem, $user, $validated) {
+            $locked = MenuItem::query()->whereKey($menuItem->id)->lockForUpdate()->firstOrFail();
+            if ($locked->availability === $validated['availability']) return $locked;
+            $stock = (int) ($locked->prepared_stock_quantity ?? 0);
+            StockTransaction::create([
+                'company_id' => $locked->company_id,
+                'branch_id' => $locked->branch_id,
+                'menu_item_id' => $locked->id,
+                'user_id' => $user->id,
+                'transaction_type' => 'availability_change',
+                'quantity' => 0,
+                'quantity_delta' => 0,
+                'stock_before' => $stock,
+                'stock_after' => $stock,
+                'reason' => trim($validated['reason']).' ('.$locked->availability.' → '.$validated['availability'].')',
+            ]);
+            $locked->update(['availability' => $validated['availability']]);
+            return $locked;
+        });
+        event(new MenuAvailabilityChanged(
+            (int) $updated->branch_id,
+            (int) $updated->id,
+            (string) $updated->availability,
+            $updated->prepared_stock_quantity === null ? null : (int) $updated->prepared_stock_quantity,
+        ));
+
+        return response()->json(['message' => 'Dish availability updated.', 'data' => ['item' => $this->stockPayload($updated->fresh('kitchenMenuItems.kitchen:id,name'))]]);
+    }
+
+    private function authorizeMenuItem(User $user, MenuItem $menuItem): void
+    {
+        $assignedKitchenIds = $this->assignedKitchens($user)->modelKeys();
+        abort_unless(
+            (int) $menuItem->company_id === (int) $user->company_id
+                && (int) $menuItem->branch_id === (int) $user->branch_id
+                && $menuItem->is_active
+                && $menuItem->kitchenMenuItems()
+                    ->whereIn('kitchen_id', $assignedKitchenIds)
+                    ->where('is_active', true)
+                    ->exists(),
+            404,
+        );
+    }
+
+    private function stockPayload(MenuItem $item): array
+    {
+        return [
+            'id' => $item->id,
+            'name' => $item->name,
+            'code' => $item->code,
+            'stock_tracking_enabled' => (bool) $item->stock_tracking_enabled,
+            'prepared_stock_quantity' => $item->prepared_stock_quantity,
+            'availability' => $item->availability,
+            'kitchens' => $item->kitchenMenuItems->map(fn ($mapping) => [
+                'id' => $mapping->kitchen?->id,
+                'name' => $mapping->kitchen?->name,
+            ])->values(),
+        ];
+    }
+
     private function authorizeKitchen(User $user, Kitchen $kitchen): void
     {
         abort_unless(
@@ -204,6 +409,7 @@ class MobileKitchenController extends Controller
                 'name' => $user->branch->name,
                 'code' => $user->branch->code,
             ],
+            'can_manage_stock' => $user->hasPermission('menu-item.stock-adjustment'),
         ];
     }
 }

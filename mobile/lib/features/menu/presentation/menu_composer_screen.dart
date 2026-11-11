@@ -1,13 +1,16 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
 import '../../../app/app_theme.dart';
 import '../../../core/network/mobile_api_client.dart';
+import '../../../core/network/mobile_order_live_connection.dart';
 import '../../tables/domain/floor_table.dart';
 import '../data/menu_repository.dart';
 import '../domain/menu.dart';
 import '../../orders/data/mobile_order_repository.dart';
+import '../../orders/data/pending_order_draft_store.dart';
 import '../../orders/domain/order_confirmation.dart';
 
 class MenuComposerScreen extends StatefulWidget {
@@ -16,6 +19,8 @@ class MenuComposerScreen extends StatefulWidget {
     required this.table,
     required this.repository,
     required this.orderRepository,
+    required this.pendingDraftStore,
+    required this.liveConnection,
     required this.resolveAssetUri,
     required this.onBack,
     required this.onOrderSubmitted,
@@ -26,6 +31,8 @@ class MenuComposerScreen extends StatefulWidget {
   final RestaurantTable table;
   final MenuRepository repository;
   final MobileOrderRepository orderRepository;
+  final PendingOrderDraftStore pendingDraftStore;
+  final MobileOrderLiveConnection liveConnection;
   final Uri? Function(String?) resolveAssetUri;
   final VoidCallback onBack;
   final ValueChanged<OrderConfirmation> onOrderSubmitted;
@@ -51,16 +58,25 @@ class _MenuComposerScreenState extends State<MenuComposerScreen> {
   String? _pendingSignature;
   String? _pendingIdempotencyKey;
   CartDraft? _pendingDraft;
+  int? _pendingOrderId;
+  bool _draftRestoreAttempted = false;
+  Timer? _menuRefreshTimer;
+  int? _connectedMenuBranchId;
 
   @override
   void initState() {
     super.initState();
     _loadMenu();
+    _menuRefreshTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (mounted && !_retryPending && !_isSubmitting) _loadMenu();
+    });
   }
 
   @override
   void dispose() {
     _searchController.dispose();
+    _menuRefreshTimer?.cancel();
+    widget.liveConnection.disconnect();
     super.dispose();
   }
 
@@ -108,12 +124,25 @@ class _MenuComposerScreenState extends State<MenuComposerScreen> {
         }
         _isLoading = false;
       });
+      if (_connectedMenuBranchId != snapshot.branchId &&
+          widget.liveConnection.isConfigured) {
+        _connectedMenuBranchId = snapshot.branchId;
+        widget.liveConnection.connectMenu(
+          branchId: snapshot.branchId,
+          onConnectionChanged: (_) {},
+          onMenuChanged: () => _loadMenu(),
+        );
+      }
       if (adjustedCart && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Menu or stock changed. Your cart was updated.'),
           ),
         );
+      }
+      if (!_draftRestoreAttempted) {
+        _draftRestoreAttempted = true;
+        await _restorePendingDraft(snapshot);
       }
     } on ApiException catch (error) {
       if (!mounted) return;
@@ -224,14 +253,70 @@ class _MenuComposerScreenState extends State<MenuComposerScreen> {
     if (draft != null) await _submitDraft(draft, reusePendingKey: true);
   }
 
-  String _signatureFor(CartDraft draft) {
+  Future<void> _restorePendingDraft(MenuSnapshot snapshot) async {
+    final saved = await widget.pendingDraftStore.read();
+    if (!mounted || saved == null || saved['table_id'] != widget.table.id) {
+      return;
+    }
+    final rawItems = saved['items'];
+    final latestById = {for (final dish in snapshot.dishes) dish.id: dish};
+    final lines = <CartLine>[];
+    if (rawItems is List) {
+      for (final raw in rawItems.whereType<Map<String, dynamic>>()) {
+        final id = raw['menu_item_id'];
+        final quantity = raw['quantity'];
+        final dish = id is num
+            ? latestById[id.toInt()] ?? _dishSnapshotFrom(raw['menu_item'])
+            : null;
+        if (dish == null || quantity is! num || quantity < 1) continue;
+        lines.add(
+          CartLine(
+            dish: dish,
+            quantity: quantity.toInt(),
+            note: raw['special_instructions'] as String? ?? '',
+          ),
+        );
+      }
+    }
+    final key = saved['idempotency_key'];
+    final signature = saved['signature'];
+    if (lines.isEmpty || key is! String || signature is! String) {
+      await widget.pendingDraftStore.clear();
+      return;
+    }
+    final orderId = saved['order_id'];
+    final draft = CartDraft(
+      lines: lines,
+      orderInstructions: saved['order_instructions'] as String? ?? '',
+      guestCount: (saved['guest_count'] as num?)?.toInt() ?? 1,
+    );
+    setState(() {
+      _cart
+        ..clear()
+        ..addEntries(lines.map((line) => MapEntry(line.dish.id, line)));
+      _orderInstructions = draft.orderInstructions;
+      _guestCount = draft.guestCount;
+      _pendingDraft = draft;
+      _pendingIdempotencyKey = key;
+      _pendingSignature = signature;
+      _pendingOrderId = orderId is num ? orderId.toInt() : null;
+      _retryPending = true;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'An unconfirmed order was restored. Retry the same submission to check its result.',
+        ),
+      ),
+    );
+  }
+
+  String _signatureFor(CartDraft draft, {required int? targetOrderId}) {
     final items = [...draft.lines]
       ..sort((a, b) => a.dish.id.compareTo(b.dish.id));
     return jsonEncode({
       'table_id': widget.table.id,
-      'guest_count': widget.table.activeOrderId == null
-          ? draft.guestCount
-          : null,
+      'guest_count': targetOrderId == null ? draft.guestCount : null,
       'special_instructions': draft.orderInstructions,
       'items': items
           .map(
@@ -250,14 +335,52 @@ class _MenuComposerScreenState extends State<MenuComposerScreen> {
     bool reusePendingKey = false,
   }) async {
     if (_isSubmitting || draft.lines.isEmpty) return;
-    final signature = _signatureFor(draft);
+    var targetOrderId = reusePendingKey && _pendingIdempotencyKey != null
+        ? _pendingOrderId
+        : widget.table.activeOrderId;
+    var signature = _signatureFor(draft, targetOrderId: targetOrderId);
     if (!reusePendingKey ||
         _pendingSignature != signature ||
         _pendingIdempotencyKey == null) {
+      targetOrderId = widget.table.activeOrderId;
+      signature = _signatureFor(draft, targetOrderId: targetOrderId);
       _pendingSignature = signature;
       _pendingIdempotencyKey = widget.orderRepository.createIdempotencyKey();
+      _pendingOrderId = targetOrderId;
     }
     _pendingDraft = draft;
+    await widget.pendingDraftStore.write({
+      'table_id': widget.table.id,
+      'order_id': targetOrderId,
+      'idempotency_key': _pendingIdempotencyKey,
+      'signature': signature,
+      'guest_count': draft.guestCount,
+      'order_instructions': draft.orderInstructions,
+      'items': draft.lines
+          .map(
+            (line) => {
+              'menu_item_id': line.dish.id,
+              'quantity': line.quantity,
+              'special_instructions': line.note,
+              'menu_item': {
+                'id': line.dish.id,
+                'category_id': line.dish.categoryId,
+                'name': line.dish.name,
+                'code': line.dish.code,
+                'price': line.dish.price,
+                'menu_type': line.dish.menuType,
+                'availability': _availabilityValue(line.dish.availability),
+                'stock_tracking_enabled': line.dish.stockTrackingEnabled,
+                'stock_configured': line.dish.stockConfigured,
+                'is_orderable': line.dish.isOrderable,
+                'description': line.dish.description,
+                'image_path': line.dish.imagePath,
+                'prepared_stock_quantity': line.dish.preparedStockQuantity,
+              },
+            },
+          )
+          .toList(growable: false),
+    });
 
     setState(() {
       _isSubmitting = true;
@@ -265,8 +388,7 @@ class _MenuComposerScreenState extends State<MenuComposerScreen> {
     });
 
     try {
-      final activeOrderId = widget.table.activeOrderId;
-      final confirmation = activeOrderId == null
+      final confirmation = targetOrderId == null
           ? await widget.orderRepository.createOrder(
               tableId: widget.table.id,
               guestCount: draft.guestCount,
@@ -275,13 +397,14 @@ class _MenuComposerScreenState extends State<MenuComposerScreen> {
               idempotencyKey: _pendingIdempotencyKey!,
             )
           : await widget.orderRepository.addItems(
-              orderId: activeOrderId,
+              orderId: targetOrderId,
               tableId: widget.table.id,
               orderInstructions: draft.orderInstructions,
               lines: draft.lines,
               idempotencyKey: _pendingIdempotencyKey!,
             );
 
+      await widget.pendingDraftStore.clear();
       if (!mounted) return;
       setState(() {
         _cart.clear();
@@ -289,6 +412,7 @@ class _MenuComposerScreenState extends State<MenuComposerScreen> {
         _pendingSignature = null;
         _pendingIdempotencyKey = null;
         _pendingDraft = null;
+        _pendingOrderId = null;
         _retryPending = false;
       });
       await _showOrderConfirmation(confirmation);
@@ -296,6 +420,7 @@ class _MenuComposerScreenState extends State<MenuComposerScreen> {
     } on ApiException catch (error) {
       if (!mounted) return;
       if (error.requiresSignIn) {
+        await widget.pendingDraftStore.clear();
         await widget.onSessionExpired();
         return;
       }
@@ -308,6 +433,8 @@ class _MenuComposerScreenState extends State<MenuComposerScreen> {
           _pendingDraft = null;
         }
       });
+      if (!uncertain) await widget.pendingDraftStore.clear();
+      if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(error.message)));
     } on ApiTransportException catch (error) {
@@ -334,6 +461,40 @@ class _MenuComposerScreenState extends State<MenuComposerScreen> {
       if (mounted) setState(() => _isSubmitting = false);
     }
   }
+
+  MenuDish? _dishSnapshotFrom(Object? value) {
+    if (value is! Map<String, dynamic>) return null;
+    final id = value['id'];
+    final categoryId = value['category_id'];
+    final price = value['price'];
+    if (id is! num || categoryId is! num || price is! num) return null;
+    return MenuDish(
+      id: id.toInt(),
+      categoryId: categoryId.toInt(),
+      name: value['name'] as String? ?? 'Removed menu item',
+      code: value['code'] as String? ?? '',
+      price: price.toDouble(),
+      menuType: value['menu_type'] as String? ?? '',
+      availability: menuAvailabilityFromValue(
+        value['availability'] as String? ?? 'unknown',
+      ),
+      stockTrackingEnabled: value['stock_tracking_enabled'] == true,
+      stockConfigured: value['stock_configured'] == true,
+      isOrderable: false,
+      description: value['description'] as String?,
+      imagePath: value['image_path'] as String?,
+      preparedStockQuantity: (value['prepared_stock_quantity'] as num?)
+          ?.toInt(),
+    );
+  }
+
+  String _availabilityValue(MenuAvailability availability) =>
+      switch (availability) {
+        MenuAvailability.available => 'available',
+        MenuAvailability.temporarilyUnavailable => 'temporarily_unavailable',
+        MenuAvailability.soldOut => 'sold_out',
+        MenuAvailability.unknown => 'unknown',
+      };
 
   Future<void> _showOrderConfirmation(OrderConfirmation confirmation) {
     return showDialog<void>(
@@ -1114,33 +1275,11 @@ class _CartReviewSheetState extends State<CartReviewSheet> {
   }
 
   Future<void> _editItemNote(CartLine line) async {
-    final controller = TextEditingController(text: line.note);
     final note = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Note for ${line.dish.name}'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLength: 255,
-          maxLines: 3,
-          decoration: const InputDecoration(
-            hintText: 'For example: less spicy',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
-            child: const Text('Save note'),
-          ),
-        ],
-      ),
+      builder: (_) =>
+          _ItemNoteDialog(itemName: line.dish.name, initialNote: line.note),
     );
-    controller.dispose();
     if (!mounted || note == null) return;
     setState(() => _lines[line.dish.id] = line.copyWith(note: note));
   }
@@ -1393,6 +1532,54 @@ class _CartLineCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _ItemNoteDialog extends StatefulWidget {
+  const _ItemNoteDialog({required this.itemName, required this.initialNote});
+
+  final String itemName;
+  final String initialNote;
+
+  @override
+  State<_ItemNoteDialog> createState() => _ItemNoteDialogState();
+}
+
+class _ItemNoteDialogState extends State<_ItemNoteDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialNote);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: Text('Note for ${widget.itemName}'),
+    content: TextField(
+      controller: _controller,
+      autofocus: true,
+      maxLength: 255,
+      maxLines: 3,
+      decoration: const InputDecoration(hintText: 'For example: less spicy'),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.of(context).pop(),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        onPressed: () => Navigator.of(context).pop(_controller.text.trim()),
+        child: const Text('Save note'),
+      ),
+    ],
+  );
 }
 
 String _money(double amount) => '₹${amount.toStringAsFixed(2)}';
