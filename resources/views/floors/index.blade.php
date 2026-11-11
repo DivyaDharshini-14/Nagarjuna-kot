@@ -6,14 +6,13 @@
     @include('partials.list-header', ['title' => 'Floors', 'permission' => 'floor.add', 'createRoute' => 'floors.create', 'createLabel' => 'Add floor'])
     <div class="card"><div class="table-responsive">
         <table class="table table-striped mb-0">
-            <thead><tr><th>Name</th><th>Code</th><th>Company</th><th>Branch</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Name</th><th>Branch</th><th>Company</th><th>Status</th><th></th></tr></thead>
             <tbody>
                 @forelse($floors as $floor)
                     <tr>
-                        <td>{{ $floor->name }}</td>
-                        <td>{{ $floor->code }}</td>
-                        <td>{{ $floor->company?->name }}</td>
+                        <td class="fw-medium">{{ $floor->name }}</td>
                         <td>{{ $floor->branch?->name }}</td>
+                        <td>{{ $floor->company?->name }}</td>
                         <td>@include('partials.status', ['active' => $floor->is_active])</td>
                         <td class="text-end text-nowrap">
                             @if(auth()->user()->hasPermission('floor.edit'))
@@ -23,7 +22,7 @@
                         </td>
                     </tr>
                 @empty
-                    <tr><td colspan="6" class="text-center text-muted py-4">No floors found.</td></tr>
+                    <tr><td colspan="5" class="text-center text-muted py-4">No floors found.</td></tr>
                 @endforelse
             </tbody>
         </table>

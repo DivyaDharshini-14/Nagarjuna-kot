@@ -5,11 +5,13 @@ namespace App\Http\Controllers;
 use App\Http\Controllers\Concerns\ManagesTenantAccess;
 use App\Models\Branch;
 use App\Models\MenuItem;
+use App\Models\MenuType;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class MenuItemController extends Controller
@@ -119,6 +121,7 @@ class MenuItemController extends Controller
 
         return array_merge($state, [
             'categories' => $this->categoryChoices($companyId, $branchId, $menuItem ? (int) old('category_id', $menuItem->category_id) : null),
+            // When creating a new menu item, only active menu types are retrieved
             'menuTypes' => $this->menuTypeChoices($companyId, $branchId, $menuItem ? (int) old('menu_type_id', $menuItem->menu_type_id) : null),
             'availabilities' => $this->availabilities(),
         ]);
@@ -126,6 +129,16 @@ class MenuItemController extends Controller
 
     private function validateMenuItem(Request $request, ?MenuItem $menuItem = null): array
     {
+        // Prevent inactive menu types from being assigned to new menu items
+        if (! $menuItem && $request->filled('menu_type_id')) {
+            $selectedType = MenuType::query()->find($request->input('menu_type_id'));
+            if ($selectedType && ! $selectedType->is_active) {
+                throw ValidationException::withMessages([
+                    'menu_type_id' => ['The selected menu type is inactive. Inactive menu types cannot be assigned to new menu items.'],
+                ]);
+            }
+        }
+
         return $request->validate([
             'company_id' => [
                 'required',
@@ -155,11 +168,13 @@ class MenuItemController extends Controller
                 'required',
                 'integer',
                 Rule::exists('menu_types', 'id')->where(function ($query) use ($request, $menuItem) {
-                    $query->where('company_id', $request->input('company_id'))
-                        ->where(function ($query) use ($request) {
-                            $query->whereNull('branch_id')->orWhere('branch_id', $request->input('branch_id'));
-                        });
-                    $this->limitToActiveOrCurrent($query, $menuItem?->menu_type_id);
+                    $query->where('company_id', $request->input('company_id'));
+                    if ($menuItem?->menu_type_id) {
+                        $this->limitToActiveOrCurrent($query, $menuItem->menu_type_id);
+                    } else {
+                        // For new menu items: strictly enforce active menu types
+                        $query->whereNull('deleted_at')->where('is_active', true);
+                    }
                 }),
             ],
             'name' => ['required', 'string', 'max:255'],
@@ -179,6 +194,8 @@ class MenuItemController extends Controller
             'prepared_stock_quantity' => ['required_if:stock_tracking_enabled,1', 'nullable', 'integer', 'min:0', 'max:999999'],
             'availability' => ['required', Rule::in(array_keys($this->availabilities()))],
             'is_active' => ['required', 'boolean'],
+        ], [
+            'menu_type_id.exists' => 'The selected menu type is invalid or inactive for this company.',
         ]);
     }
 
