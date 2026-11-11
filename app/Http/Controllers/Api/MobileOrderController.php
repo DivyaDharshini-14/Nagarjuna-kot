@@ -183,7 +183,7 @@ class MobileOrderController extends Controller
     {
         /** @var User $user */
         $user = $request->user();
-        abort_unless($user->hasPermission('order.cancel'), Response::HTTP_FORBIDDEN, 'You are not allowed to request order cancellations.');
+        abort_unless($user->hasPermission('order.cancel'), Response::HTTP_FORBIDDEN, 'You are not allowed to cancel orders.');
         abort_unless($user->company_id && $user->branch_id, Response::HTTP_FORBIDDEN, 'No branch is assigned to this account.');
 
         $validated = $request->validate([
@@ -212,7 +212,7 @@ class MobileOrderController extends Controller
         $approved = $cancellations->every(fn (ItemCancellation $cancellation) => $cancellation->status === 'approved');
         return response()->json([
             'message' => $approved
-                ? 'Cancellation approved and applied.'
+                ? 'Cancellation completed and sent to the kitchen.'
                 : 'Cancellation request sent for manager approval.',
             'data' => [
                 'request_batch' => $batch,

@@ -134,7 +134,7 @@ The mobile API base URL must point to the Laravel `/api/v1` root and is supplied
 
 ## Additional implemented workflows
 
-- Waiters can request item or full-order cancellation with a mandatory reason and select partial dish quantities. Authorized managers can review and approve/reject requests in either the waiter mobile app or web app; the mobile order history shows requester, decision-maker, decision note, timestamps, stock reversal, and wastage.
+- Waiters with `order.cancel` can cancel individual quantities or a full order with a mandatory reason. Cancellations apply immediately unless the branch requires manager approval; then an authorized user with `order.approve` can approve or reject them in the waiter mobile app or web app. The mobile order history shows the requester or direct canceller, decision-maker, decision note, timestamps, stock reversal, and wastage.
 - Branch managers can require a separate approver for every cancellation, including requests created by a user who has approval permission. The requester cannot approve their own request under that branch setting.
 - Waiters can update dish instructions while the KOT is still new or accepted. The update is sent to every linked KOT, and the kitchen display refreshes over Reverb or its polling fallback. Existing orders can still receive additional dishes through the separate additional-order flow.
 - Cancellation stock policy restores tracked portions only while the kitchen item is new or accepted. Preparation-started, ready, and served quantities are recorded as wastage with no stock return. The cancellation record retains both quantities for audit.

@@ -171,6 +171,9 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
   bool _canCompleteOrder(OrderStatusSnapshot snapshot) {
     final orderStatus = snapshot.orderStatus.trim().toLowerCase();
     if (orderStatus != 'ready' && orderStatus != 'served') return false;
+    if (snapshot.items.any((item) => item.pendingCancellationQuantity > 0)) {
+      return false;
+    }
     if (snapshot.tickets.isEmpty) return false;
     return snapshot.tickets.every((ticket) {
       final status = ticket.status.trim().toLowerCase();
@@ -238,7 +241,7 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
     widget.onOrderCompleted();
   }
 
-  Future<void> _requestCancellation({OrderItemProgress? item}) async {
+  Future<void> _cancelOrder({OrderItemProgress? item}) async {
     if (_isCancelling || _snapshot == null) return;
     final cancellation = await showDialog<_CancellationDraft>(
       context: context,
@@ -279,7 +282,7 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
       if (mounted) _showCompletionError(error.message);
     } catch (_) {
       if (mounted) {
-        _showCompletionError('Could not send the cancellation request. Retry.');
+        _showCompletionError('Could not cancel this order. Please try again.');
       }
     } finally {
       if (mounted) setState(() => _isCancelling = false);
@@ -379,14 +382,31 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
                   )) ...[
                     const SizedBox(height: 12),
                     OutlinedButton.icon(
-                      onPressed: _isCancelling
-                          ? null
-                          : () => _requestCancellation(),
+                      onPressed: _isCancelling ? null : () => _cancelOrder(),
                       icon: const Icon(Icons.cancel_outlined),
                       label: Text(
-                        _isCancelling
-                            ? 'Sending request…'
-                            : 'Request cancellation for order',
+                        _isCancelling ? 'Cancelling…' : 'Cancel order',
+                      ),
+                    ),
+                  ],
+                  if (snapshot.items.any(
+                    (item) => item.pendingCancellationQuantity > 0,
+                  )) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFF4DE),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: const Color(0xFFE8D4A8)),
+                      ),
+                      child: const Text(
+                        'This order cannot be completed while a cancellation is waiting for manager approval.',
+                        style: TextStyle(
+                          color: Color(0xFF76551C),
+                          fontSize: 12,
+                          height: 1.4,
+                        ),
                       ),
                     ),
                   ],
@@ -496,12 +516,12 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
                               child: TextButton.icon(
                                 onPressed: _isCancelling
                                     ? null
-                                    : () => _requestCancellation(item: item),
+                                    : () => _cancelOrder(item: item),
                                 icon: const Icon(
                                   Icons.remove_circle_outline,
                                   size: 17,
                                 ),
-                                label: const Text('Request item cancellation'),
+                                label: const Text('Cancel item'),
                               ),
                             ),
                         ],
@@ -719,18 +739,22 @@ class _OrderItemCard extends StatelessWidget {
 
   String _cancellationHistory(ItemCancellationProgress cancellation) {
     final lines = <String>[
-      '${cancellation.quantity}× cancellation ${cancellation.status.toLowerCase()} · ${cancellation.reason}',
+      '${cancellation.quantity}× cancellation ${_cancellationStatusLabel(cancellation.status)} · ${cancellation.reason}',
     ];
     final requestedBy = cancellation.requestedBy;
-    if (requestedBy != null) {
+    final decidedBy = cancellation.decidedBy;
+    final directlyApplied =
+        cancellation.status.toLowerCase() == 'approved' &&
+        requestedBy != null &&
+        requestedBy == decidedBy;
+    if (requestedBy != null && !directlyApplied) {
       lines.add(
         'Requested by $requestedBy${cancellation.requestedAt == null ? '' : ' · ${_formatDateTime(cancellation.requestedAt!)}'}',
       );
     }
-    final decidedBy = cancellation.decidedBy;
     if (decidedBy != null) {
       lines.add(
-        'Decided by $decidedBy${cancellation.decidedAt == null ? '' : ' · ${_formatDateTime(cancellation.decidedAt!)}'}',
+        '${directlyApplied ? 'Cancelled by' : 'Decided by'} $decidedBy${cancellation.decidedAt == null ? '' : ' · ${_formatDateTime(cancellation.decidedAt!)}'}',
       );
     }
     if (cancellation.stockReversedQuantity > 0) {
@@ -747,6 +771,14 @@ class _OrderItemCard extends StatelessWidget {
     if (decisionNote.isNotEmpty) lines.add('Decision: $decisionNote');
     return lines.join('\n');
   }
+
+  String _cancellationStatusLabel(String status) =>
+      switch (status.toLowerCase()) {
+        'approved' => 'completed',
+        'pending' => 'waiting for approval',
+        'rejected' => 'rejected',
+        _ => status.toLowerCase(),
+      };
 
   String _formatDateTime(DateTime value) =>
       '${value.day.toString().padLeft(2, '0')}/${value.month.toString().padLeft(2, '0')} ${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
@@ -969,7 +1001,7 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog> {
           maxLength: 500,
           decoration: const InputDecoration(
             labelText: 'Cancellation reason',
-            hintText: 'Required for the kitchen and manager',
+            hintText: 'This reason will be sent to the kitchen and saved in the history.',
           ),
         ),
       ],
@@ -990,7 +1022,7 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog> {
             ),
           );
         },
-        child: const Text('Send request'),
+        child: const Text('Confirm cancellation'),
       ),
     ],
   );

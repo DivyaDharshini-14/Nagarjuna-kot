@@ -570,8 +570,9 @@ class OrderService
     }
 
     /**
-     * Create a reasoned cancellation request. A user with approval permission
-     * may approve the batch immediately; otherwise a manager must decide it.
+     * Apply a reasoned cancellation immediately unless the branch requires
+     * manager approval. order.cancel authorizes the action; order.approve
+     * authorizes deciding requests when branch approval is enabled.
      */
     public function requestItemCancellations(
         Order $order,
@@ -624,7 +625,7 @@ class OrderService
             $approvalRequired = (bool) Branch::query()
                 ->whereKey($lockedOrder->branch_id)
                 ->value('cancellation_approval_required');
-            $autoApprove = $requester->hasPermission('order.approve') && ! $approvalRequired;
+            $autoApprove = ! $approvalRequired;
             $created = collect();
 
             foreach ($requestedQuantities as $itemId => $quantity) {
