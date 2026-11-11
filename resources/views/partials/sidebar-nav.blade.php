@@ -9,6 +9,11 @@
     @if(auth()->user()->isKitchenStaff())
         <li class="sidebar-heading mt-3">Kitchen Operations</li>
         <li class="nav-item">
+            <a class="nav-link {{ request()->routeIs('kds.*') ? 'active' : '' }}" href="{{ route('kds.index') }}">
+                <i class="bi bi-tv"></i> Kitchen Displays (KDS)
+            </a>
+        </li>
+        <li class="nav-item">
             <a class="nav-link {{ request()->routeIs('kots.*') ? 'active' : '' }}" href="{{ route('kots.index') }}">
                 <i class="bi bi-egg-fried"></i> KOT Tickets
             </a>
@@ -47,6 +52,11 @@
             @endif
 
             @if(!auth()->user()->isWaiter() && auth()->user()->hasPermission('kot.view'))
+                <li class="nav-item">
+                    <a class="nav-link {{ request()->routeIs('kds.*') ? 'active' : '' }}" href="{{ route('kds.index') }}">
+                        <i class="bi bi-tv"></i> Kitchen Displays (KDS)
+                    </a>
+                </li>
                 <li class="nav-item">
                     <a class="nav-link {{ request()->routeIs('kots.*') ? 'active' : '' }}" href="{{ route('kots.index') }}">
                         <i class="bi bi-egg-fried"></i> KOT Monitoring

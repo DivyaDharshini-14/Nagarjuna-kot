@@ -8,6 +8,11 @@
             <h1 class="h3 mb-1">Kitchen Order Tickets (KOT)</h1>
             <p class="text-muted small mb-0">Live kitchen-wise ticket distribution and preparation progress</p>
         </div>
+        <div>
+            <a href="{{ route('kds.index') }}" class="btn btn-primary">
+                <i class="bi bi-tv me-1"></i>Kitchen Displays (KDS)
+            </a>
+        </div>
     </div>
 
     <form method="GET" class="row g-2 mb-3">

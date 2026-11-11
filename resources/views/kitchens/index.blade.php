@@ -16,6 +16,9 @@
                         <td>{{ $kitchen->branch?->name }}</td>
                         <td>@include('partials.status', ['active' => $kitchen->is_active])</td>
                         <td class="text-end text-nowrap">
+                            <a href="{{ route('kds.screen', $kitchen) }}" target="_blank" class="btn btn-sm btn-outline-dark me-1" title="Open Kitchen Display (TV)">
+                                <i class="bi bi-tv"></i> KDS
+                            </a>
                             @if(auth()->user()->hasPermission('kitchen.edit'))
                                 <a href="{{ route('kitchens.edit', $kitchen) }}" class="btn btn-sm btn-outline-primary">Edit</a>
                             @endif
