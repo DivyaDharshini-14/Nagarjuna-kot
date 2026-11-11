@@ -38,7 +38,22 @@ class KotController extends Controller
             $kots->whereDate('created_at', $request->date);
         }
 
-        $kots = $kots->latest()->paginate(12)->withQueryString();
+        $kots = $kots
+            ->orderByRaw("
+                CASE ticket_status
+                    WHEN 'new' THEN 1
+                    WHEN 'accepted' THEN 2
+                    WHEN 'preparing' THEN 3
+                    WHEN 'ready' THEN 4
+                    WHEN 'served' THEN 5
+                    WHEN 'cancelled' THEN 6
+                    ELSE 7
+                END ASC
+            ")
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->paginate(12)
+            ->withQueryString();
 
         $branchId = $this->locksBranch() ? $this->actor()->branch_id : ($request->branch_id ?? null);
         $kitchens = $branchId
@@ -68,7 +83,19 @@ class KotController extends Controller
         $tickets = KotTicket::where('kitchen_id', $kitchen->id)
             ->whereIn('ticket_status', ['new', 'accepted', 'preparing', 'ready'])
             ->with(['order.table', 'order.waiter', 'items.menuItem'])
-            ->latest()
+            ->orderByRaw("
+                CASE ticket_status
+                    WHEN 'new' THEN 1
+                    WHEN 'accepted' THEN 2
+                    WHEN 'preparing' THEN 3
+                    WHEN 'ready' THEN 4
+                    WHEN 'served' THEN 5
+                    WHEN 'cancelled' THEN 6
+                    ELSE 7
+                END ASC
+            ")
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
             ->get();
 
         return view('kots.display', compact('kitchen', 'tickets'));

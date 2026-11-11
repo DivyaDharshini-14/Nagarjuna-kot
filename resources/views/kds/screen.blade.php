@@ -81,7 +81,7 @@
         /* TOP HEADER: 4 HORIZONTAL CARDS */
         .top-header-grid {
             display: grid;
-            grid-template-columns: 260px 1.25fr 320px 230px;
+            grid-template-columns: 190px 1.25fr 310px 220px;
             gap: 14px;
             margin-bottom: 18px; /* EQUAL SPACING: 18px above the 3 section boxes */
             align-items: stretch;
@@ -102,34 +102,17 @@
         /* 1. BRAND CARD */
         .brand-card {
             justify-content: center;
-            gap: 12px;
-            padding: 6px 14px;
+            align-items: center;
+            padding: 3px 8px;
+            overflow: hidden;
         }
-        .brand-logo-svg {
-            width: 42px;
-            height: 42px;
-            flex-shrink: 0;
-        }
-        .brand-headings {
-            display: flex;
-            flex-direction: column;
-        }
-        .brand-name {
-            color: var(--brand-green);
-            font-size: 1.42rem;
-            font-weight: 900;
-            letter-spacing: 0.08em;
-            line-height: 1.05;
-            margin: 0;
-            text-transform: uppercase;
-        }
-        .brand-tagline {
-            color: var(--brand-green);
-            font-size: 0.68rem;
-            font-weight: 800;
-            letter-spacing: 0.22em;
-            text-transform: uppercase;
-            margin-top: 3px;
+        .brand-logo-img {
+            height: 100%;
+            max-height: 68px;
+            max-width: 100%;
+            width: auto;
+            object-fit: contain;
+            display: block;
         }
 
         /* 2. ORDER SUMMARY CARD */
@@ -323,173 +306,231 @@
             flex-shrink: 0;
         }
 
-        /* CARDS CONTAINER - SCROLLBAR REMOVED, CARDS FIT PROPORTIONALLY */
+        /* CARDS CONTAINER */
         .cards-list {
             padding: 10px 12px;
             display: flex;
             flex-direction: column;
-            gap: 10px;
+            gap: 12px;
             flex: 1;
             min-height: 0;
-            overflow: hidden;
+            overflow-y: auto;
             justify-content: flex-start;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(20, 108, 54, 0.25) transparent;
         }
 
-        /* KOT CARD - EXACT REPLICA PROPORTIONED TO FIT VIEWPORT */
+        /* KOT CARD - EXACT REPLICA OF USER DESIGN */
         .kot-order-card {
-            background: #fffffc;
+            background: #ffffff;
             border-radius: 16px;
             border: 1.5px solid var(--card-border);
             box-shadow: 0 3px 8px rgba(0, 0, 0, 0.03);
             display: grid;
-            grid-template-columns: 80px 1fr auto;
+            grid-template-columns: 86px 1fr 110px;
             align-items: center;
-            padding: 10px 14px 10px 12px;
-            gap: 12px;
-            cursor: pointer;
-            transition: transform 0.12s ease, box-shadow 0.12s ease;
+            padding: 10px 14px 10px 10px;
+            gap: 14px;
+            cursor: default;
             position: relative;
             flex-shrink: 0;
         }
 
-        .kot-order-card:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 6px 14px rgba(0, 0, 0, 0.06);
-        }
-
-        /* 1. LEFT ZONE: KOT & TABLE */
-        .kot-left-zone {
+        /* 1. LEFT GREEN TINTED BOX (KOT, NUMBER, TABLE) */
+        .kot-badge-box {
+            background: linear-gradient(180deg, #f0fdf4 0%, #e1f7d5 100%);
+            border: 1px solid #c8ebb6;
+            border-radius: 14px;
+            padding: 8px 6px;
             display: flex;
             flex-direction: column;
-            align-items: flex-start;
+            align-items: center;
             justify-content: center;
+            text-align: center;
+            min-width: 82px;
+            flex-shrink: 0;
         }
-        .kot-word {
-            font-size: 0.88rem;
+
+        .kot-box-label {
+            font-size: 0.76rem;
             font-weight: 800;
-            color: #111827;
+            color: #14532d;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
             line-height: 1;
-            letter-spacing: 0.04em;
         }
-        .kot-big-num {
+
+        .kot-box-number {
             font-size: 1.95rem;
             font-weight: 900;
-            color: var(--brand-green);
+            color: #064e3b;
             line-height: 1.05;
             margin: 2px 0;
             font-family: 'Outfit', sans-serif;
         }
-        .table-word {
-            font-size: 0.86rem;
+
+        .kot-box-table {
+            font-size: 0.82rem;
             font-weight: 800;
-            color: #111827;
-            line-height: 1;
+            color: #1f2937;
+            line-height: 1.15;
+            white-space: nowrap;
         }
-        .kot-kitchen-tag {
-            font-size: 0.65rem;
-            font-weight: 800;
-            color: #166534;
-            background: #dcfce7;
-            border: 1px solid #bbf7d0;
-            border-radius: 6px;
-            padding: 1px 6px;
-            margin-top: 3px;
-            display: inline-block;
-            text-transform: uppercase;
-            letter-spacing: 0.3px;
-            max-width: 82px;
+
+        /* 2. MIDDLE: DISH ITEMS LIST */
+        .kot-dishes-middle {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            overflow: hidden;
+            padding-right: 4px;
+        }
+
+        .dish-row-compact {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            align-items: baseline;
+            gap: 10px;
+            font-size: 0.94rem;
+            font-weight: 700;
+            color: #111827;
+            line-height: 1.35;
+        }
+
+        .dish-name-compact {
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
         }
 
-        /* 2. MIDDLE ZONE: DISH ITEMS */
-        .kot-middle-zone {
-            display: flex;
-            flex-direction: column;
-            gap: 2px;
-            padding-right: 4px;
-            overflow: hidden;
-        }
-        .dish-item-row {
-            display: flex;
-            align-items: baseline;
-            font-size: 0.94rem;
-            font-weight: 700;
-            color: #111827;
-            line-height: 1.3;
-        }
-        .dish-item-name {
-            flex-grow: 1;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .dish-item-qty {
-            margin-left: 6px;
+        .dish-qty-compact {
             font-size: 0.94rem;
             font-weight: 800;
             color: #111827;
             flex-shrink: 0;
             white-space: nowrap;
         }
-        .special-note-badge {
-            font-size: 0.7rem;
-            color: #b91c1c;
+
+        .dish-note-pill {
+            font-size: 0.72rem;
+            color: #991b1b;
             background: #fee2e2;
-            padding: 1px 5px;
+            padding: 1px 6px;
             border-radius: 4px;
             font-weight: 700;
             display: inline-block;
-            margin-top: 1px;
-        }
-
-        /* 3. RIGHT ZONE: TIMER / READY BADGE */
-        .kot-right-zone {
-            display: flex;
-            align-items: center;
-            justify-content: flex-end;
-            min-width: 100px;
-        }
-
-        /* TIMER CAPSULE (YELLOW) */
-        .timer-capsule {
-            background-color: #f7d235;
-            color: #111827;
-            font-size: 0.92rem;
-            font-weight: 900;
-            border-radius: 20px;
-            padding: 6px 12px;
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+            margin-top: 2px;
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
             white-space: nowrap;
         }
-        .timer-capsule svg {
+
+        /* 3. RIGHT: DURATION PILL & ORDER RECEIVED TIME BELOW */
+        .kot-right-column {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            flex-shrink: 0;
+            width: 110px;
+            min-width: 110px;
+            max-width: 110px;
+            text-align: center;
+        }
+
+        /* DURATION CAPSULES (MATCHING EXACT YELLOW PILL IN IMAGE) */
+        .timer-capsule-exact {
+            background-color: #fec007; /* Bright yellow as in image */
+            color: #111827;
+            font-size: 0.98rem;
+            font-weight: 900;
+            border-radius: 24px;
+            padding: 6px 8px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            width: 106px;
+            box-sizing: border-box;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+            white-space: nowrap;
+            letter-spacing: 0.02em;
+        }
+
+        .timer-capsule-exact svg {
             width: 16px;
             height: 16px;
             fill: #111827;
+            flex-shrink: 0;
         }
 
-        /* READY CAPSULE (GREEN) */
-        .ready-capsule {
-            background-color: #1f9441;
-            color: #ffffff;
-            font-size: 0.95rem;
+        /* PREPARING DURATION CAPSULE (AMBER) */
+        .timer-capsule-prep {
+            background-color: #f59e0b;
+            color: #111827;
+            font-size: 0.98rem;
             font-weight: 900;
-            border-radius: 20px;
-            padding: 6px 14px;
+            border-radius: 24px;
+            padding: 6px 8px;
             display: inline-flex;
             align-items: center;
+            justify-content: center;
             gap: 6px;
-            box-shadow: 0 2px 5px rgba(31, 148, 65, 0.28);
+            width: 106px;
+            box-sizing: border-box;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
             white-space: nowrap;
         }
-        .ready-capsule svg {
+        .timer-capsule-prep svg {
+            width: 16px;
+            height: 16px;
+            fill: #111827;
+            flex-shrink: 0;
+        }
+
+        /* READY DURATION CAPSULE (GREEN - FROZEN) */
+        .timer-capsule-ready {
+            background-color: #16a34a;
+            color: #ffffff;
+            font-size: 0.98rem;
+            font-weight: 900;
+            border-radius: 24px;
+            padding: 6px 8px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            width: 106px;
+            box-sizing: border-box;
+            box-shadow: 0 2px 6px rgba(22, 163, 74, 0.25);
+            white-space: nowrap;
+        }
+        .timer-capsule-ready svg {
             width: 16px;
             height: 16px;
             fill: #ffffff;
+            flex-shrink: 0;
+        }
+
+        /* TABULAR NUMBERS (ZERO JITTER / JUMPING) */
+        .live-card-timer,
+        .total-duration-val {
+            font-variant-numeric: tabular-nums;
+            font-feature-settings: "tnum";
+            font-family: 'Outfit', 'Roboto Mono', ui-monospace, SFMono-Regular, monospace;
+            display: inline-block;
+            text-align: center;
+        }
+
+        /* ORDER RECEIVED TIME BELOW DURATION PILL */
+        .received-time-text {
+            font-size: 0.74rem;
+            font-weight: 700;
+            color: #6b7280;
+            text-align: center;
+            line-height: 1;
         }
 
         /* EMPTY COLUMN MESSAGE */
@@ -501,110 +542,30 @@
             font-size: 0.95rem;
         }
 
-        /* KITCHEN 86 AVAILABILITY SECTION - DISTINCT PROPER GAP & ROUNDED DESIGN */
-        .availability-drawer-section {
-            margin-top: 0 !important;
-            border-radius: 14px;
+        /* FULLSCREEN EXPAND FLOATING BUTTON */
+        .fullscreen-expand-btn {
+            position: fixed;
+            bottom: 16px;
+            right: 18px;
+            z-index: 1000;
             background: #ffffff;
             border: 1.5px solid #146c36;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
-            overflow: hidden;
-            flex-shrink: 0;
-            transition: all 0.25s ease;
-        }
-
-        .availability-drawer-header {
-            background: linear-gradient(135deg, #0d5e30 0%, #15803d 100%);
-            color: #ffffff;
-            padding: 8px 18px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            cursor: pointer;
-            user-select: none;
-        }
-
-        .availability-drawer-header:hover {
-            background: linear-gradient(135deg, #094723 0%, #126b33 100%);
-        }
-
-        .availability-drawer-body {
-            display: none;
-            background: #fffef7;
-            padding: 10px 16px;
-            border-top: 1px solid #d1fae5;
-            max-height: 180px;
-            overflow-y: auto;
-        }
-
-        .availability-drawer-body.expanded {
-            display: block;
-        }
-
-        .dish-chip-item {
-            background: #ffffff;
-            border: 1px solid #dcd5c0;
-            border-radius: 20px;
-            padding: 4px 12px;
-            font-size: 0.85rem;
-            font-weight: 700;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            cursor: pointer;
-            transition: all 0.15s ease;
-        }
-
-        .dish-chip-item:hover {
-            border-color: #0d5e30;
-            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
-        }
-
-        .dish-chip-soldout {
-            background: #fee2e2;
-            border-color: #f87171;
-            color: #b91c1c;
-        }
-
-        /* FLOATING UTILITIES (SOUND, 86, FULLSCREEN, EXIT) */
-        .floating-action-bar {
-            position: fixed;
-            bottom: 12px;
-            right: 18px;
-            display: flex;
-            gap: 8px;
-            z-index: 1000;
-            background: rgba(255, 255, 255, 0.94);
-            padding: 5px 10px;
-            border-radius: 30px;
-            box-shadow: 0 4px 18px rgba(0, 0, 0, 0.12);
-            border: 1px solid rgba(0, 0, 0, 0.08);
-            backdrop-filter: blur(8px);
-        }
-        .floating-btn {
-            background: none;
-            border: none;
-            outline: none;
-            padding: 6px;
-            cursor: pointer;
+            color: #146c36;
+            width: 40px;
+            height: 40px;
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
             font-size: 1.15rem;
-            color: #4b5563;
-            transition: color 0.15s, transform 0.15s;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            transition: all 0.2s ease;
         }
-        .floating-btn:hover {
-            color: #111827;
+        .fullscreen-expand-btn:hover {
+            background: #146c36;
+            color: #ffffff;
             transform: scale(1.1);
-        }
-
-        /* 86 DISH AVAILABILITY MODAL */
-        .modal-custom-header {
-            background: var(--brand-green);
-            color: #fff;
-            padding: 14px 20px;
         }
     </style>
 </head>
@@ -652,16 +613,7 @@
         <header class="top-header-grid">
             <!-- 1. BRAND CARD -->
             <div class="header-card brand-card">
-                <!-- Nagarjuna Leaf Logo -->
-                <svg class="brand-logo-svg" viewBox="0 0 100 80">
-                    <path d="M25,58 C15,38 28,15 52,15 C56,32 46,58 25,58 Z" fill="#0d5e30"/>
-                    <path d="M42,60 C52,42 66,28 85,28 C82,46 68,64 42,60 Z" fill="#55b340"/>
-                    <path d="M18,65 Q40,52 65,22" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round"/>
-                </svg>
-                <div class="brand-headings">
-                    <h1 class="brand-name">NAGARJUNÁ</h1>
-                    <span class="brand-tagline">ANDHRA STYLE</span>
-                </div>
+                <img src="{{ asset('images/nagarjuna-logo.png') }}" alt="Nagarjuna Andhra Style" class="brand-logo-img">
             </div>
 
             <!-- 2. ORDER SUMMARY CARD -->
@@ -701,43 +653,17 @@
                 </div>
             </div>
 
-            <!-- 3. KITCHEN IDENTIFIER CARD WITH QUICK STATION SWITCHER -->
-            <div class="header-card kitchen-card dropdown">
-                <div class="chef-hat-badge" data-bs-toggle="dropdown" role="button" aria-expanded="false" style="cursor: pointer;" title="Switch Kitchen Station">
+            <!-- 3. KITCHEN IDENTIFIER CARD (DEDICATED TV DISPLAY - NO DROPDOWN) -->
+            <div class="header-card kitchen-card">
+                <div class="chef-hat-badge">
                     <svg viewBox="0 0 24 24">
                         <path d="M19 10a3 3 0 0 0-2.2-2.9 4 4 0 0 0-7.6 0A3 3 0 0 0 5 10a3 3 0 0 0 1 2.2V17h12v-4.8a3 3 0 0 0 1-2.2zM7 19h10v2H7z"/>
                     </svg>
                 </div>
-                <div class="kitchen-details dropdown-toggle" data-bs-toggle="dropdown" role="button" aria-expanded="false" style="cursor: pointer; width: 100%;">
-                    <div class="d-flex align-items-center justify-content-between">
-                        <div>
-                            <h2 id="kitchenName">{{ $kitchen ? $kitchen->name . ' Kitchen' : 'All Kitchens' }}</h2>
-                            <p id="kitchenSubtitle">{{ $kitchen ? ($kitchen->branch ? $kitchen->branch->name . ' · TV Display' : 'Kitchen Display Screen') : 'All Active Stations · TV Display' }}</p>
-                        </div>
-                        <i class="bi bi-chevron-down text-muted ms-1" style="font-size: 0.8rem;"></i>
-                    </div>
+                <div class="kitchen-details">
+                    <h2 id="kitchenName">{{ $kitchen ? $kitchen->name . ' Kitchen' : 'All Kitchens' }}</h2>
+                    <p id="kitchenSubtitle">{{ $kitchen ? ($kitchen->branch ? $kitchen->branch->name . ' · TV Display' : 'Kitchen Display Screen') : 'All Active Stations · TV Display' }}</p>
                 </div>
-                <ul class="dropdown-menu shadow border-0 py-2" style="font-size: 0.88rem; min-width: 290px; border-radius: 12px; z-index: 1050;">
-                    <li>
-                        <a class="dropdown-item station-dropdown-item fw-bold {{ !$kitchen ? 'active' : '' }}" id="station-item-all" href="javascript:void(0)" onclick="selectKitchenStation(null, 'All Kitchens', 'All Active Stations · TV Display')">
-                            <i class="bi bi-grid-fill me-2 text-primary"></i>All Kitchens (All KOTs)
-                        </a>
-                    </li>
-                    <li><hr class="dropdown-divider my-1"></li>
-                    @if(isset($allKitchens))
-                        @foreach($allKitchens as $k)
-                            <li>
-                                <a class="dropdown-item station-dropdown-item d-flex justify-content-between align-items-center {{ $kitchen && $kitchen->id === $k->id ? 'active' : '' }}" id="station-item-{{ $k->id }}" href="javascript:void(0)" onclick="selectKitchenStation({{ $k->id }}, '{{ addslashes($k->name) }} Kitchen', '{{ addslashes($k->branch?->name ?? 'Kitchen') }} · TV Display')">
-                                    <div class="pe-2">
-                                        <div class="fw-bold text-dark"><i class="bi bi-tv me-2 text-secondary"></i>{{ $k->name }} Kitchen</div>
-                                        <div class="text-muted" style="font-size: 0.72rem; padding-left: 22px;">{{ $k->code }} · {{ $k->branch?->name ?? 'Main Branch' }}</div>
-                                    </div>
-                                    <span class="badge bg-light text-dark border">{{ $k->code }}</span>
-                                </a>
-                            </li>
-                        @endforeach
-                    @endif
-                </ul>
             </div>
 
             <!-- 4. CLOCK & DATE CARD -->
@@ -803,68 +729,26 @@
             </div>
         </main>
 
-        <!-- KITCHEN 86 AVAILABILITY SECTION WITH EQUAL GAP BELOW 3 BOXES -->
-        <section class="availability-drawer-section" id="availabilitySection">
-            <div class="availability-drawer-header">
-                <div class="d-flex align-items-center gap-2" onclick="toggleDrawer86()" style="cursor: pointer; flex-grow: 1;">
-                    <i class="bi bi-slash-circle fs-6 text-warning"></i>
-                    <span class="fw-bold" style="font-size: 0.95rem;">Kitchen 86 List (Manage Availability)</span>
-                    <span class="badge bg-warning text-dark ms-2" id="badgeSoldOut" style="font-size: 0.72rem;">0 Sold Out</span>
-                    <span class="text-white-50 ms-3 small" id="drawerHint" style="font-size: 0.78rem;">Click to view / manage dishes</span>
-                    <i class="bi bi-chevron-down text-white-50 ms-1" id="drawerArrow"></i>
-                </div>
-                <div class="d-flex align-items-center gap-2">
-                    <span id="networkPill" class="badge bg-danger text-white px-2 py-1" style="display:none; font-size: 0.72rem;" title="Network disconnected - attempting to reconnect...">
-                        <i class="bi bi-wifi-off me-1"></i>Reconnecting...
-                    </span>
-                    <button class="btn btn-sm btn-outline-light border-0 py-0 px-2" id="soundBtn" onclick="toggleSoundAlert()" title="Toggle Sound Alert">
-                        <i class="bi bi-volume-up-fill text-warning" id="soundIcon"></i>
-                    </button>
-                    <button class="btn btn-sm btn-outline-light border-0 py-0 px-2 text-white" onclick="toggleScreenFull()" title="Full Screen TV Mode">
-                        <i class="bi bi-arrows-fullscreen"></i>
-                    </button>
-                    <a href="{{ route('kds.index') }}" class="btn btn-sm btn-outline-light border-0 py-0 px-2 text-white" title="Exit KDS">
-                        <i class="bi bi-box-arrow-right"></i>
-                    </a>
-                </div>
-            </div>
-            <div class="availability-drawer-body" id="drawerBody86">
-                <div class="d-flex align-items-center gap-3 mb-2">
-                    <input type="text" id="dishQuery" class="form-control form-control-sm" placeholder="Search dish..." onkeyup="filterDishes86()" style="max-width: 250px; border-radius: 8px;">
-                    <small class="text-secondary" style="font-size: 0.8rem;">Click any dish chip to toggle between Available and Sold Out.</small>
-                </div>
-                <div class="d-flex flex-wrap gap-2 py-1" id="dishList86"></div>
-            </div>
-        </section>
+        <!-- FULLSCREEN EXPAND ACTION (ONLY EXPAND ICON AS REQUESTED) -->
+        <button class="fullscreen-expand-btn" onclick="toggleScreenFull()" title="Full Screen TV Mode">
+            <i class="bi bi-arrows-fullscreen"></i>
+        </button>
+
+        <span id="networkPill" class="badge bg-danger text-white px-2 py-1 shadow-sm" style="display:none; position: fixed; bottom: 20px; right: 68px; z-index: 1000; font-size: 0.75rem;" title="Network disconnected - attempting to reconnect...">
+            <i class="bi bi-wifi-off me-1"></i>Reconnecting...
+        </span>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
     <script>
-        // Initial station: specific kitchen ID if launched for a kitchen, or null for Master/All Kitchens
+        // Dedicated kitchen station ID or null for Master/All Kitchens
         const initialKitchenId = {{ $kitchen ? $kitchen->id : 'null' }};
-        let activeKitchenId = initialKitchenId;
-        const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+        const activeKitchenId = initialKitchenId;
 
         let soundEnabled = true;
         let audioContext = null;
         let knownIds = new Set();
-        let dishesCache = [];
-
-        // Switch Kitchen Station dynamically without reloading page
-        function selectKitchenStation(id, title, subtitle) {
-            activeKitchenId = id;
-            document.getElementById('kitchenName').innerText = title;
-            document.getElementById('kitchenSubtitle').innerText = subtitle;
-            document.title = `${title} – Kitchen Display Screen | Nagarjuna`;
-
-            document.querySelectorAll('.station-dropdown-item').forEach(el => el.classList.remove('active'));
-            const targetItem = document.getElementById(id ? `station-item-${id}` : 'station-item-all');
-            if (targetItem) targetItem.classList.add('active');
-
-            pullFeed();
-            loadDishes86();
-        }
 
         // Live Real-Time Clock & Date (updates every second)
         function refreshClock() {
@@ -919,17 +803,6 @@
             } catch(e) {}
         }
 
-        function toggleSoundAlert() {
-            soundEnabled = !soundEnabled;
-            const icon = document.getElementById('soundIcon');
-            if (soundEnabled) {
-                icon.className = 'bi bi-volume-up-fill text-warning';
-                playAlertSound();
-            } else {
-                icon.className = 'bi bi-volume-mute-fill text-white-50';
-            }
-        }
-
         function toggleScreenFull() {
             if (!document.fullscreenElement) {
                 document.documentElement.requestFullscreen().catch(() => {});
@@ -938,14 +811,30 @@
             }
         }
 
-        // Format Seconds to "MM:SS"
+        document.addEventListener('fullscreenchange', () => {
+            const icon = document.querySelector('.fullscreen-expand-btn i');
+            if (icon) {
+                if (document.fullscreenElement) {
+                    icon.className = 'bi bi-fullscreen-exit';
+                } else {
+                    icon.className = 'bi bi-arrows-fullscreen';
+                }
+            }
+        });
+
+        // Format Seconds to "MM:SS" (or "HH:MM:SS" if >= 1 hour)
         function formatSecs(seconds) {
-            const m = Math.floor(seconds / 60);
-            const s = seconds % 60;
+            const totalSec = Math.max(0, parseInt(seconds || 0, 10));
+            const h = Math.floor(totalSec / 3600);
+            const m = Math.floor((totalSec % 3600) / 60);
+            const s = totalSec % 60;
+            if (h > 0) {
+                return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+            }
             return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
         }
 
-        // Real-Time Second Increment for Active Card Timers
+        // Real-Time Second Increment for Active Live Timers ONLY (.live-card-timer)
         setInterval(() => {
             document.querySelectorAll('.live-card-timer').forEach(el => {
                 let sec = parseInt(el.getAttribute('data-sec') || '0', 10);
@@ -955,130 +844,88 @@
             });
         }, 1000);
 
-        // Generate EXACT KOT Card HTML
+        // Generate EXACT KOT Card HTML matching user design (image)
         function buildCardHtml(ticket, stage) {
-            // Extract short sequence or readable number from kot_number
-            let kotNum = ticket.kot_number;
-            const match = String(kotNum).match(/(\d+)$/);
-            if (match) {
-                kotNum = parseInt(match[1], 10);
-            }
+            // Extract readable number from kot_number or kot_display_number
+            let kotNum = ticket.kot_display_number || ticket.kot_number;
 
-            // Table string (e.g. "Table Two 2")
+            // Table string
             let tableStr = ticket.table_name || '1';
             if (!tableStr.toLowerCase().startsWith('table')) {
                 tableStr = `Table ${tableStr}`;
             }
 
-            // Right Zone Badge & Click Action
-            let rightZoneHtml = '';
-            let clickAction = '';
+            // Duration Capsule
+            let durationHtml = '';
+            const sec = parseInt(ticket.elapsed_seconds || 0, 10);
+            const timeFormatted = formatSecs(sec);
 
             if (stage === 'new') {
-                const timeText = ticket.elapsed_display || formatSecs(ticket.elapsed_seconds || 0);
-                rightZoneHtml = `
-                    <div class="timer-capsule" title="Click to Start Preparing">
-                        <svg viewBox="0 0 24 24">
-                            <circle cx="12" cy="12" r="9" fill="none" stroke="#111827" stroke-width="2"/>
-                            <polyline points="12 7 12 12 15 14" fill="none" stroke="#111827" stroke-width="2" stroke-linecap="round"/>
+                durationHtml = `
+                    <div class="timer-capsule-exact" title="Duration">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                            <path d="M12 1a1 1 0 0 1 1 1v1.07A8.001 8.001 0 0 1 19.93 11H21a1 1 0 1 1 0 2h-1.07A8.001 8.001 0 0 1 12 21a8.001 8.001 0 0 1-7.93-8H3a1 1 0 1 1 0-2h1.07A8.001 8.001 0 0 1 11 3.07V2a1 1 0 0 1 1-1zm0 4a6 6 0 1 0 6 6 6 6 0 0 0-6-6zm0 2a1 1 0 0 1 1 1v2.586l1.707 1.707a1 1 0 0 1-1.414 1.414l-2-2A1 1 0 0 1 11 10.5V8a1 1 0 0 1 1-1z"/>
                         </svg>
-                        <span class="live-card-timer" data-sec="${ticket.elapsed_seconds || 0}">${timeText}</span>
+                        <span class="live-card-timer" data-sec="${sec}">${timeFormatted}</span>
                     </div>
                 `;
-                clickAction = `onclick="progressTicket(${ticket.id}, 'preparing')"`;
             } else if (stage === 'preparing') {
-                const timeText = ticket.elapsed_display || formatSecs(ticket.elapsed_seconds || 0);
-                rightZoneHtml = `
-                    <div class="timer-capsule" title="Click to Mark Ready">
-                        <svg viewBox="0 0 24 24">
-                            <circle cx="12" cy="12" r="9" fill="none" stroke="#111827" stroke-width="2"/>
-                            <polyline points="12 7 12 12 15 14" fill="none" stroke="#111827" stroke-width="2" stroke-linecap="round"/>
+                durationHtml = `
+                    <div class="timer-capsule-prep" title="Duration">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                            <path d="M12 1a1 1 0 0 1 1 1v1.07A8.001 8.001 0 0 1 19.93 11H21a1 1 0 1 1 0 2h-1.07A8.001 8.001 0 0 1 12 21a8.001 8.001 0 0 1-7.93-8H3a1 1 0 1 1 0-2h1.07A8.001 8.001 0 0 1 11 3.07V2a1 1 0 0 1 1-1zm0 4a6 6 0 1 0 6 6 6 6 0 0 0-6-6zm0 2a1 1 0 0 1 1 1v2.586l1.707 1.707a1 1 0 0 1-1.414 1.414l-2-2A1 1 0 0 1 11 10.5V8a1 1 0 0 1 1-1z"/>
                         </svg>
-                        <span class="live-card-timer" data-sec="${ticket.elapsed_seconds || 0}">${timeText}</span>
+                        <span class="live-card-timer" data-sec="${sec}">${timeFormatted}</span>
                     </div>
                 `;
-                clickAction = `onclick="progressTicket(${ticket.id}, 'ready')"`;
             } else if (stage === 'ready') {
-                rightZoneHtml = `
-                    <div class="ready-capsule" title="Click to Mark Served">
-                        <svg viewBox="0 0 24 24">
+                // STOPPED: total preparation duration frozen
+                durationHtml = `
+                    <div class="timer-capsule-ready" title="Total Duration">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
                             <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
                         </svg>
-                        <span>Ready</span>
+                        <span class="total-duration-val">${timeFormatted}</span>
                     </div>
                 `;
-                clickAction = `onclick="progressTicket(${ticket.id}, 'served')"`;
             }
 
-            // Middle Dishes list: "Veg meals × 2"
+            // Dishes list rows (compact, matching image)
             const dishesHtml = (ticket.items || []).map(item => `
-                <div class="dish-item-row">
-                    <span class="dish-item-name">${item.dish_name}</span>
-                    <span class="dish-item-qty">× ${item.quantity}</span>
+                <div class="dish-row-compact">
+                    <span class="dish-name-compact">${item.dish_name}</span>
+                    <span class="dish-qty-compact">× ${item.quantity}</span>
                 </div>
-                ${item.special_instructions ? `<div class="special-note-badge">${item.special_instructions}</div>` : ''}
+                ${item.special_instructions ? `<div class="dish-note-pill">${item.special_instructions}</div>` : ''}
             `).join('');
 
-            const kitchenTag = ticket.kitchen_name ? `<span class="kot-kitchen-tag">${ticket.kitchen_name}</span>` : '';
+            // Special instructions callout (shown only if present)
+            const specialNote = ticket.special_instructions && ticket.special_instructions.trim() !== ''
+                ? `<div class="dish-note-pill mt-1">${ticket.special_instructions}</div>`
+                : '';
+
+            // Order Received Time below duration
+            const receivedTimeHtml = ticket.order_received_time 
+                ? `<span class="received-time-text">${ticket.order_received_time}</span>` 
+                : '';
 
             return `
-                <div class="kot-order-card" id="card-${ticket.id}" ${clickAction} title="${ticket.kot_number}">
-                    <!-- 1. LEFT ZONE -->
-                    <div class="kot-left-zone">
-                        <span class="kot-word">KOT</span>
-                        <span class="kot-big-num">${kotNum}</span>
-                        <span class="table-word">${tableStr}</span>
-                        ${kitchenTag}
+                <div class="kot-order-card" id="card-${ticket.id}" title="${ticket.kot_number}">
+                    <div class="kot-badge-box">
+                        <span class="kot-box-label">KOT</span>
+                        <span class="kot-box-number">${kotNum}</span>
+                        <span class="kot-box-table">${tableStr}</span>
                     </div>
-
-                    <!-- 2. MIDDLE ZONE -->
-                    <div class="kot-middle-zone">
+                    <div class="kot-dishes-middle">
                         ${dishesHtml}
+                        ${specialNote}
                     </div>
-
-                    <!-- 3. RIGHT ZONE -->
-                    <div class="kot-right-zone">
-                        ${rightZoneHtml}
+                    <div class="kot-right-column">
+                        ${durationHtml}
+                        ${receivedTimeHtml}
                     </div>
                 </div>
             `;
-        }
-
-        // Advance Ticket Preparation Status
-        async function progressTicket(ticketId, targetStatus) {
-            try {
-                const card = document.getElementById(`card-${ticketId}`);
-                if (card) {
-                    card.style.opacity = '0.5';
-                    card.style.pointerEvents = 'none';
-                }
-
-                const res = await fetch(`/kds/tickets/${ticketId}/status`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json',
-                        'X-CSRF-TOKEN': csrfToken
-                    },
-                    body: JSON.stringify({ status: targetStatus })
-                });
-
-                if (!res.ok) {
-                    const errData = await res.json().catch(() => ({}));
-                    alert(errData.message || 'Failed to update order status');
-                    if (card) {
-                        card.style.opacity = '1';
-                        card.style.pointerEvents = 'auto';
-                    }
-                    return;
-                }
-
-                // Immediately pull updated feed
-                pullFeed();
-            } catch(e) {
-                console.error(e);
-                pullFeed();
-            }
         }
 
         // Real-time Feed Polling
@@ -1155,73 +1002,6 @@
                 const netPill = document.getElementById('networkPill');
                 if (netPill) netPill.style.display = 'inline-flex';
             }
-        }
-
-        // Kitchen 86 Drawer Toggle & Loading
-        async function toggleDrawer86() {
-            const body = document.getElementById('drawerBody86');
-            const arrow = document.getElementById('drawerArrow');
-            const hint = document.getElementById('drawerHint');
-            const isExpanded = body.classList.toggle('expanded');
-            arrow.className = isExpanded ? 'bi bi-chevron-up text-white-50 ms-1' : 'bi bi-chevron-down text-white-50 ms-1';
-            hint.innerText = isExpanded ? 'Click to collapse' : 'Click to view / manage dishes';
-            if (isExpanded) {
-                loadDishes86();
-            }
-        }
-
-        async function loadDishes86() {
-            try {
-                const url = activeKitchenId ? `/kds/${activeKitchenId}/dishes` : `/kds/dishes`;
-                const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-                const data = await res.json();
-                dishesCache = data.dishes || [];
-                renderDishes86(dishesCache);
-            } catch(e) {}
-        }
-
-        function renderDishes86(dishes) {
-            const el = document.getElementById('dishList86');
-            const badge = document.getElementById('badgeSoldOut');
-            const soldOutCount = dishes.filter(d => !d.is_available).length;
-            badge.innerText = `${soldOutCount} Sold Out`;
-
-            if (dishes.length === 0) {
-                el.innerHTML = '<div class="text-secondary small py-2">No dishes mapped to this station.</div>';
-                return;
-            }
-            el.innerHTML = dishes.map(d => `
-                <div class="dish-chip-item ${d.is_available ? '' : 'dish-chip-soldout'} dish-row-86" data-name="${d.name.toLowerCase()}" onclick="changeAvailability(${d.id}, '${d.is_available ? 'sold_out' : 'available'}')">
-                    <span>${d.name}</span>
-                    <span class="badge ${d.is_available ? 'bg-success' : 'bg-danger'}">${d.is_available ? 'Available' : 'SOLD OUT'}</span>
-                </div>
-            `).join('');
-        }
-
-        function filterDishes86() {
-            const q = document.getElementById('dishQuery').value.toLowerCase();
-            document.querySelectorAll('.dish-row-86').forEach(item => {
-                const name = item.getAttribute('data-name');
-                item.style.display = name.includes(q) ? 'inline-flex' : 'none';
-            });
-        }
-
-        async function changeAvailability(dishId, target) {
-            try {
-                const url = activeKitchenId 
-                    ? `/kds/${activeKitchenId}/dishes/${dishId}/toggle-availability` 
-                    : `/kds/dishes/${dishId}/toggle-availability`;
-                await fetch(url, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN': csrfToken,
-                        'Accept': 'application/json'
-                    },
-                    body: JSON.stringify({ availability: target })
-                });
-                loadDishes86();
-            } catch(e) {}
         }
 
         // Initial load & Polling

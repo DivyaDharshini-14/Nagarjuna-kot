@@ -20,11 +20,11 @@
         </li>
         @if(auth()->user()->branch_id)
             @php
-                $kitchenList = \App\Models\Kitchen::where('branch_id', auth()->user()->branch_id)->where('is_active', true)->get();
+                $kitchenList = \App\Models\Kitchen::with('branch')->where('branch_id', auth()->user()->branch_id)->where('is_active', true)->get();
             @endphp
             @foreach($kitchenList as $k)
                 <li class="nav-item">
-                    <a class="nav-link" href="{{ route('kots.display', $k) }}" target="_blank">
+                    <a class="nav-link" href="{{ $k->branch && $k->branch->code ? url('/' . $k->branch->code . '/' . $k->code) : route('kots.display', $k) }}" target="_blank">
                         <i class="bi bi-tv"></i> {{ $k->name }} (TV)
                     </a>
                 </li>
