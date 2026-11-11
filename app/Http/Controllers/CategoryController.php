@@ -3,8 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Http\Controllers\Concerns\ManagesTenantAccess;
-use App\Models\Branch;
 use App\Models\Category;
+use App\Models\Company;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -17,7 +17,7 @@ class CategoryController extends Controller
 
     public function index(Request $request): View
     {
-        $categories = $this->scopedCategories()->with(['company', 'branch']);
+        $categories = $this->applyCompanyScope(Category::query()->with('company'));
         $this->applySearch($categories, $request, ['name', 'code']);
         $this->applyStatus($categories, $request);
 
@@ -28,14 +28,20 @@ class CategoryController extends Controller
 
     public function create(): View
     {
-        return view('categories.create', $this->formState());
+        return view('categories.create');
     }
 
     public function store(Request $request): RedirectResponse
     {
         $this->mergeLockedTenant($request);
+        $companyId = $this->resolveCompanyId($request);
+        $request->merge(['company_id' => $companyId]);
+
         $validated = $this->validateCategory($request);
-        $this->assertTenant($validated, false);
+        $validated['company_id'] = $companyId;
+        $validated['branch_id'] = null; // Share at company level across all branches
+
+        $this->authorizeCompanyId((int) $validated['company_id']);
 
         Category::create($validated);
 
@@ -46,7 +52,7 @@ class CategoryController extends Controller
     {
         $this->authorizeCategory($category);
 
-        return view('categories.edit', array_merge($this->formState($category), compact('category')));
+        return view('categories.edit', compact('category'));
     }
 
     public function update(Request $request, Category $category): RedirectResponse
@@ -54,14 +60,14 @@ class CategoryController extends Controller
         $this->authorizeCategory($category);
         $this->mergeLockedTenant($request);
 
-        $validated = $this->validateCategory($request, $category);
-        $this->assertTenant($validated, false);
+        $companyId = $this->resolveCompanyId($request, $category);
+        $request->merge(['company_id' => $companyId]);
 
-        if ($category->menuItems()->exists() && $this->locationChanged($category, $validated)) {
-            return back()->withErrors([
-                'branch_id' => 'This category is used by menu items and its company or branch cannot be changed.',
-            ])->withInput();
-        }
+        $validated = $this->validateCategory($request, $category);
+        $validated['company_id'] = $companyId;
+        $validated['branch_id'] = null; // Share at company level across all branches
+
+        $this->authorizeCompanyId((int) $validated['company_id']);
 
         $category->update($validated);
 
@@ -83,87 +89,63 @@ class CategoryController extends Controller
 
     public function options(Request $request): JsonResponse
     {
-        $data = $request->validate([
-            'company_id' => ['required', 'integer'],
-            'branch_id' => ['nullable', 'integer'],
-        ]);
+        $companyId = $request->input('company_id') ?: $this->actor()->company_id;
+        if (! $companyId) {
+            $companyId = Company::where('is_active', true)->value('id');
+        }
 
-        $this->authorizeCompanyId((int) $data['company_id']);
-        $branchId = $data['branch_id'] ?? ($this->locksBranch() ? $this->actor()->branch_id : null);
-
-        if ($branchId) {
-            $branch = Branch::query()->findOrFail($branchId);
-            abort_unless((int) $branch->company_id === (int) $data['company_id'], 403);
-            $this->authorizeBranch($branch);
-        } elseif ($this->locksBranch()) {
-            abort(403);
+        if ($companyId) {
+            $this->authorizeCompanyId((int) $companyId);
         }
 
         return response()->json($this->optionPayload(
-            $this->categoryChoices((int) $data['company_id'], $branchId ? (int) $branchId : null)
+            $this->categoryChoices($companyId ? (int) $companyId : null)
         ));
-    }
-
-    private function scopedCategories()
-    {
-        $query = $this->applyCompanyScope(Category::query());
-
-        if ($this->locksBranch()) {
-            $query->where(function ($query) {
-                $query->whereNull('branch_id')
-                    ->orWhere('branch_id', $this->actor()->branch_id);
-            });
-        }
-
-        return $query;
     }
 
     private function authorizeCategory(Category $category): void
     {
         $this->authorizeCompanyId((int) $category->company_id);
+    }
 
-        if ($this->locksBranch()) {
-            abort_unless((int) $category->branch_id === (int) $this->actor()->branch_id, 403);
+    private function resolveCompanyId(Request $request, ?Category $category = null): int
+    {
+        if ($this->actor()->company_id) {
+            return (int) $this->actor()->company_id;
         }
+
+        if ($category?->company_id) {
+            return (int) $category->company_id;
+        }
+
+        if ($request->filled('company_id')) {
+            return (int) $request->input('company_id');
+        }
+
+        $firstCompanyId = Company::query()->where('is_active', true)->value('id');
+        abort_unless($firstCompanyId, 422, 'No active company found to assign category.');
+
+        return (int) $firstCompanyId;
     }
 
     private function validateCategory(Request $request, ?Category $category = null): array
     {
-        $validated = $request->validate([
-            'company_id' => [
-                'required',
-                'integer',
-                Rule::exists('companies', 'id')->where(fn ($query) => $this->limitToActiveOrCurrent($query, $category?->company_id)),
-            ],
-            'branch_id' => [
-                'nullable',
-                'integer',
-                Rule::exists('branches', 'id')->where(function ($query) use ($request, $category) {
-                    $query->where('company_id', $request->input('company_id'));
-                    $this->limitToActiveOrCurrent($query, $category?->branch_id);
-                }),
-            ],
+        $companyId = (int) $request->input('company_id');
+
+        return $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'code' => [
                 'required',
                 'string',
                 'max:30',
                 'regex:/^[A-Za-z0-9_-]+$/',
-                Rule::unique('categories', 'code')->where('company_id', $request->input('company_id'))->ignore($category?->id),
+                Rule::unique('categories', 'code')
+                    ->where('company_id', $companyId)
+                    ->ignore($category?->id),
             ],
             'description' => ['nullable', 'string'],
             'display_order' => ['required', 'integer', 'min:0', 'max:9999'],
             'is_active' => ['required', 'boolean'],
         ]);
-
-        $validated['branch_id'] = $validated['branch_id'] ?? null;
-
-        return $validated;
-    }
-
-    private function locationChanged(Category $category, array $validated): bool
-    {
-        return (int) $category->company_id !== (int) $validated['company_id']
-            || (int) ($category->branch_id ?? 0) !== (int) ($validated['branch_id'] ?? 0);
     }
 }

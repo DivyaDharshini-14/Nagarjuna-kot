@@ -5,6 +5,7 @@ use App\Http\Controllers\BranchController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\CancellationRequestController;
 use App\Http\Controllers\CompanyController;
+use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\FloorController;
 use App\Http\Controllers\KdsController;
 use App\Http\Controllers\KitchenController;
@@ -35,6 +36,7 @@ Route::middleware('guest')->group(function () {
 });
 
 Route::middleware(['auth', 'account.active'])->group(function () {
+    Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::post('/broadcasting/auth', [BroadcastController::class, 'authenticate'])->name('web.broadcasting.auth');
     Route::view('/dashboard', 'dashboard')->name('dashboard');
     Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])->name('logout');
