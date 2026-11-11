@@ -4,6 +4,11 @@ class OrderItemProgress {
     required this.name,
     required this.quantity,
     required this.status,
+    this.cancellableQuantity = 0,
+    this.cancelledQuantity = 0,
+    this.pendingCancellationQuantity = 0,
+    this.canModify = false,
+    this.cancellations = const [],
     this.instructions,
   });
 
@@ -11,7 +16,38 @@ class OrderItemProgress {
   final String name;
   final int quantity;
   final String status;
+  final int cancellableQuantity;
+  final int cancelledQuantity;
+  final int pendingCancellationQuantity;
+  final bool canModify;
+  final List<ItemCancellationProgress> cancellations;
   final String? instructions;
+}
+
+class ItemCancellationProgress {
+  const ItemCancellationProgress({
+    required this.quantity,
+    required this.status,
+    required this.reason,
+    required this.stockReversedQuantity,
+    this.wastageQuantity = 0,
+    this.requestedAt,
+    this.decidedAt,
+    this.requestedBy,
+    this.decidedBy,
+    this.decisionNote,
+  });
+
+  final int quantity;
+  final String status;
+  final String reason;
+  final int stockReversedQuantity;
+  final int wastageQuantity;
+  final DateTime? requestedAt;
+  final DateTime? decidedAt;
+  final String? requestedBy;
+  final String? decidedBy;
+  final String? decisionNote;
 }
 
 class KitchenTicketProgress {

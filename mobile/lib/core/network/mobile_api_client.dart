@@ -50,6 +50,16 @@ class MobileApiClient {
     requestHeaders: requestHeaders,
   );
 
+  Future<Map<String, dynamic>> patch(
+    String path, {
+    Map<String, Object?> body = const {},
+  }) => _send('PATCH', path, body: body);
+
+  Future<Map<String, dynamic>> delete(
+    String path, {
+    Map<String, Object?> body = const {},
+  }) => _send('DELETE', path, body: body);
+
   Future<Map<String, dynamic>> _send(
     String method,
     String path, {
@@ -85,13 +95,19 @@ class MobileApiClient {
           'Release builds require an API address ending in /api/v1.',
         );
       }
-      if (baseUri.hasQuery || baseUri.hasFragment || baseUri.userInfo.isNotEmpty) {
+      if (baseUri.hasQuery ||
+          baseUri.hasFragment ||
+          baseUri.userInfo.isNotEmpty) {
         throw const ApiConfigurationException(
           'Release API addresses cannot contain credentials, query parameters, or fragments.',
         );
       }
-      if (const {'localhost', '127.0.0.1', '10.0.2.2', 'your_api_host'}
-              .contains(host) ||
+      if (const {
+            'localhost',
+            '127.0.0.1',
+            '10.0.2.2',
+            'your_api_host',
+          }.contains(host) ||
           host.endsWith('.example')) {
         throw const ApiConfigurationException(
           'Replace the local or placeholder API address before release.',

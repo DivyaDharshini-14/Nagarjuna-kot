@@ -21,6 +21,7 @@ class KitchenBoardScreen extends StatefulWidget {
     required this.onKitchenChanged,
     required this.onStatusChange,
     required this.onSignOut,
+    this.onStockControl,
   });
 
   final KitchenAccount account;
@@ -35,9 +36,10 @@ class KitchenBoardScreen extends StatefulWidget {
   final bool liveConfigured;
   final bool liveConnected;
   final Future<void> Function() onRefresh;
-  final Future<void> Function(KitchenStation kitchen) onKitchenChanged;
+  final Future<void> Function(KitchenStation? kitchen) onKitchenChanged;
   final Future<void> Function(KotTicket ticket, String status) onStatusChange;
   final Future<void> Function() onSignOut;
+  final VoidCallback? onStockControl;
 
   @override
   State<KitchenBoardScreen> createState() => _KitchenBoardScreenState();
@@ -84,7 +86,7 @@ class _KitchenBoardScreenState extends State<KitchenBoardScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    widget.selectedKitchen?.name ?? 'Kitchen stations',
+                    widget.selectedKitchen?.name ?? 'All assigned kitchens',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -109,6 +111,12 @@ class _KitchenBoardScreenState extends State<KitchenBoardScreen> {
           ],
         ),
         actions: [
+          if (widget.onStockControl != null)
+            IconButton(
+              tooltip: 'Prepared stock and availability',
+              onPressed: widget.onStockControl,
+              icon: const Icon(Icons.inventory_2_outlined),
+            ),
           IconButton(
             tooltip: 'Refresh tickets',
             onPressed: widget.isRefreshing ? null : widget.onRefresh,
@@ -266,12 +274,14 @@ class _KitchenBoardScreenState extends State<KitchenBoardScreen> {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                widget.selectedKitchen?.name ?? 'Kitchen station',
+                widget.selectedKitchen?.name ?? 'All assigned stations',
                 style: const TextStyle(fontWeight: FontWeight.w800),
               ),
             ),
-            const Text(
-              'ACTIVE STATION',
+            Text(
+              widget.selectedKitchen == null
+                  ? 'ALL ASSIGNED'
+                  : 'ACTIVE STATION',
               style: TextStyle(
                 color: KitchenColors.muted,
                 fontSize: 9,
@@ -301,32 +311,65 @@ class _KitchenBoardScreenState extends State<KitchenBoardScreen> {
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: Row(
-            children: widget.kitchens.map((kitchen) {
-              final selected = kitchen.id == widget.selectedKitchen?.id;
-              return Padding(
+            children: [
+              Padding(
                 padding: const EdgeInsets.only(right: 8),
                 child: ChoiceChip(
-                  selected: selected,
-                  label: Text(kitchen.name),
+                  selected: widget.selectedKitchen == null,
+                  label: const Text('All assigned'),
                   avatar: Icon(
-                    Icons.restaurant_rounded,
+                    Icons.restaurant_menu_rounded,
                     size: 16,
-                    color: selected ? Colors.white : KitchenColors.green,
+                    color: widget.selectedKitchen == null
+                        ? Colors.white
+                        : KitchenColors.green,
                   ),
-                  onSelected: (_) => widget.onKitchenChanged(kitchen),
+                  onSelected: (_) => widget.onKitchenChanged(null),
                   selectedColor: KitchenColors.green,
                   backgroundColor: KitchenColors.card,
                   labelStyle: TextStyle(
-                    color: selected ? Colors.white : KitchenColors.ink,
+                    color: widget.selectedKitchen == null
+                        ? Colors.white
+                        : KitchenColors.ink,
                     fontWeight: FontWeight.w700,
                   ),
                   side: BorderSide(
-                    color: selected ? KitchenColors.green : KitchenColors.line,
+                    color: widget.selectedKitchen == null
+                        ? KitchenColors.green
+                        : KitchenColors.line,
                   ),
                   showCheckmark: false,
                 ),
-              );
-            }).toList(),
+              ),
+              ...widget.kitchens.map((kitchen) {
+                final selected = kitchen.id == widget.selectedKitchen?.id;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: ChoiceChip(
+                    selected: selected,
+                    label: Text(kitchen.name),
+                    avatar: Icon(
+                      Icons.restaurant_rounded,
+                      size: 16,
+                      color: selected ? Colors.white : KitchenColors.green,
+                    ),
+                    onSelected: (_) => widget.onKitchenChanged(kitchen),
+                    selectedColor: KitchenColors.green,
+                    backgroundColor: KitchenColors.card,
+                    labelStyle: TextStyle(
+                      color: selected ? Colors.white : KitchenColors.ink,
+                      fontWeight: FontWeight.w700,
+                    ),
+                    side: BorderSide(
+                      color: selected
+                          ? KitchenColors.green
+                          : KitchenColors.line,
+                    ),
+                    showCheckmark: false,
+                  ),
+                );
+              }),
+            ],
           ),
         ),
       ],
@@ -378,7 +421,7 @@ class _KitchenBoardScreenState extends State<KitchenBoardScreen> {
     'New' => 'New kitchen orders will appear here automatically.',
     'Preparing' => 'Accepted tickets will show here when work begins.',
     'Ready' => 'Tickets marked ready will be shown in this queue.',
-    _ => 'There are no active KOT tickets for this kitchen station.',
+    _ => 'There are no active KOT tickets for your assigned kitchen stations.',
   };
 
   Future<void> _confirmSignOut(BuildContext context) async {
@@ -702,7 +745,7 @@ class _DishRow extends StatelessWidget {
             ),
             alignment: Alignment.center,
             child: Text(
-              '${dish.quantity}×',
+              '${dish.quantity - dish.cancelledQuantity}×',
               style: const TextStyle(
                 color: KitchenColors.ink,
                 fontSize: 12,
@@ -742,6 +785,17 @@ class _DishRow extends StatelessWidget {
                     fontWeight: FontWeight.w700,
                   ),
                 ),
+                if (dish.cancelledQuantity > 0) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    '${dish.cancelledQuantity} cancelled',
+                    style: const TextStyle(
+                      color: KitchenColors.red,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
                 if (dish.note != null && dish.note!.trim().isNotEmpty) ...[
                   const SizedBox(height: 3),
                   Text(

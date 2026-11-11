@@ -12,6 +12,7 @@ class KotItem extends Model
         'order_item_id',
         'menu_item_id',
         'quantity',
+        'cancelled_quantity',
         'special_instructions',
         'item_status',
     ];
@@ -20,6 +21,7 @@ class KotItem extends Model
     {
         return [
             'quantity' => 'integer',
+            'cancelled_quantity' => 'integer',
         ];
     }
 

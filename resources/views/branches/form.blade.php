@@ -21,6 +21,11 @@
     <textarea class="form-control" id="address" name="address" rows="3">{{ old('address', $branch?->address) }}</textarea>
 </div>
 @include('partials.checkbox', ['name' => 'is_active', 'label' => 'Active', 'checked' => $branch?->is_active ?? true])
+@include('partials.checkbox', [
+    'name' => 'cancellation_approval_required',
+    'label' => 'Require manager approval for all cancellations, including requests from approvers',
+    'checked' => $branch?->cancellation_approval_required ?? false,
+])
 <div class="d-flex gap-2">
     <button class="btn btn-primary">Save</button>
     <a href="{{ route('branches.index') }}" class="btn btn-outline-secondary">Cancel</a>

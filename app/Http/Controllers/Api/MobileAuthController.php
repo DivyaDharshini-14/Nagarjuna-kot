@@ -68,10 +68,7 @@ class MobileAuthController extends Controller
 
     private function canUseWaiterApp(User $user): bool
     {
-        return $user->canAuthenticate()
-            && $user->company_id !== null
-            && $user->branch_id !== null
-            && $user->isWaiter()
+        $hasOrderEntryAccess = $user->isWaiter()
             && $user->hasPermission('floor.view')
             && $user->hasPermission('table.view')
             && $user->hasPermission('category.view')
@@ -79,6 +76,13 @@ class MobileAuthController extends Controller
             && $user->hasPermission('menu-item.view')
             && $user->hasPermission('order.view')
             && $user->hasPermission('order.add');
+        $hasCancellationApprovalAccess = $user->hasPermission('order.view')
+            && $user->hasPermission('order.approve');
+
+        return $user->canAuthenticate()
+            && $user->company_id !== null
+            && $user->branch_id !== null
+            && ($hasOrderEntryAccess || $hasCancellationApprovalAccess);
     }
 
     private function userPayload(User $user): array

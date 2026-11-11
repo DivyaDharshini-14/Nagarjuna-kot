@@ -57,10 +57,11 @@ The user has also confirmed a separate kitchen mobile application as part of the
 
 - Added `GET /api/v1/mobile/orders/{id}`. Laravel scopes every lookup to the signed-in user's company and branch and requires the `order.view` permission.
 - Added an order-progress screen reachable after submitting an order and from an occupied table. It shows the order state, each dish state, kitchen tickets, and item notes.
-- The screen refreshes status every 12 seconds while foregrounded, refreshes when Android resumes the app, supports pull-to-refresh, preserves the last successful view during connection errors, and displays an in-app alert when an item changes to Ready.
+- Added waiter-side order completion. The action appears only when every ticket is ready or served, asks the waiter to confirm the table is clear, then completes the order and releases the table in a transaction.
+- The screen receives immediate refresh events over an authenticated private `orders.{id}` Reverb channel when the broadcaster is configured. It keeps 12-second foreground polling as a fallback, reconnects after Android resumes, supports pull-to-refresh, preserves the last successful view during connection errors, and displays an in-app alert when an item changes to Ready.
 - `order.view` is now part of mobile sign-in eligibility; the existing waiter and captain roles include this permission.
 - `dart analyze lib` reports no issues. PHP syntax checks and Laravel route registration pass; the Android Gradle debug build succeeds. A read-only emulator check loaded an existing order and its dish/KOT statuses; order submission, kitchen state transitions, and retry behavior still need manual UAT.
-- The kitchen mobile client now has a private Reverb subscription path. The waiter client still uses foreground polling; it has not yet been connected to a real-time channel, and background push remains pending.
+- The kitchen client uses its assigned private kitchen channel; the waiter client uses an order-scoped private channel. Background push remains pending.
 
 ## Phase 6 progress
 
@@ -68,7 +69,7 @@ The user has also confirmed a separate kitchen mobile application as part of the
 - Removed debug-key signing from the release build. Release signing now loads `mobile/android/key.properties` when the owner supplies it; Android's existing ignore rules exclude the key file and keystore from source control.
 - The API client rejects invalid base URLs, local/placeholder release hosts, and non-HTTPS release API addresses; menu image URLs must also use HTTPS in release mode. Plain HTTP remains enabled only by the debug Android manifest for local emulator use.
 - Reviewed the Android manifest: it requests network access only and disables app data backup; Sanctum tokens remain in `flutter_secure_storage`.
-- `dart analyze lib` reports no issues, and the waiter and kitchen Android debug APKs build. Release builds now fail closed unless each app has its owner-managed signing file and keystore; no signed production bundle can be built until those owner keys are supplied.
+- `flutter analyze` reports no issues for both apps, and the waiter and kitchen Android debug APKs build. Release builds fail closed unless each app has its owner-managed signing file, keystore, HTTPS API URL, and valid TLS Reverb settings; no signed production bundle can be built until those owner inputs are supplied.
 - Installed the updated debug app on the connected Android emulator. The branded icon appeared in the app drawer, the saved session restored, and the assigned branch/floor/table data loaded from Laravel. Tracking an existing occupied table also loaded its order, dish, and KOT status from the new endpoint. This was read-only; no order was submitted.
 - Floor/table and order-progress screens have had an emulator visual review. Release signing and the production API host remain owner/environment inputs; sign-in/menu/cart visual review and the full waiter UAT checklist remain pending.
 
@@ -107,9 +108,10 @@ The user has also confirmed a separate kitchen mobile application as part of the
 
 - Show each submitted item's New, Accepted, Preparing, Ready, Served, or Cancelled state.
 - Receive kitchen-ready updates in real time when the backend broadcaster is configured; refresh pending state safely after reconnect.
-- Acceptance: live updates do not create duplicate items or lose the current order view.
+- Let a waiter complete an order only after every kitchen ticket is Ready or Served; require confirmation that the guests have left and release the table in the same server transaction.
+- Acceptance: live updates do not create duplicate items or lose the current order view; completing an eligible order returns to the floor with that table Available, while an order with an active KOT remains open.
 
-Current implementation refreshes while the order-progress screen is in the foreground and immediately after app resume. A configured broadcaster is still required for WebSocket delivery and background notifications.
+Current implementation receives real-time status events while the order-progress screen is open when Reverb is configured, with foreground polling and app-resume refresh as fallbacks. Firebase Cloud Messaging delivers background Ready alerts when Firebase app registrations, server credentials, and a queue worker are configured.
 
 ### Phase 6 — Release readiness
 
@@ -123,12 +125,23 @@ The manual device checklist and release signing instructions are in `mobile/READ
 
 The sign-in, floor/table, menu, order submission/addition, and branch-scoped status retrieval slices are implemented. Production readiness still depends on:
 
-- Deploy and configure Reverb plus a queue worker for live kitchen updates. The development `.env` intentionally uses the log broadcaster; the waiter app currently refreshes order progress by foreground polling.
+- Deploy and configure Reverb plus a queue worker for live kitchen and waiter updates. The development `.env` intentionally uses the log broadcaster; both mobile clients retain polling fallbacks until Reverb is configured.
 - Supply the production HTTPS API host and owner-managed signing keys, then complete the manual UAT and release steps in [`mobile-production-readiness.md`](mobile-production-readiness.md).
 
-The mobile schema migrations are `database/migrations/2026_11_07_053308_create_personal_access_tokens_table.php`, `database/migrations/2026_11_08_090000_add_prepared_stock_quantity_to_menu_items_table.php`, and `database/migrations/2026_11_08_110000_create_mobile_api_idempotency_keys_table.php`. All three have been applied to the connected development database. Apply them through the project's normal Laravel deployment/migration procedure in other environments. Do not use a destructive migration reset on a database with project data.
+The mobile schema migrations include Sanctum tokens, prepared stock, idempotency, cancellations, the stock ledger, registered kitchen displays, and encrypted push-device tokens. They have been applied to the connected development database. Apply them through the project's normal Laravel deployment/migration procedure in other environments. Do not use a destructive migration reset on a database with project data.
 
 The mobile API base URL must point to the Laravel `/api/v1` root and is supplied with `--dart-define=API_BASE_URL=...`; see `mobile/README.md` for emulator/device examples.
+
+## Additional implemented workflows
+
+- Waiters can request item or full-order cancellation with a mandatory reason and select partial dish quantities. Authorized managers can review and approve/reject requests in either the waiter mobile app or web app; the mobile order history shows requester, decision-maker, decision note, timestamps, stock reversal, and wastage.
+- Branch managers can require a separate approver for every cancellation, including requests created by a user who has approval permission. The requester cannot approve their own request under that branch setting.
+- Waiters can update dish instructions while the KOT is still new or accepted. The update is sent to every linked KOT, and the kitchen display refreshes over Reverb or its polling fallback. Existing orders can still receive additional dishes through the separate additional-order flow.
+- Cancellation stock policy restores tracked portions only while the kitchen item is new or accepted. Preparation-started, ready, and served quantities are recorded as wastage with no stock return. The cancellation record retains both quantities for audit.
+- The stock ledger records opening balances, order deductions, cancellation reversals, wastage, damaged portions, manual corrections, and availability changes. Kitchen managers can perform stock and availability actions in the kitchen app.
+- Uncertain waiter submissions persist their draft and idempotency key in secure storage for recovery after app restart.
+
+Apply the cancellation/stock-ledger, registered-display, and mobile-device-token migrations, then seed updated roles/permissions in each environment. Reverb production setup, Firebase app/service-account configuration, separate upload signing keys, and cross-app staging UAT remain release prerequisites.
 
 Every endpoint must authorize the user's company and branch on the server. Flutter must not choose another branch by changing a request parameter. The final billing integration remains separate from mobile billing/payment behavior.
 

@@ -15,6 +15,8 @@ class FloorTableScreen extends StatefulWidget {
     required this.onSessionExpired,
     required this.onTableSelected,
     required this.onTrackOrder,
+    required this.canApproveCancellations,
+    required this.onOpenCancellationApprovals,
   });
 
   final FloorTableRepository repository;
@@ -22,6 +24,8 @@ class FloorTableScreen extends StatefulWidget {
   final Future<void> Function() onSessionExpired;
   final ValueChanged<RestaurantTable> onTableSelected;
   final ValueChanged<RestaurantTable> onTrackOrder;
+  final bool canApproveCancellations;
+  final VoidCallback onOpenCancellationApprovals;
 
   @override
   State<FloorTableScreen> createState() => _FloorTableScreenState();
@@ -141,6 +145,12 @@ class _FloorTableScreenState extends State<FloorTableScreen> {
           ),
         ),
         actions: [
+          if (widget.canApproveCancellations)
+            IconButton(
+              onPressed: widget.onOpenCancellationApprovals,
+              tooltip: 'Cancellation approvals',
+              icon: const Icon(Icons.fact_check_outlined),
+            ),
           IconButton(
             onPressed: _loadFloorTables,
             tooltip: 'Refresh table status',

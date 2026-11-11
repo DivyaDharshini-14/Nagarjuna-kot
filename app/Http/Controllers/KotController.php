@@ -53,7 +53,7 @@ class KotController extends Controller
         $this->authorizeKotAccess($kot);
 
         $validated = $request->validate([
-            'status' => ['required', 'string', 'in:new,accepted,preparing,ready,served,cancelled'],
+            'status' => ['required', 'string', 'in:new,accepted,preparing,ready,served'],
         ]);
 
         $this->orderService->updateKotTicketStatus($kot, $validated['status']);
@@ -65,13 +65,79 @@ class KotController extends Controller
     {
         $this->authorizeKitchenDisplay($kitchen);
 
+        return $this->renderDisplay($kitchen);
+    }
+
+    public function registeredDisplay(string $displayToken): View
+    {
+        return $this->renderDisplay($this->registeredKitchen($displayToken), $displayToken);
+    }
+
+    public function registeredDisplayBroadcastAuth(Request $request, string $displayToken): JsonResponse
+    {
+        $kitchen = $this->registeredKitchen($displayToken);
+        $validated = $request->validate([
+            'socket_id' => ['required', 'string', 'regex:/^\d+\.\d+$/', 'max:100'],
+            'channel_name' => ['required', 'string', 'max:150'],
+        ]);
+        $channelName = 'private-kitchens.'.$kitchen->id;
+        abort_unless(hash_equals($channelName, $validated['channel_name']), 403);
+
+        $key = (string) config('broadcasting.connections.reverb.key');
+        $secret = (string) config('broadcasting.connections.reverb.secret');
+        abort_if($key === '' || $secret === '', 503, 'Kitchen live updates are not configured.');
+        $signature = hash_hmac('sha256', $validated['socket_id'].':'.$channelName, $secret);
+
+        return response()->json(['auth' => $key.':'.$signature]);
+    }
+
+    public function registeredDisplayUpdateStatus(Request $request, string $displayToken, KotTicket $kot): RedirectResponse
+    {
+        $kitchen = $this->registeredKitchen($displayToken);
+        abort_unless((int) $kot->kitchen_id === (int) $kitchen->id, 404);
+        $validated = $request->validate([
+            'status' => ['required', 'string', 'in:accepted,preparing,ready,served'],
+        ]);
+        $allowedTransitions = [
+            'new' => ['accepted'],
+            'accepted' => ['preparing'],
+            'preparing' => ['ready'],
+            'ready' => ['served'],
+        ];
+        abort_unless(
+            $kot->ticket_status === $validated['status']
+                || in_array($validated['status'], $allowedTransitions[$kot->ticket_status] ?? [], true),
+            409,
+        );
+        $this->orderService->updateKotTicketStatus($kot, $validated['status']);
+
+        return redirect()->route('kds.registered-display', $displayToken);
+    }
+
+    private function renderDisplay(Kitchen $kitchen, ?string $displayToken = null): View
+    {
         $tickets = KotTicket::where('kitchen_id', $kitchen->id)
-            ->whereIn('ticket_status', ['new', 'accepted', 'preparing', 'ready'])
-            ->with(['order.table', 'order.waiter', 'items.menuItem'])
-            ->latest()
+            ->where(function ($query) {
+                $query->whereIn('ticket_status', ['new', 'accepted', 'preparing', 'ready'])
+                    ->orWhere(fn ($cancelled) => $cancelled
+                        ->where('ticket_status', 'cancelled')
+                        ->where('updated_at', '>=', now()->subMinutes(15)));
+            })
+            ->with(['order.table', 'order.waiter', 'items.menuItem', 'items.orderItem.cancellations'])
+            ->orderBy('created_at')
             ->get();
 
-        return view('kots.display', compact('kitchen', 'tickets'));
+        return view('kots.display', compact('kitchen', 'tickets', 'displayToken'));
+    }
+
+    private function registeredKitchen(string $displayToken): Kitchen
+    {
+        return Kitchen::query()
+            ->where('display_token_hash', hash('sha256', $displayToken))
+            ->where('is_active', true)
+            ->whereHas('company', fn ($query) => $query->where('is_active', true))
+            ->whereHas('branch', fn ($query) => $query->where('is_active', true))
+            ->firstOrFail();
     }
 
     protected function authorizeKotAccess(KotTicket $kot): void
