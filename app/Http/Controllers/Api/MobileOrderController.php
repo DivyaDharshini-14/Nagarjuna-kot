@@ -3,8 +3,11 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Branch;
+use App\Models\ItemCancellation;
 use App\Models\MobileApiIdempotencyKey;
 use App\Models\Order;
+use App\Models\OrderItem;
 use App\Models\User;
 use App\Services\OrderService;
 use Closure;
@@ -122,6 +125,188 @@ class MobileOrderController extends Controller
         ], Response::HTTP_OK);
     }
 
+    public function updateItemInstructions(Request $request, int $orderId, int $itemId): JsonResponse
+    {
+        $validated = $request->validate([
+            'special_instructions' => ['present', 'nullable', 'string', 'max:255'],
+        ]);
+
+        /** @var User $user */
+        $user = $request->user();
+        abort_unless($user->company_id && $user->branch_id, 403, 'No branch is assigned to this account.');
+        $order = Order::query()
+            ->whereKey($orderId)
+            ->where('company_id', $user->company_id)
+            ->where('branch_id', $user->branch_id)
+            ->firstOrFail();
+        $item = OrderItem::query()
+            ->where('order_id', $order->id)
+            ->whereKey($itemId)
+            ->firstOrFail();
+
+        $updatedOrder = $this->orders->updateItemInstructions(
+            $order,
+            $item,
+            $validated['special_instructions'],
+            $user,
+        );
+
+        return response()->json([
+            'message' => 'Dish instructions updated and sent to the kitchen.',
+            'data' => ['order' => $this->orderPayload($updatedOrder)],
+        ]);
+    }
+
+    public function complete(Request $request, int $orderId): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+        abort_unless($user->company_id && $user->branch_id, 403, 'No branch is assigned to this account.');
+
+        $order = Order::query()
+            ->whereKey($orderId)
+            ->where('company_id', $user->company_id)
+            ->where('branch_id', $user->branch_id)
+            ->firstOrFail();
+
+        $completedOrder = $this->orders->completeMobileOrder($order);
+
+        return response()->json([
+            'message' => 'Order completed and table released.',
+            'data' => [
+                'order' => $this->orderPayload($completedOrder),
+            ],
+        ]);
+    }
+
+    public function cancelItems(Request $request, int $orderId): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+        abort_unless($user->hasPermission('order.cancel'), Response::HTTP_FORBIDDEN, 'You are not allowed to request order cancellations.');
+        abort_unless($user->company_id && $user->branch_id, Response::HTTP_FORBIDDEN, 'No branch is assigned to this account.');
+
+        $validated = $request->validate([
+            'reason' => ['required', 'string', 'min:3', 'max:500'],
+            'cancel_all' => ['sometimes', 'boolean'],
+            'items' => ['required_unless:cancel_all,true', 'array', 'min:1', 'max:100'],
+            'items.*.order_item_id' => ['required_with:items', 'integer', 'min:1'],
+            'items.*.quantity' => ['required_with:items', 'integer', 'min:1', 'max:99'],
+        ]);
+
+        $order = Order::query()
+            ->whereKey($orderId)
+            ->where('company_id', $user->company_id)
+            ->where('branch_id', $user->branch_id)
+            ->firstOrFail();
+
+        [$batch, $cancellations] = $this->orders->requestItemCancellations(
+            $order,
+            $validated['items'] ?? [],
+            trim($validated['reason']),
+            (bool) ($validated['cancel_all'] ?? false),
+            $user,
+        );
+
+        $freshOrder = $order->fresh();
+        $approved = $cancellations->every(fn (ItemCancellation $cancellation) => $cancellation->status === 'approved');
+        return response()->json([
+            'message' => $approved
+                ? 'Cancellation approved and applied.'
+                : 'Cancellation request sent for manager approval.',
+            'data' => [
+                'request_batch' => $batch,
+                'cancellations' => $cancellations->map(fn ($cancellation) => [
+                    'order_item_id' => $cancellation->order_item_id,
+                    'quantity' => $cancellation->quantity,
+                    'status' => $cancellation->status,
+                    'reason' => $cancellation->reason,
+                ])->values(),
+                'order' => $this->orderPayload($freshOrder),
+            ],
+        ], $approved ? Response::HTTP_OK : Response::HTTP_ACCEPTED);
+    }
+
+    public function pendingCancellations(Request $request): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+        abort_unless($user->hasPermission('order.approve'), Response::HTTP_FORBIDDEN, 'You are not allowed to approve cancellations.');
+        abort_unless($user->company_id && $user->branch_id, Response::HTTP_FORBIDDEN, 'No branch is assigned to this account.');
+
+        $approvalRequired = (bool) Branch::query()
+            ->whereKey($user->branch_id)
+            ->value('cancellation_approval_required');
+        $requests = ItemCancellation::query()
+            ->where('company_id', $user->company_id)
+            ->where('branch_id', $user->branch_id)
+            ->where('status', 'pending')
+            ->with([
+                'order:id,order_number,table_id,waiter_id',
+                'order.table:id,name',
+                'order.waiter:id,name',
+                'orderItem:id,menu_item_id',
+                'orderItem.menuItem:id,name',
+                'requester:id,name',
+            ])
+            ->orderBy('created_at')
+            ->get()
+            ->groupBy('request_batch')
+            ->map(function ($lines, $batch) use ($user, $approvalRequired) {
+                $first = $lines->first();
+                return [
+                    'batch' => (string) $batch,
+                    'order_id' => $first->order_id,
+                    'order_number' => $first->order?->order_number ?? 'Order',
+                    'table_name' => $first->order?->table?->name ?? '—',
+                    'requested_by' => $first->requester?->name ?? 'Staff',
+                    'can_approve' => ! $approvalRequired || (int) $first->requested_by !== (int) $user->id,
+                    'requested_at' => $first->created_at?->toIso8601String(),
+                    'items' => $lines->map(fn (ItemCancellation $line) => [
+                        'name' => $line->orderItem?->menuItem?->name ?? 'Dish',
+                        'quantity' => (int) $line->quantity,
+                        'reason' => $line->reason,
+                    ])->values(),
+                ];
+            })
+            ->values();
+
+        return response()->json(['data' => ['requests' => $requests]]);
+    }
+
+    public function approveCancellation(Request $request, string $batch): JsonResponse
+    {
+        $user = $request->user();
+        $this->assertPendingCancellationBatchScope($user, $batch);
+        $this->orders->decideCancellationBatch($batch, $user, true);
+
+        return response()->json(['message' => 'Cancellation approved and sent to the kitchen.']);
+    }
+
+    public function rejectCancellation(Request $request, string $batch): JsonResponse
+    {
+        $validated = $request->validate([
+            'decision_note' => ['required', 'string', 'min:3', 'max:500'],
+        ]);
+        $user = $request->user();
+        $this->assertPendingCancellationBatchScope($user, $batch);
+        $this->orders->decideCancellationBatch($batch, $user, false, trim($validated['decision_note']));
+
+        return response()->json(['message' => 'Cancellation request rejected.']);
+    }
+
+    private function assertPendingCancellationBatchScope(User $user, string $batch): void
+    {
+        abort_unless($user->hasPermission('order.approve'), Response::HTTP_FORBIDDEN, 'You are not allowed to decide cancellations.');
+        abort_unless($user->company_id && $user->branch_id, Response::HTTP_FORBIDDEN, 'No branch is assigned to this account.');
+        abort_unless(ItemCancellation::query()
+            ->where('request_batch', $batch)
+            ->where('company_id', $user->company_id)
+            ->where('branch_id', $user->branch_id)
+            ->where('status', 'pending')
+            ->exists(), 404);
+    }
+
     private function validatedIdempotencyKey(Request $request): string
     {
         $validated = Validator::make(
@@ -209,6 +394,10 @@ class MobileOrderController extends Controller
         $order->loadMissing([
             'table:id,name',
             'items.menuItem:id,name',
+            'items.kotItems:id,order_item_id,item_status',
+            'items.cancellations:id,order_item_id,quantity,status,reason,requested_by,decided_by,decided_at,decision_note,stock_reversed,stock_reversed_quantity,wastage_quantity,created_at',
+            'items.cancellations.requester:id,name',
+            'items.cancellations.decider:id,name',
             'kotTickets.kitchen:id,name',
             'kotTickets.items.menuItem:id,name',
         ]);
@@ -230,10 +419,30 @@ class MobileOrderController extends Controller
                 'menu_item_id' => $item->menu_item_id,
                 'name' => $item->menuItem?->name,
                 'quantity' => $item->quantity,
+                'cancelled_quantity' => $item->cancelled_quantity,
+                'pending_cancellation_quantity' => $item->cancellations->where('status', 'pending')->sum('quantity'),
+                'cancellable_quantity' => max(0, $item->quantity - $item->cancelled_quantity - $item->cancellations->where('status', 'pending')->sum('quantity')),
+                'can_modify' => ! in_array($order->status, ['completed', 'cancelled'], true)
+                    && $item->cancelled_quantity < $item->quantity
+                    && $item->cancellations->where('status', 'pending')->isEmpty()
+                    && $item->kotItems->isNotEmpty()
+                    && $item->kotItems->every(fn ($kotItem) => in_array(strtolower((string) $kotItem->item_status), ['new', 'accepted'], true)),
                 'unit_price' => (string) $item->unit_price,
                 'total_price' => (string) $item->total_price,
                 'special_instructions' => $item->special_instructions,
                 'status' => $item->status,
+                'cancellations' => $item->cancellations->map(fn ($cancellation) => [
+                    'quantity' => $cancellation->quantity,
+                    'status' => $cancellation->status,
+                    'reason' => $cancellation->reason,
+                    'decision_note' => $cancellation->decision_note,
+                    'stock_reversed_quantity' => $cancellation->stock_reversed_quantity,
+                    'wastage_quantity' => $cancellation->wastage_quantity,
+                    'requested_at' => $cancellation->created_at?->toIso8601String(),
+                    'decided_at' => $cancellation->decided_at?->toIso8601String(),
+                    'requested_by' => $cancellation->requester?->name,
+                    'decided_by' => $cancellation->decider?->name,
+                ])->values(),
             ])->values(),
             'kot_tickets' => $order->kotTickets->map(fn ($ticket) => [
                 'id' => $ticket->id,

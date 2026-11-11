@@ -78,8 +78,13 @@ class MenuCategory {
 }
 
 class MenuSnapshot {
-  const MenuSnapshot({required this.branchName, required this.categories});
+  const MenuSnapshot({
+    required this.branchId,
+    required this.branchName,
+    required this.categories,
+  });
 
+  final int branchId;
   final String branchName;
   final List<MenuCategory> categories;
 

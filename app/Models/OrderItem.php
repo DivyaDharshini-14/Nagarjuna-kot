@@ -15,6 +15,7 @@ class OrderItem extends Model
         'order_id',
         'menu_item_id',
         'quantity',
+        'cancelled_quantity',
         'unit_price',
         'total_price',
         'special_instructions',
@@ -25,6 +26,7 @@ class OrderItem extends Model
     {
         return [
             'quantity' => 'integer',
+            'cancelled_quantity' => 'integer',
             'unit_price' => 'decimal:2',
             'total_price' => 'decimal:2',
         ];
@@ -43,6 +45,11 @@ class OrderItem extends Model
     public function kotItems(): HasMany
     {
         return $this->hasMany(KotItem::class);
+    }
+
+    public function cancellations(): HasMany
+    {
+        return $this->hasMany(ItemCancellation::class);
     }
 }
 

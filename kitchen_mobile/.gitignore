@@ -9,6 +9,7 @@
 /android/.kotlin/
 /android/local.properties
 /android/key.properties
+/android/app/google-services.json
 /android/*.iml
 /ios/Flutter/.last_build_id
 /ios/Flutter/Generated.xcconfig

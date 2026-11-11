@@ -32,6 +32,11 @@ class KitchenApiClient {
     required Map<String, Object?> body,
   }) => _send('PATCH', path, body: body);
 
+  Future<Map<String, dynamic>> delete(
+    String path, {
+    Map<String, Object?> body = const {},
+  }) => _send('DELETE', path, body: body);
+
   Future<Map<String, dynamic>> _send(
     String method,
     String path, {
@@ -70,8 +75,12 @@ class KitchenApiClient {
           'Release API addresses cannot contain credentials, query parameters, or fragments.',
         );
       }
-      if (const {'localhost', '127.0.0.1', '10.0.2.2', 'your_api_host'}
-              .contains(host) ||
+      if (const {
+            'localhost',
+            '127.0.0.1',
+            '10.0.2.2',
+            'your_api_host',
+          }.contains(host) ||
           host.endsWith('.example')) {
         throw const KitchenApiConfigurationException(
           'Replace the local or placeholder API address before release.',

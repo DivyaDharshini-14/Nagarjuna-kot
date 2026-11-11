@@ -53,3 +53,11 @@ Status: the Android app, API, assignments, and migrations are implemented. The a
 Production deployment and manual cross-app acceptance gates are documented in [`mobile-production-readiness.md`](mobile-production-readiness.md).
 
 The current code supports authenticated WebSocket delivery when Reverb is configured. The local `.env` still uses the log broadcaster; production TLS, queue operations, live KOT UAT, and background notifications remain unfinished.
+
+## Additional implemented workflows
+
+- Permission-scoped kitchen stock screen for mapped dishes: stock-in, wastage, damaged portions, manual corrections, availability changes, and transaction history. Changes require a reason, and the server blocks negative balances.
+- Approved waiter cancellations update KOT quantities and display; prepared stock returns only for portions whose KOT work has not started.
+- Browser KDS uses Reverb for live updates, offers an operator-enabled sound alert, shows elapsed waiting and connection state, reconnects, and refreshes every 15 seconds while disconnected. Kitchen editors can register, rotate, or revoke a kitchen-scoped TV URL.
+
+These flows still need staging UAT alongside production API/Reverb hosting, signing keys, and the target-device release checks.

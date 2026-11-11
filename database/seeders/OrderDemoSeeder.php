@@ -183,14 +183,20 @@ class OrderDemoSeeder extends Seeder
             );
         }
 
+        // These development accounts demonstrate every KOT source in the branch,
+        // including legacy stations that predate this demo seeder. Production
+        // staff assignments remain explicitly managed per kitchen station.
+        $branchKitchenIds = Kitchen::query()
+            ->where('company_id', $company->id)
+            ->where('branch_id', $branch->id)
+            ->where('is_active', true)
+            ->pluck('id')
+            ->all();
+
         User::query()->where('email', 'nagarjuna.kitchen@gmail.com')
-            ->first()?->kitchens()->syncWithoutDetaching([$biryaniKitchen->id]);
+            ->first()?->kitchens()->syncWithoutDetaching($branchKitchenIds);
         User::query()->where('email', 'kitchen@nagarjuna.com')
-            ->first()?->kitchens()->syncWithoutDetaching([
-                $biryaniKitchen->id,
-                $chineseKitchen->id,
-                $startersKitchen->id,
-            ]);
+            ->first()?->kitchens()->syncWithoutDetaching($branchKitchenIds);
     }
 }
 

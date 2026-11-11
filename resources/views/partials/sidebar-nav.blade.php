@@ -51,6 +51,14 @@
                 </li>
             @endif
 
+            @if(auth()->user()->hasPermission('order.approve'))
+                <li class="nav-item">
+                    <a class="nav-link {{ request()->routeIs('cancellations.*') ? 'active' : '' }}" href="{{ route('cancellations.index') }}">
+                        <i class="bi bi-exclamation-octagon"></i> Cancellation Requests
+                    </a>
+                </li>
+            @endif
+
             @if(!auth()->user()->isWaiter() && auth()->user()->hasPermission('kot.view'))
                 <li class="nav-item">
                     <a class="nav-link {{ request()->routeIs('kds.*') ? 'active' : '' }}" href="{{ route('kds.index') }}">
