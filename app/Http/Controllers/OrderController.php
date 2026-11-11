@@ -163,7 +163,7 @@ class OrderController extends Controller
         $this->authorizeOrderAccess($order);
 
         $validated = $request->validate([
-            'status' => ['required', 'string', 'in:pending,confirmed,preparing,ready,served,completed,cancelled'],
+            'status' => ['required', 'string', 'in:pending,confirmed,preparing,ready,served,completed'],
         ]);
 
         $this->orderService->updateOrderStatus($order, $validated['status']);

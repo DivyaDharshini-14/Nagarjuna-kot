@@ -16,12 +16,22 @@ class KotTicketChanged implements ShouldBroadcast, ShouldDispatchAfterCommit
     public function __construct(
         public readonly int $ticketId,
         public readonly int $kitchenId,
+        public readonly int $orderId,
         public readonly string $changeType,
+        public readonly ?string $status = null,
     ) {}
 
     public function broadcastOn(): array
     {
-        return [new PrivateChannel('kitchens.'.$this->kitchenId)];
+        $channels = [new PrivateChannel('kitchens.'.$this->kitchenId)];
+
+        // Queued events created before order-scoped waiter broadcasts were added
+        // do not have an orderId property when Laravel unserializes them.
+        if (isset($this->orderId)) {
+            $channels[] = new PrivateChannel('orders.'.$this->orderId);
+        }
+
+        return $channels;
     }
 
     public function broadcastAs(): string
@@ -34,7 +44,9 @@ class KotTicketChanged implements ShouldBroadcast, ShouldDispatchAfterCommit
         return [
             'ticket_id' => $this->ticketId,
             'kitchen_id' => $this->kitchenId,
+            'order_id' => isset($this->orderId) ? $this->orderId : null,
             'change_type' => $this->changeType,
+            'status' => $this->status,
         ];
     }
 }

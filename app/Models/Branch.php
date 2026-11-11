@@ -19,12 +19,14 @@ class Branch extends Model
         'phone',
         'address',
         'is_active',
+        'cancellation_approval_required',
     ];
 
     protected function casts(): array
     {
         return [
             'is_active' => 'boolean',
+            'cancellation_approval_required' => 'boolean',
         ];
     }
 

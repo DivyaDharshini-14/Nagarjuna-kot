@@ -2,18 +2,26 @@ import java.io.FileInputStream
 import java.net.URI
 import java.util.Properties
 import java.util.Base64
+import java.security.MessageDigest
 
 val encodedDartDefines = project.findProperty("dart-defines") as? String
-val configuredApiBaseUrl = encodedDartDefines
+val decodedDartDefines = encodedDartDefines
     ?.split(",")
     ?.mapNotNull { encoded ->
         runCatching {
             String(Base64.getDecoder().decode(encoded), Charsets.UTF_8)
         }.getOrNull()
     }
-    ?.firstOrNull { it.startsWith("API_BASE_URL=") }
+fun configuredDartDefine(name: String): String? = decodedDartDefines
+    ?.firstOrNull { it.startsWith("$name=") }
     ?.substringAfter("=")
     ?.trim()
+
+val configuredApiBaseUrl = configuredDartDefine("API_BASE_URL")
+val configuredReverbAppKey = configuredDartDefine("REVERB_APP_KEY")
+val configuredReverbHost = configuredDartDefine("REVERB_HOST")
+val configuredReverbPort = configuredDartDefine("REVERB_PORT")
+val configuredReverbScheme = configuredDartDefine("REVERB_SCHEME")
 
 val releaseKeyPropertiesFile = rootProject.file("key.properties")
 val releaseKeyProperties = Properties()
@@ -25,6 +33,7 @@ if (releaseKeyPropertiesFile.exists()) {
 val releaseBuildRequested = gradle.startParameter.taskNames.any {
     it.contains("release", ignoreCase = true)
 }
+val googleServicesFile = project.file("google-services.json")
 if (releaseBuildRequested) {
     if (!releaseKeyPropertiesFile.isFile) {
         throw GradleException(
@@ -45,6 +54,33 @@ if (releaseBuildRequested) {
     val keystoreFile = file(releaseKeyProperties.getProperty("storeFile").trim())
     if (!keystoreFile.isFile) {
         throw GradleException("Release keystore file does not exist: ${keystoreFile.path}")
+    }
+    val siblingAndroidRoot = rootProject.projectDir.parentFile.parentFile
+        .resolve("kitchen_mobile/android")
+    val siblingKeyPropertiesFile = siblingAndroidRoot.resolve("key.properties")
+    if (siblingKeyPropertiesFile.isFile) {
+        val siblingProperties = Properties()
+        siblingKeyPropertiesFile.inputStream().use { siblingProperties.load(it) }
+        val siblingStoreFile = siblingProperties.getProperty("storeFile")?.trim()
+        if (!siblingStoreFile.isNullOrEmpty()) {
+            val siblingKeystore = siblingAndroidRoot.resolve("app")
+                .resolve(siblingStoreFile).canonicalFile
+            if (siblingKeystore.isFile) {
+                val digest = MessageDigest.getInstance("SHA-256")
+                val currentFingerprint = digest.digest(keystoreFile.canonicalFile.readBytes())
+                val siblingFingerprint = digest.digest(siblingKeystore.readBytes())
+                if (currentFingerprint.contentEquals(siblingFingerprint)) {
+                    throw GradleException(
+                        "Waiter and kitchen release builds must use separate upload keystores.",
+                    )
+                }
+            }
+        }
+    }
+    if (!googleServicesFile.isFile) {
+        throw GradleException(
+            "Release builds require mobile/android/app/google-services.json for the waiter Firebase app.",
+        )
     }
 
     val apiUri = configuredApiBaseUrl?.let { runCatching { URI(it) }.getOrNull() }
@@ -68,12 +104,36 @@ if (releaseBuildRequested) {
             "Release builds require a real HTTPS API_BASE_URL ending in /api/v1; local and placeholder hosts are not allowed.",
         )
     }
+
+    val reverbHost = configuredReverbHost?.lowercase().takeUnless { it.isNullOrBlank() } ?: apiHost
+    val reverbScheme = configuredReverbScheme?.lowercase().takeUnless { it.isNullOrBlank() } ?: "https"
+    val reverbPort = configuredReverbPort?.toIntOrNull() ?: 443
+    val invalidReverbHost = reverbHost == null || reverbHost in setOf(
+        "localhost",
+        "127.0.0.1",
+        "10.0.2.2",
+        "your_api_host",
+    ) || reverbHost.endsWith(".example")
+    if (
+        configuredReverbAppKey.isNullOrBlank()
+        || invalidReverbHost
+        || reverbScheme != "https"
+        || reverbPort !in 1..65535
+    ) {
+        throw GradleException(
+            "Release builds require a public Reverb app key and a real TLS/WSS Reverb host and port.",
+        )
+    }
 }
 
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+if (googleServicesFile.isFile) {
+    apply(plugin = "com.google.gms.google-services")
 }
 
 android {

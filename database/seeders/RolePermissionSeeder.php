@@ -24,12 +24,14 @@ class RolePermissionSeeder extends Seeder
             'user.view', 'user.add', 'user.edit',
             'order.view', 'order.add', 'order.edit', 'order.cancel', 'order.approve',
             'kot.view', 'kot.edit',
+            'menu-item.stock-adjustment',
         ])->pluck('id')->toArray();
 
         $waiterPermissions = Permission::whereIn('slug', [
             'order.view',
             'order.add',
             'order.edit',
+            'order.cancel',
             'table.view',
             'floor.view',
             'category.view',
@@ -41,7 +43,13 @@ class RolePermissionSeeder extends Seeder
             'kitchen.view',
             'kot.view',
             'kot.edit',
+            'menu-item.view',
         ])->pluck('id')->toArray();
+
+        $kitchenManagerPermissions = array_values(array_unique(array_merge(
+            $kitchenStaffPermissions,
+            Permission::whereIn('slug', ['menu-item.stock-adjustment'])->pluck('id')->toArray(),
+        )));
 
         $permissions = [
             // Admin – full access including managing roles and permissions
@@ -63,7 +71,7 @@ class RolePermissionSeeder extends Seeder
             'captain-waiter' => $waiterPermissions,
 
             // Kitchen Staff – kitchen display & KOT status actions
-            'kitchen-manager' => $kitchenStaffPermissions,
+            'kitchen-manager' => $kitchenManagerPermissions,
             'kitchen-staff' => $kitchenStaffPermissions,
 
             // Restaurant Manager – view access

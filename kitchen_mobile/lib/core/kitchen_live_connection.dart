@@ -28,7 +28,8 @@ class KitchenLiveConnection {
   Timer? _reconnectTimer;
   int _generation = 0;
   int _retryCount = 0;
-  int? _kitchenId;
+  List<int> _kitchenIds = const [];
+  final Set<int> _subscribedKitchenIds = {};
   bool _disposed = false;
   bool _connected = false;
   bool _reconnectEnabled = false;
@@ -42,7 +43,7 @@ class KitchenLiveConnection {
   bool get isConnected => _connected;
 
   void connect({
-    required int kitchenId,
+    required List<int> kitchenIds,
     required void Function(bool connected) onConnectionChanged,
     required VoidCallback onTicketChanged,
   }) {
@@ -50,7 +51,8 @@ class KitchenLiveConnection {
     _disposed = false;
     _reconnectEnabled = true;
     _generation++;
-    _kitchenId = kitchenId;
+    _kitchenIds = kitchenIds.toSet().toList(growable: false);
+    _subscribedKitchenIds.clear();
     _retryCount = 0;
     _onConnectionChanged = onConnectionChanged;
     _onTicketChanged = onTicketChanged;
@@ -106,10 +108,18 @@ class KitchenLiveConnection {
         _send({'event': 'pusher:pong', 'data': {}});
       } else if (event == 'pusher_internal:subscription_succeeded' ||
           event == 'pusher:subscription_succeeded') {
-        _retryCount = 0;
-        _setConnected(true);
+        final channel = message['channel'] as String?;
+        final subscribedKitchenId = _kitchenIdForChannel(channel);
+        if (subscribedKitchenId != null) {
+          _subscribedKitchenIds.add(subscribedKitchenId);
+          if (_subscribedKitchenIds.length == _kitchenIds.length) {
+            _retryCount = 0;
+            _setConnected(true);
+          }
+        }
       } else if (event == 'kot.ticket.created' ||
-          event == 'kot.ticket.updated') {
+          event == 'kot.ticket.updated' ||
+          event == 'kot.ticket.cancelled') {
         _onTicketChanged?.call();
       } else if (event == 'pusher:error') {
         _setConnected(false);
@@ -121,8 +131,7 @@ class KitchenLiveConnection {
   }
 
   Future<void> _authorizeAndSubscribe(String socketId, int generation) async {
-    final kitchenId = _kitchenId;
-    if (kitchenId == null || generation != _generation) return;
+    if (_kitchenIds.isEmpty || generation != _generation) return;
     final token = await readToken();
     if (token == null || token.isEmpty) {
       await _socket?.close();
@@ -131,42 +140,52 @@ class KitchenLiveConnection {
 
     final apiUri = Uri.parse(apiBaseUrl.trim())
         .replace(path: '/api/broadcasting/auth', query: null, fragment: null);
-    final channelName = 'private-kitchens.$kitchenId';
     try {
-      final response = await _httpClient
-          .post(
-            apiUri,
-            headers: {
-              'Accept': 'application/json',
-              'Authorization': 'Bearer $token',
-              'Content-Type': 'application/x-www-form-urlencoded',
-            },
-            body: {'socket_id': socketId, 'channel_name': channelName},
-          )
-          .timeout(const Duration(seconds: 12));
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        _setConnected(false);
-        if (response.statusCode == 401 || response.statusCode == 403) {
-          _reconnectEnabled = false;
+      for (final kitchenId in _kitchenIds) {
+        if (generation != _generation) return;
+        final channelName = 'private-kitchens.$kitchenId';
+        final response = await _httpClient
+            .post(
+              apiUri,
+              headers: {
+                'Accept': 'application/json',
+                'Authorization': 'Bearer $token',
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+              body: {'socket_id': socketId, 'channel_name': channelName},
+            )
+            .timeout(const Duration(seconds: 12));
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          _setConnected(false);
+          if (response.statusCode == 401 || response.statusCode == 403) {
+            _reconnectEnabled = false;
+          }
+          await _socket?.close();
+          return;
         }
-        await _socket?.close();
-        return;
+        final authorization =
+            (jsonDecode(response.body) as Map<String, dynamic>)['auth']
+                as String?;
+        if (authorization == null || generation != _generation) {
+          await _socket?.close();
+          return;
+        }
+        _send({
+          'event': 'pusher:subscribe',
+          'data': {'auth': authorization, 'channel': channelName},
+        });
       }
-      final authorization =
-          (jsonDecode(response.body) as Map<String, dynamic>)['auth']
-              as String?;
-      if (authorization == null || generation != _generation) {
-        await _socket?.close();
-        return;
-      }
-      _send({
-        'event': 'pusher:subscribe',
-        'data': {'auth': authorization, 'channel': channelName},
-      });
     } on Object {
       _setConnected(false);
       await _socket?.close();
     }
+  }
+
+  int? _kitchenIdForChannel(String? channel) {
+    if (channel == null || !channel.startsWith('private-kitchens.')) {
+      return null;
+    }
+    return int.tryParse(channel.substring('private-kitchens.'.length));
   }
 
   Map<String, dynamic> _decodeData(Object? value) {
@@ -188,6 +207,7 @@ class KitchenLiveConnection {
     if (_disposed || generation != _generation) return;
     _socket = null;
     _subscription = null;
+    _subscribedKitchenIds.clear();
     _setConnected(false);
     if (!_reconnectEnabled) return;
     _reconnectTimer?.cancel();

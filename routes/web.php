@@ -3,6 +3,7 @@
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\BranchController;
 use App\Http\Controllers\CategoryController;
+use App\Http\Controllers\CancellationRequestController;
 use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\FloorController;
@@ -17,10 +18,17 @@ use App\Http\Controllers\RestaurantTableController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Broadcasting\BroadcastController;
 
 Route::get('/', function () {
     return redirect()->route('dashboard');
 });
+
+Route::get('/kds/{displayToken}', [KotController::class, 'registeredDisplay'])->name('kds.registered-display')->where('displayToken', '[A-Za-z0-9]{64}');
+Route::post('/kds/{displayToken}/broadcasting/auth', [KotController::class, 'registeredDisplayBroadcastAuth'])
+    ->middleware('throttle:30,1')->name('kds.broadcasting.auth')->where('displayToken', '[A-Za-z0-9]{64}');
+Route::patch('/kds/{displayToken}/tickets/{kot}/status', [KotController::class, 'registeredDisplayUpdateStatus'])
+    ->name('kds.registered-status')->where('displayToken', '[A-Za-z0-9]{64}');
 
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthenticatedSessionController::class, 'create'])->name('login');
@@ -29,6 +37,8 @@ Route::middleware('guest')->group(function () {
 
 Route::middleware(['auth', 'account.active'])->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+    Route::post('/broadcasting/auth', [BroadcastController::class, 'authenticate'])->name('web.broadcasting.auth');
+    Route::view('/dashboard', 'dashboard')->name('dashboard');
     Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])->name('logout');
 
     Route::get('/companies', [CompanyController::class, 'index'])->name('companies.index')->middleware('permission:company.view');
@@ -52,6 +62,8 @@ Route::middleware(['auth', 'account.active'])->group(function () {
     Route::post('/kitchens', [KitchenController::class, 'store'])->name('kitchens.store')->middleware('permission:kitchen.add');
     Route::get('/kitchens/{kitchen}/edit', [KitchenController::class, 'edit'])->name('kitchens.edit')->middleware('permission:kitchen.edit');
     Route::put('/kitchens/{kitchen}', [KitchenController::class, 'update'])->name('kitchens.update')->middleware('permission:kitchen.edit');
+    Route::post('/kitchens/{kitchen}/display-registration', [KitchenController::class, 'registerDisplay'])->name('kitchens.display-register')->middleware('permission:kitchen.edit');
+    Route::delete('/kitchens/{kitchen}/display-registration', [KitchenController::class, 'revokeDisplay'])->name('kitchens.display-revoke')->middleware('permission:kitchen.edit');
     Route::delete('/kitchens/{kitchen}', [KitchenController::class, 'destroy'])->name('kitchens.destroy')->middleware('permission:kitchen.delete');
 
     Route::get('/floors/options', [FloorController::class, 'options'])->name('floors.options');
@@ -124,6 +136,10 @@ Route::middleware(['auth', 'account.active'])->group(function () {
     Route::post('/orders/{order}/items', [OrderController::class, 'addItems'])->name('orders.add-items')->middleware('permission:order.add');
     Route::patch('/orders/{order}/status', [OrderController::class, 'updateStatus'])->name('orders.update-status')->middleware('permission:order.edit');
 
+    Route::get('/cancellation-requests', [CancellationRequestController::class, 'index'])->name('cancellations.index')->middleware('permission:order.approve');
+    Route::post('/cancellation-requests/{batch}/approve', [CancellationRequestController::class, 'approve'])->name('cancellations.approve')->middleware('permission:order.approve')->whereUuid('batch');
+    Route::post('/cancellation-requests/{batch}/reject', [CancellationRequestController::class, 'reject'])->name('cancellations.reject')->middleware('permission:order.approve')->whereUuid('batch');
+
     // Kitchen Order Tickets (KOT) Management
     Route::get('/kots', [KotController::class, 'index'])->name('kots.index')->middleware('permission:kot.view');
     Route::patch('/kots/{kot}/status', [KotController::class, 'updateStatus'])->name('kots.update-status')->middleware('permission:kot.edit');
@@ -135,12 +151,23 @@ Route::middleware(['auth', 'account.active'])->group(function () {
     Route::get('/kds/feed', [KdsController::class, 'feed'])->name('kds.feed.all')->middleware('permission:kot.view');
     Route::get('/kds/dishes', [KdsController::class, 'menuDishes'])->name('kds.dishes.all')->middleware('permission:kot.view');
     Route::post('/kds/dishes/{menuItem}/toggle-availability', [KdsController::class, 'toggleDishAvailabilityDirect'])->name('kds.dishes.toggle.all')->middleware('permission:kot.edit');
-    Route::get('/kds/{kitchen}', [KdsController::class, 'screen'])->name('kds.screen')->middleware('permission:kot.view');
-    Route::get('/kds/{branchCode}/{kitchenCode}', [KdsController::class, 'screenByCode'])->name('kds.screen.code')->middleware('permission:kot.view');
-    Route::get('/{branchCode}/{kitchenCode}/kds', [KdsController::class, 'screenByCode'])->name('kds.friendly')->middleware('permission:kot.view');
-    Route::get('/kds/{kitchen}/feed', [KdsController::class, 'feed'])->name('kds.feed')->middleware('permission:kot.view');
+
+    // Specific kitchen sub-resources (Must precede greedy generic {branchCode}/{kitchenCode})
+    Route::get('/kds/{kitchen}/feed', [KdsController::class, 'feed'])->name('kds.feed')->whereNumber('kitchen')->middleware('permission:kot.view');
+    Route::get('/kds/{kitchen}/dishes', [KdsController::class, 'menuDishes'])->name('kds.dishes')->whereNumber('kitchen')->middleware('permission:kot.view');
+    Route::post('/kds/{kitchen}/dishes/{menuItem}/toggle-availability', [KdsController::class, 'toggleDishAvailability'])->name('kds.dishes.toggle')->middleware('permission:kot.edit');
     Route::post('/kds/tickets/{kot}/status', [KdsController::class, 'updateTicketStatus'])->name('kds.tickets.update-status')->middleware('permission:kot.edit');
     Route::post('/kds/items/{item}/status', [KdsController::class, 'updateItemStatus'])->name('kds.items.update-status')->middleware('permission:kot.edit');
-    Route::get('/kds/{kitchen}/dishes', [KdsController::class, 'menuDishes'])->name('kds.dishes')->middleware('permission:kot.view');
-    Route::post('/kds/{kitchen}/dishes/{menuItem}/toggle-availability', [KdsController::class, 'toggleDishAvailability'])->name('kds.dishes.toggle')->middleware('permission:kot.edit');
+
+    // Dedicated screen by ID (number only) - redirects to canonical /{branchCode}/{kitchenCode}
+    Route::get('/kds/{kitchen}', [KdsController::class, 'screen'])->name('kds.screen')->whereNumber('kitchen')->middleware('permission:kot.view');
+
+    // Backward-compatible redirect from /kds/{branchCode}/{kitchenCode} to canonical /{branchCode}/{kitchenCode}
+    Route::get('/kds/{branchCode}/{kitchenCode}', function ($branchCode, $kitchenCode) {
+        return redirect()->to('/' . $branchCode . '/' . $kitchenCode);
+    })->middleware('permission:kot.view');
+
+    // Canonical TV screen URL: base_url/{branch_code}/{kitchen_code} (Requirement Section 2.C & 6)
+    Route::get('/{branchCode}/{kitchenCode}', [KdsController::class, 'screenByCode'])->name('kds.branch.kitchen')->middleware('permission:kot.view');
+    Route::get('/{branchCode}/{kitchenCode}/kds', [KdsController::class, 'screenByCode'])->name('kds.friendly')->middleware('permission:kot.view');
 });
