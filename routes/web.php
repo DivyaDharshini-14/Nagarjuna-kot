@@ -5,6 +5,7 @@ use App\Http\Controllers\BranchController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\FloorController;
+use App\Http\Controllers\KdsController;
 use App\Http\Controllers\KitchenController;
 use App\Http\Controllers\KitchenMappingController;
 use App\Http\Controllers\KotController;
@@ -17,7 +18,7 @@ use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
-    return view('welcome');
+    return redirect()->route('dashboard');
 });
 
 Route::middleware('guest')->group(function () {
@@ -125,5 +126,20 @@ Route::middleware(['auth', 'account.active'])->group(function () {
     // Kitchen Order Tickets (KOT) Management
     Route::get('/kots', [KotController::class, 'index'])->name('kots.index')->middleware('permission:kot.view');
     Route::patch('/kots/{kot}/status', [KotController::class, 'updateStatus'])->name('kots.update-status')->middleware('permission:kot.edit');
-    Route::get('/kitchen-display/{kitchen}', [KotController::class, 'display'])->name('kots.display')->middleware('permission:kot.view');
+    Route::get('/kitchen-display/{kitchen}', [KdsController::class, 'screen'])->name('kots.display')->middleware('permission:kot.view');
+
+    // Kitchen Display System (KDS) Module
+    Route::get('/kds', [KdsController::class, 'index'])->name('kds.index')->middleware('permission:kot.view');
+    Route::get('/kds/all', [KdsController::class, 'screenAll'])->name('kds.screen.all')->middleware('permission:kot.view');
+    Route::get('/kds/feed', [KdsController::class, 'feed'])->name('kds.feed.all')->middleware('permission:kot.view');
+    Route::get('/kds/dishes', [KdsController::class, 'menuDishes'])->name('kds.dishes.all')->middleware('permission:kot.view');
+    Route::post('/kds/dishes/{menuItem}/toggle-availability', [KdsController::class, 'toggleDishAvailabilityDirect'])->name('kds.dishes.toggle.all')->middleware('permission:kot.edit');
+    Route::get('/kds/{kitchen}', [KdsController::class, 'screen'])->name('kds.screen')->middleware('permission:kot.view');
+    Route::get('/kds/{branchCode}/{kitchenCode}', [KdsController::class, 'screenByCode'])->name('kds.screen.code')->middleware('permission:kot.view');
+    Route::get('/{branchCode}/{kitchenCode}/kds', [KdsController::class, 'screenByCode'])->name('kds.friendly')->middleware('permission:kot.view');
+    Route::get('/kds/{kitchen}/feed', [KdsController::class, 'feed'])->name('kds.feed')->middleware('permission:kot.view');
+    Route::post('/kds/tickets/{kot}/status', [KdsController::class, 'updateTicketStatus'])->name('kds.tickets.update-status')->middleware('permission:kot.edit');
+    Route::post('/kds/items/{item}/status', [KdsController::class, 'updateItemStatus'])->name('kds.items.update-status')->middleware('permission:kot.edit');
+    Route::get('/kds/{kitchen}/dishes', [KdsController::class, 'menuDishes'])->name('kds.dishes')->middleware('permission:kot.view');
+    Route::post('/kds/{kitchen}/dishes/{menuItem}/toggle-availability', [KdsController::class, 'toggleDishAvailability'])->name('kds.dishes.toggle')->middleware('permission:kot.edit');
 });
