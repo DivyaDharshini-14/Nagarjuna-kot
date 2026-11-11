@@ -149,12 +149,23 @@ Route::middleware(['auth', 'account.active'])->group(function () {
     Route::get('/kds/feed', [KdsController::class, 'feed'])->name('kds.feed.all')->middleware('permission:kot.view');
     Route::get('/kds/dishes', [KdsController::class, 'menuDishes'])->name('kds.dishes.all')->middleware('permission:kot.view');
     Route::post('/kds/dishes/{menuItem}/toggle-availability', [KdsController::class, 'toggleDishAvailabilityDirect'])->name('kds.dishes.toggle.all')->middleware('permission:kot.edit');
-    Route::get('/kds/{kitchen}', [KdsController::class, 'screen'])->name('kds.screen')->middleware('permission:kot.view');
-    Route::get('/kds/{branchCode}/{kitchenCode}', [KdsController::class, 'screenByCode'])->name('kds.screen.code')->middleware('permission:kot.view');
-    Route::get('/{branchCode}/{kitchenCode}/kds', [KdsController::class, 'screenByCode'])->name('kds.friendly')->middleware('permission:kot.view');
-    Route::get('/kds/{kitchen}/feed', [KdsController::class, 'feed'])->name('kds.feed')->middleware('permission:kot.view');
+
+    // Specific kitchen sub-resources (Must precede greedy generic {branchCode}/{kitchenCode})
+    Route::get('/kds/{kitchen}/feed', [KdsController::class, 'feed'])->name('kds.feed')->whereNumber('kitchen')->middleware('permission:kot.view');
+    Route::get('/kds/{kitchen}/dishes', [KdsController::class, 'menuDishes'])->name('kds.dishes')->whereNumber('kitchen')->middleware('permission:kot.view');
+    Route::post('/kds/{kitchen}/dishes/{menuItem}/toggle-availability', [KdsController::class, 'toggleDishAvailability'])->name('kds.dishes.toggle')->middleware('permission:kot.edit');
     Route::post('/kds/tickets/{kot}/status', [KdsController::class, 'updateTicketStatus'])->name('kds.tickets.update-status')->middleware('permission:kot.edit');
     Route::post('/kds/items/{item}/status', [KdsController::class, 'updateItemStatus'])->name('kds.items.update-status')->middleware('permission:kot.edit');
-    Route::get('/kds/{kitchen}/dishes', [KdsController::class, 'menuDishes'])->name('kds.dishes')->middleware('permission:kot.view');
-    Route::post('/kds/{kitchen}/dishes/{menuItem}/toggle-availability', [KdsController::class, 'toggleDishAvailability'])->name('kds.dishes.toggle')->middleware('permission:kot.edit');
+
+    // Dedicated screen by ID (number only) - redirects to canonical /{branchCode}/{kitchenCode}
+    Route::get('/kds/{kitchen}', [KdsController::class, 'screen'])->name('kds.screen')->whereNumber('kitchen')->middleware('permission:kot.view');
+
+    // Backward-compatible redirect from /kds/{branchCode}/{kitchenCode} to canonical /{branchCode}/{kitchenCode}
+    Route::get('/kds/{branchCode}/{kitchenCode}', function ($branchCode, $kitchenCode) {
+        return redirect()->to('/' . $branchCode . '/' . $kitchenCode);
+    })->middleware('permission:kot.view');
+
+    // Canonical TV screen URL: base_url/{branch_code}/{kitchen_code} (Requirement Section 2.C & 6)
+    Route::get('/{branchCode}/{kitchenCode}', [KdsController::class, 'screenByCode'])->name('kds.branch.kitchen')->middleware('permission:kot.view');
+    Route::get('/{branchCode}/{kitchenCode}/kds', [KdsController::class, 'screenByCode'])->name('kds.friendly')->middleware('permission:kot.view');
 });

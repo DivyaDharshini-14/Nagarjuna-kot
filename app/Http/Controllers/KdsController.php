@@ -47,11 +47,16 @@ class KdsController extends Controller
 
     /**
      * Dedicated Kitchen Display Screen (TV) for a specific kitchen.
-     * Displays only the orders for that specific kitchen.
+     * Redirects to the required URL format: /kds/{branchCode}/{kitchenCode}
      */
-    public function screen(Kitchen $kitchen): View
+    public function screen(Kitchen $kitchen): RedirectResponse|View
     {
         $this->authorizeKitchenAccess($kitchen);
+
+        $kitchen->loadMissing('branch');
+        if ($kitchen->branch && $kitchen->branch->code && $kitchen->code) {
+            return redirect()->to('/' . $kitchen->branch->code . '/' . $kitchen->code);
+        }
 
         $allKitchens = Kitchen::query()->where('is_active', true)->with('branch');
         $this->applyBranchScope($allKitchens);
@@ -74,15 +79,36 @@ class KdsController extends Controller
     }
 
     /**
-     * Dedicated Kitchen Display Screen (TV) by dynamic Branch & Kitchen codes.
+     * Dedicated Kitchen Display Screen (TV) by dynamic Branch & Kitchen codes:
+     * e.g. base_url/branch_code/kitchen_code (e.g. /IND-01/B1 or /branch1/biryani)
      */
     public function screenByCode(string $branchCode, string $kitchenCode): View
     {
-        $branch = Branch::where('code', $branchCode)->firstOrFail();
+        $branchQuery = Branch::whereRaw('LOWER(code) = ?', [strtolower($branchCode)])
+            ->orWhereRaw('LOWER(name) = ?', [strtolower($branchCode)])
+            ->orWhere('id', is_numeric($branchCode) ? (int) $branchCode : 0);
+
+        if (preg_match('/^branch[-_]?(\d+)$/i', $branchCode, $m)) {
+            $branchQuery->orWhere('id', (int) $m[1]);
+        }
+
+        $branch = $branchQuery->firstOrFail();
         $this->authorizeBranch($branch);
 
+        if (strtolower($kitchenCode) === 'all') {
+            $kitchen = null;
+            $allKitchens = Kitchen::where('branch_id', $branch->id)->where('is_active', true)->with('branch')->orderBy('name')->get();
+            return view('kds.screen', compact('kitchen', 'allKitchens'));
+        }
+
         $kitchen = Kitchen::where('branch_id', $branch->id)
-            ->where('code', $kitchenCode)
+            ->where(function ($q) use ($kitchenCode) {
+                $cleanCode = strtolower(trim($kitchenCode));
+                $q->whereRaw('LOWER(code) = ?', [$cleanCode])
+                  ->orWhereRaw('LOWER(name) = ?', [$cleanCode])
+                  ->orWhereRaw('REPLACE(LOWER(name), "i", "") = REPLACE(?, "i", "")', [$cleanCode])
+                  ->orWhereRaw('REPLACE(LOWER(name), "e", "") = REPLACE(?, "e", "")', [$cleanCode]);
+            })
             ->firstOrFail();
 
         $this->authorizeKitchenAccess($kitchen);
@@ -138,12 +164,33 @@ class KdsController extends Controller
         $now = now();
 
         $formatTicket = function (KotTicket $t) use ($now) {
-            $created = $t->created_at ?? $now;
-            $elapsedSeconds = $created->diffInSeconds($now);
+            $receivedAt = $t->order?->created_at ?? $t->created_at ?? $now;
+            $startTime = $t->accepted_at ?? $t->created_at ?? $now;
+
+            if ($t->ticket_status === 'ready') {
+                $elapsedSeconds = $t->duration_seconds ?? ($t->ready_at ? abs((int) $t->ready_at->diffInSeconds($startTime)) : abs((int) $t->updated_at->diffInSeconds($startTime)));
+                $isRunning = false;
+            } else {
+                $elapsedSeconds = abs((int) $now->diffInSeconds($startTime));
+                $isRunning = true;
+            }
+
+            // Cap elapsed seconds if it's unreasonably large from old seed data (> 12 hours)
+            if ($elapsedSeconds > 43200 && !$t->duration_seconds) {
+                $elapsedSeconds = $t->ticket_status === 'ready' ? 720 : 180;
+            }
+
+            // Extract numeric display (e.g. "1" from "KOT-20261106-K4-0001")
+            if (preg_match('/-(\d+)$/', (string) $t->kot_number, $matches)) {
+                $kotDisplay = (int) $matches[1];
+            } else {
+                $kotDisplay = $t->id;
+            }
 
             return [
                 'id' => $t->id,
                 'kot_number' => $t->kot_number,
+                'kot_display_number' => $kotDisplay,
                 'kitchen_id' => $t->kitchen_id,
                 'kitchen_name' => $t->kitchen?->name ?? 'Kitchen',
                 'kitchen_code' => $t->kitchen?->code ?? '',
@@ -154,10 +201,12 @@ class KdsController extends Controller
                 'ticket_status' => $t->ticket_status,
                 'special_instructions' => $t->order?->special_instructions,
                 'notes' => $t->notes,
-                'created_at_time' => $created->format('H:i:s'),
-                'created_at_iso' => $created->toIso8601String(),
+                'order_received_time' => $receivedAt->format('h:i A'),
+                'order_received_time_full' => $receivedAt->format('H:i:s'),
+                'created_at_time' => $receivedAt->format('H:i:s'),
+                'created_at_iso' => $receivedAt->toIso8601String(),
                 'elapsed_seconds' => $elapsedSeconds,
-                'elapsed_human' => $created->diffForHumans(['parts' => 2, 'short' => true]),
+                'is_running' => $isRunning,
                 'items' => $t->items->map(fn (KotItem $item) => [
                     'id' => $item->id,
                     'dish_name' => $item->menuItem?->name ?? 'Dish',

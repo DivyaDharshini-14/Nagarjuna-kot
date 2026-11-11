@@ -18,8 +18,22 @@ class KotTicket extends Model
         'company_id',
         'branch_id',
         'ticket_status',
+        'accepted_at',
+        'preparing_at',
+        'ready_at',
+        'duration_seconds',
         'notes',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'accepted_at' => 'datetime',
+            'preparing_at' => 'datetime',
+            'ready_at' => 'datetime',
+            'duration_seconds' => 'integer',
+        ];
+    }
 
     public function order(): BelongsTo
     {
