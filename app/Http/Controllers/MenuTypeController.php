@@ -3,7 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Controllers\Concerns\ManagesTenantAccess;
-use App\Models\Branch;
+use App\Models\Company;
 use App\Models\MenuType;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -17,15 +17,7 @@ class MenuTypeController extends Controller
 
     public function index(Request $request): View
     {
-        $menuTypes = $this->applyCompanyScope(MenuType::query()->with(['company', 'branch']));
-
-        if ($this->locksBranch()) {
-            $menuTypes->where(function ($query) {
-                $query->whereNull('branch_id')
-                    ->orWhere('branch_id', $this->actor()->branch_id);
-            });
-        }
-
+        $menuTypes = $this->applyCompanyScope(MenuType::query()->with('company'));
         $this->applySearch($menuTypes, $request, ['name']);
         $this->applyStatus($menuTypes, $request);
 
@@ -36,14 +28,20 @@ class MenuTypeController extends Controller
 
     public function create(): View
     {
-        return view('menu-types.create', $this->formState());
+        return view('menu-types.create');
     }
 
     public function store(Request $request): RedirectResponse
     {
         $this->mergeLockedTenant($request);
+        $companyId = $this->resolveCompanyId($request);
+        $request->merge(['company_id' => $companyId]);
+
         $validated = $this->validateMenuType($request);
-        $this->assertTenant($validated, false);
+        $validated['company_id'] = $companyId;
+        $validated['branch_id'] = null; // Maintained at company level, shared across all branches
+
+        $this->authorizeCompanyId((int) $validated['company_id']);
 
         MenuType::create($validated);
 
@@ -54,7 +52,7 @@ class MenuTypeController extends Controller
     {
         $this->authorizeMenuType($menuType);
 
-        return view('menu-types.edit', array_merge($this->formState($menuType), compact('menuType')));
+        return view('menu-types.edit', compact('menuType'));
     }
 
     public function update(Request $request, MenuType $menuType): RedirectResponse
@@ -62,17 +60,14 @@ class MenuTypeController extends Controller
         $this->authorizeMenuType($menuType);
         $this->mergeLockedTenant($request);
 
-        $validated = $this->validateMenuType($request, $menuType);
-        $this->assertTenant($validated, false);
+        $companyId = $this->resolveCompanyId($request, $menuType);
+        $request->merge(['company_id' => $companyId]);
 
-        if ($menuType->menuItems()->exists() && (
-            (int) $menuType->company_id !== (int) $validated['company_id']
-            || (int) ($menuType->branch_id ?? 0) !== (int) ($validated['branch_id'] ?? 0)
-        )) {
-            return back()->withErrors([
-                'branch_id' => 'This menu type is used by menu items and its company or branch cannot be changed.',
-            ])->withInput();
-        }
+        $validated = $this->validateMenuType($request, $menuType);
+        $validated['company_id'] = $companyId;
+        $validated['branch_id'] = null; // Maintained at company level, shared across all branches
+
+        $this->authorizeCompanyId((int) $validated['company_id']);
 
         $menuType->update($validated);
 
@@ -94,64 +89,61 @@ class MenuTypeController extends Controller
 
     public function options(Request $request): JsonResponse
     {
-        $data = $request->validate([
-            'company_id' => ['required', 'integer'],
-            'branch_id' => ['nullable', 'integer'],
-        ]);
-
-        $this->authorizeCompanyId((int) $data['company_id']);
-        $branchId = $data['branch_id'] ?? ($this->locksBranch() ? $this->actor()->branch_id : null);
-
-        if ($branchId) {
-            $branch = Branch::query()->findOrFail($branchId);
-            abort_unless((int) $branch->company_id === (int) $data['company_id'], 403);
-            $this->authorizeBranch($branch);
-        } elseif ($this->locksBranch()) {
-            abort(403);
+        $companyId = $request->input('company_id') ?: $this->actor()->company_id;
+        if (! $companyId) {
+            $companyId = Company::where('is_active', true)->value('id');
         }
 
+        if ($companyId) {
+            $this->authorizeCompanyId((int) $companyId);
+        }
+
+        // Return only active menu types for dropdown selection
         return response()->json($this->optionPayload(
-            $this->menuTypeChoices((int) $data['company_id'], $branchId ? (int) $branchId : null)
+            $this->menuTypeChoices($companyId ? (int) $companyId : null)
         ));
     }
 
     private function authorizeMenuType(MenuType $menuType): void
     {
         $this->authorizeCompanyId((int) $menuType->company_id);
+    }
 
-        if ($this->locksBranch()) {
-            abort_unless((int) $menuType->branch_id === (int) $this->actor()->branch_id, 403);
+    private function resolveCompanyId(Request $request, ?MenuType $menuType = null): int
+    {
+        if ($this->actor()->company_id) {
+            return (int) $this->actor()->company_id;
         }
+
+        if ($menuType?->company_id) {
+            return (int) $menuType->company_id;
+        }
+
+        if ($request->filled('company_id')) {
+            return (int) $request->input('company_id');
+        }
+
+        $firstCompanyId = Company::query()->where('is_active', true)->value('id');
+        abort_unless($firstCompanyId, 422, 'No active company found to assign menu type.');
+
+        return (int) $firstCompanyId;
     }
 
     private function validateMenuType(Request $request, ?MenuType $menuType = null): array
     {
-        $validated = $request->validate([
-            'company_id' => [
-                'required',
-                'integer',
-                Rule::exists('companies', 'id')->where(fn ($query) => $this->limitToActiveOrCurrent($query, $menuType?->company_id)),
-            ],
-            'branch_id' => [
-                'nullable',
-                'integer',
-                Rule::exists('branches', 'id')->where(function ($query) use ($request, $menuType) {
-                    $query->where('company_id', $request->input('company_id'));
-                    $this->limitToActiveOrCurrent($query, $menuType?->branch_id);
-                }),
-            ],
+        $companyId = (int) $request->input('company_id');
+
+        return $request->validate([
             'name' => [
                 'required',
                 'string',
                 'max:255',
-                Rule::unique('menu_types', 'name')->where('company_id', $request->input('company_id'))->ignore($menuType?->id),
+                Rule::unique('menu_types', 'name')
+                    ->where('company_id', $companyId)
+                    ->ignore($menuType?->id),
             ],
             'description' => ['nullable', 'string'],
             'is_active' => ['required', 'boolean'],
         ]);
-
-        $validated['branch_id'] = $validated['branch_id'] ?? null;
-
-        return $validated;
     }
 }

@@ -5,6 +5,9 @@
         const childSelectors = ['[data-floor-select]', '[data-kitchen-select]', '[data-category-select]', '[data-menu-type-select]', '[data-menu-item-select]'];
 
         function placeholderOption(select) {
+            if (select.multiple) {
+                return document.createDocumentFragment();
+            }
             const option = document.createElement('option');
             option.value = '';
             option.textContent = select.dataset.placeholder || 'Select';
@@ -27,6 +30,7 @@
             select.replaceChildren(placeholderOption(select));
 
             if (!response.ok) {
+                select.dispatchEvent(new CustomEvent('options-reloaded'));
                 return;
             }
 
@@ -37,6 +41,7 @@
                 option.textContent = item.label;
                 select.appendChild(option);
             });
+            select.dispatchEvent(new CustomEvent('options-reloaded'));
         }
 
         function currentParams() {

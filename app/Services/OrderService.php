@@ -491,7 +491,21 @@ class OrderService
     public function updateKotTicketStatus(KotTicket $ticket, string $status): KotTicket
     {
         return DB::transaction(function () use ($ticket, $status) {
-            $ticket->update(['ticket_status' => $status]);
+            $updateData = ['ticket_status' => $status];
+
+            if ($status === 'accepted') {
+                $updateData['accepted_at'] = $ticket->accepted_at ?? now();
+            } elseif ($status === 'preparing') {
+                $updateData['accepted_at'] = $ticket->accepted_at ?? $ticket->created_at ?? now();
+                $updateData['preparing_at'] = $ticket->preparing_at ?? now();
+            } elseif ($status === 'ready') {
+                $now = now();
+                $updateData['ready_at'] = $now;
+                $startTime = $ticket->accepted_at ?? $ticket->created_at ?? $now;
+                $updateData['duration_seconds'] = abs((int) $now->diffInSeconds($startTime));
+            }
+
+            $ticket->update($updateData);
 
             // Sync item statuses
             $ticket->items()->update(['item_status' => $status]);
@@ -529,7 +543,20 @@ class OrderService
             $allStatuses = $ticket->items()->pluck('item_status')->unique();
 
             if ($allStatuses->count() === 1) {
-                $ticket->update(['ticket_status' => $allStatuses->first()]);
+                $newStatus = $allStatuses->first();
+                $updateData = ['ticket_status' => $newStatus];
+                if ($newStatus === 'accepted') {
+                    $updateData['accepted_at'] = $ticket->accepted_at ?? now();
+                } elseif ($newStatus === 'preparing') {
+                    $updateData['accepted_at'] = $ticket->accepted_at ?? $ticket->created_at ?? now();
+                    $updateData['preparing_at'] = $ticket->preparing_at ?? now();
+                } elseif ($newStatus === 'ready') {
+                    $now = now();
+                    $updateData['ready_at'] = $now;
+                    $startTime = $ticket->accepted_at ?? $ticket->created_at ?? $now;
+                    $updateData['duration_seconds'] = abs((int) $now->diffInSeconds($startTime));
+                }
+                $ticket->update($updateData);
             }
 
             $this->syncOrderStatusFromTickets($ticket->order);
