@@ -9,6 +9,7 @@ use App\Models\Kitchen;
 use App\Models\KotTicket;
 use App\Models\Order;
 use Carbon\Carbon;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\View\View;
@@ -17,14 +18,19 @@ class DashboardController extends Controller
 {
     use ManagesTenantAccess;
 
-    public function index(Request $request): View
+    public function index(Request $request): View|JsonResponse
     {
         $user = $this->actor();
 
         // 1. Role-based tenant resolution
+        // Admin: can view all branches and kitchens
         $isSuper = $this->isSuperAdmin();
         $isCompanyAdmin = $this->isCompanyAdmin();
-        $locksBranch = $this->locksBranch();
+        $isAdmin = $isSuper || $isCompanyAdmin || $user->hasRole('admin') || $user->hasRole('super-admin');
+
+        // Branch Manager: can view only their assigned branch and its kitchens
+        $isBranchManager = ! $isAdmin && ($user->isManager() || $user->hasRole('branch-manager') || (bool) $user->branch_id);
+        $locksBranch = $isBranchManager;
 
         // Resolve Company filter
         $selectedCompanyId = null;
@@ -37,10 +43,11 @@ class DashboardController extends Controller
         // Resolve Branch filter
         $selectedBranchId = null;
         if ($locksBranch) {
+            // Branch manager is strictly locked to their assigned branch
             $selectedBranchId = (int) $user->branch_id;
         } elseif ($request->filled('branch_id')) {
+            // Admin can choose a specific branch or leave null to view all branches
             $selectedBranchId = (int) $request->branch_id;
-            // Verify branch belongs to user's company if company admin
             if ($isCompanyAdmin && $selectedBranchId) {
                 $valid = Branch::where('id', $selectedBranchId)->where('company_id', $selectedCompanyId)->exists();
                 if (! $valid) {
@@ -54,7 +61,7 @@ class DashboardController extends Controller
 
         // If user is restricted to specific kitchens (e.g. chef/kitchen staff)
         $userAssignedKitchenIds = [];
-        if (! $isSuper && ! $isCompanyAdmin && ! $this->isManager() && Schema::hasTable('kitchen_user')) {
+        if (! $isAdmin && ! $user->isManager() && Schema::hasTable('kitchen_user')) {
             try {
                 if ($user->kitchens()->exists()) {
                     $userAssignedKitchenIds = $user->kitchens->pluck('id')->all();
@@ -72,6 +79,8 @@ class DashboardController extends Controller
         $date = $request->input('date', Carbon::today()->toDateString());
         $dateFrom = $request->input('date_from');
         $dateTo = $request->input('date_to');
+        $selectedOrderNumber = trim((string) $request->input('order_number', ''));
+        $selectedStatus = $request->input('status', '');
 
         // 3. Dropdown Options based on RBAC
         $companies = $isSuper
@@ -83,6 +92,7 @@ class DashboardController extends Controller
             $branchQuery->where('company_id', $selectedCompanyId);
         }
         if ($locksBranch) {
+            // Branch manager only gets their assigned branch
             $branchQuery->where('id', $user->branch_id);
         }
         $branches = $branchQuery->orderBy('name')->get();
@@ -92,6 +102,7 @@ class DashboardController extends Controller
             $kitchenQuery->where('company_id', $selectedCompanyId);
         }
         if ($selectedBranchId) {
+            // If branch is selected or locked to branch, only show kitchens of that branch
             $kitchenQuery->where('branch_id', $selectedBranchId);
         } elseif ($locksBranch) {
             $kitchenQuery->where('branch_id', $user->branch_id);
@@ -238,14 +249,59 @@ class DashboardController extends Controller
         })->sortByDesc('pending')->values();
 
         // 8. Recent Live Orders (matching current filter)
-        $recentOrders = (clone $baseOrderQuery)
-            ->with(['table.floor', 'waiter', 'branch', 'kotTickets.kitchen'])
+        $recentOrdersQuery = (clone $baseOrderQuery)
+            ->with(['table.floor', 'waiter', 'branch', 'kotTickets.kitchen']);
+
+        if ($selectedOrderNumber !== '') {
+            $recentOrdersQuery->where('order_number', 'like', "%{$selectedOrderNumber}%");
+        }
+
+        if ($selectedStatus !== '' && $selectedStatus !== 'all') {
+            $recentOrdersQuery->where('status', $selectedStatus);
+        }
+
+        $recentOrders = $recentOrdersQuery
             ->latest()
-            ->limit(8)
+            ->limit(10)
             ->get();
 
+        // Status Distribution for Full-width Order Status Pipeline Card
+        $statusTotal = max(1, $summary['total']);
+        $statusDistribution = [
+            'active' => [
+                'count' => $summary['active'],
+                'percentage' => $summary['total'] > 0 ? round(($summary['active'] / $statusTotal) * 100, 1) : 0,
+                'color' => '#0284c7',
+                'label' => 'Active',
+            ],
+            'preparing' => [
+                'count' => $summary['preparing'],
+                'percentage' => $summary['total'] > 0 ? round(($summary['preparing'] / $statusTotal) * 100, 1) : 0,
+                'color' => '#f59e0b',
+                'label' => 'Preparing',
+            ],
+            'ready' => [
+                'count' => $summary['ready'],
+                'percentage' => $summary['total'] > 0 ? round(($summary['ready'] / $statusTotal) * 100, 1) : 0,
+                'color' => '#10b981',
+                'label' => 'Ready',
+            ],
+            'completed' => [
+                'count' => $summary['completed'],
+                'percentage' => $summary['total'] > 0 ? round(($summary['completed'] / $statusTotal) * 100, 1) : 0,
+                'color' => '#8b5cf6',
+                'label' => 'Completed',
+            ],
+            'cancelled' => [
+                'count' => $summary['cancelled'],
+                'percentage' => $summary['total'] > 0 ? round(($summary['cancelled'] / $statusTotal) * 100, 1) : 0,
+                'color' => '#ef4444',
+                'label' => 'Cancelled',
+            ],
+        ];
+
         // 9. Yesterday Comparison for Total Orders Stat Card
-        $yesterdayQuery = Order::query()->whereDate('created_at', Carbon::yesterday());
+        $yesterdayQuery = Order::query()->whereDate('created_at', Carbon::parse($date)->subDay());
         if ($selectedCompanyId) {
             $yesterdayQuery->where('company_id', $selectedCompanyId);
         }
@@ -259,10 +315,12 @@ class DashboardController extends Controller
         if ($yesterdayTotal > 0) {
             $vsYesterdayPct = round((($summary['total'] - $yesterdayTotal) / $yesterdayTotal) * 100);
         } elseif ($summary['total'] > 0) {
-            $vsYesterdayPct = 12; // visual default matching mockup if no yesterday data
+            $vsYesterdayPct = 100;
+        } else {
+            $vsYesterdayPct = 0;
         }
 
-        // 10. Hourly Order Trend Data (for smooth area line chart)
+        // 10. Hourly Order Trend Data (Today vs Yesterday for smooth Dashcart area line chart)
         $hourlyLabels = ['10 AM', '11 AM', '12 PM', '1 PM', '2 PM', '3 PM', '4 PM', '5 PM'];
         $hourlyHours = [10, 11, 12, 13, 14, 15, 16, 17];
         $hourlyCounts = (clone $baseOrderQuery)
@@ -271,22 +329,89 @@ class DashboardController extends Controller
             ->pluck('cnt', 'hr')
             ->all();
 
+        $yesterdayHourlyCounts = (clone $yesterdayQuery)
+            ->selectRaw('HOUR(created_at) as hr, COUNT(*) as cnt')
+            ->groupBy('hr')
+            ->pluck('cnt', 'hr')
+            ->all();
+
         $hourlyTrend = [];
-        $hasAnyHourlyData = false;
+        $yesterdayHourlyTrend = [];
         foreach ($hourlyHours as $hr) {
-            $val = (int) ($hourlyCounts[$hr] ?? 0);
-            if ($val > 0) {
-                $hasAnyHourlyData = true;
-            }
-            $hourlyTrend[] = $val;
+            $hourlyTrend[] = (int) ($hourlyCounts[$hr] ?? 0);
+            $yesterdayHourlyTrend[] = (int) ($yesterdayHourlyCounts[$hr] ?? 0);
         }
 
-        // If today has no orders yet, provide realistic trend matching reference visual
-        if (! $hasAnyHourlyData && $summary['total'] > 0) {
-            $hourlyTrend = [10, 18, 22, 31, 23, 18, 27, 34];
+        // 11. Donut Chart Data for "Orders by cuisine / Kitchens" (matching Dashcart)
+        $donutLabels = [];
+        $donutData = [];
+        $totalKitchenTickets = 0;
+        foreach ($kitchenBreakdown as $kItem) {
+            $kObj = is_array($kItem) ? $kItem['kitchen'] : $kItem->kitchen;
+            $kPending = (int) (is_array($kItem) ? $kItem['pending'] : $kItem->pending);
+            $kTotal = (int) (is_array($kItem) ? ($kItem['total'] ?? 0) : ($kItem->total ?? 0));
+            $donutLabels[] = is_object($kObj) ? $kObj->name : ($kObj['name'] ?? 'Kitchen');
+            $val = $kPending > 0 ? $kPending : $kTotal;
+            $donutData[] = $val;
+            $totalKitchenTickets += $val;
         }
 
         $maxBranchOrders = max(1, $branchBreakdown->max('total') ?? 1);
+
+        // Real-time JSON endpoint for live background polling
+        if ($request->ajax() || $request->wantsJson() || $request->input('format') === 'json') {
+            return response()->json([
+                'success' => true,
+                'summary' => $summary,
+                'vsYesterdayPct' => $vsYesterdayPct,
+                'branchBreakdown' => $branchBreakdown->map(function ($item) {
+                    $b = is_array($item) ? $item['branch'] : $item->branch;
+                    return [
+                        'name' => is_object($b) ? $b->name : ($b['name'] ?? 'Branch'),
+                        'total' => is_array($item) ? $item['total'] : $item->total,
+                        'active' => is_array($item) ? $item['active'] : $item->active,
+                        'completed' => is_array($item) ? $item['completed'] : $item->completed,
+                        'cancelled' => is_array($item) ? $item['cancelled'] : $item->cancelled,
+                        'sales' => is_array($item) ? $item['sales'] : $item->sales,
+                        'share' => is_array($item) ? $item['share'] : $item->share,
+                    ];
+                }),
+                'kitchenBreakdown' => $kitchenBreakdown->map(function ($item) {
+                    $k = is_array($item) ? $item['kitchen'] : $item->kitchen;
+                    $kName = is_object($k) ? $k->name : ($k['name'] ?? 'Kitchen');
+                    $bName = is_array($item)
+                        ? ($item['branch_name'] ?? (is_object($k) ? $k->branch?->name : 'Main Branch'))
+                        : ($item->kitchen->branch?->name ?? 'Main Branch');
+                    return [
+                        'name' => $kName,
+                        'branch_name' => $bName ?? 'Main Branch',
+                        'pending' => is_array($item) ? $item['pending'] : $item->pending,
+                        'load_status' => is_array($item) ? $item['load_status'] : $item->load_status,
+                        'load_color' => is_array($item) ? $item['load_color'] : $item->load_color,
+                    ];
+                }),
+                'recentOrders' => $recentOrders->map(function ($ord) {
+                    return [
+                        'order_number' => $ord->order_number,
+                        'table_name' => $ord->table?->name ?? 'T-01',
+                        'branch_name' => $ord->branch?->name ?? 'Main Branch',
+                        'status' => strtolower($ord->status ?? 'active'),
+                        'total_amount' => number_format((float) ($ord->total_amount ?? 0), 2),
+                        'time' => $ord->created_at ? $ord->created_at->format('h:i A') : '',
+                    ];
+                }),
+                'hourlyLabels' => $hourlyLabels,
+                'hourlyTrend' => $hourlyTrend,
+                'yesterdayHourlyTrend' => $yesterdayHourlyTrend,
+                'donutLabels' => $donutLabels,
+                'donutData' => $donutData,
+                'totalKitchenTickets' => $totalKitchenTickets,
+                'statusDistribution' => $statusDistribution,
+                'selectedOrderNumber' => $selectedOrderNumber,
+                'selectedStatus' => $selectedStatus,
+                'lastUpdated' => Carbon::now()->format('h:i:s A'),
+            ]);
+        }
 
         return view('dashboard', [
             'summary' => $summary,
@@ -297,6 +422,13 @@ class DashboardController extends Controller
             'vsYesterdayPct' => $vsYesterdayPct,
             'hourlyLabels' => $hourlyLabels,
             'hourlyTrend' => $hourlyTrend,
+            'yesterdayHourlyTrend' => $yesterdayHourlyTrend,
+            'donutLabels' => $donutLabels,
+            'donutData' => $donutData,
+            'totalKitchenTickets' => $totalKitchenTickets,
+            'statusDistribution' => $statusDistribution,
+            'selectedOrderNumber' => $selectedOrderNumber,
+            'selectedStatus' => $selectedStatus,
             'companies' => $companies,
             'branches' => $branches,
             'kitchens' => $kitchens,
@@ -309,6 +441,8 @@ class DashboardController extends Controller
             'dateTo' => $dateTo,
             'isSuper' => $isSuper,
             'isCompanyAdmin' => $isCompanyAdmin,
+            'isAdmin' => $isAdmin,
+            'isBranchManager' => $isBranchManager,
             'locksBranch' => $locksBranch,
         ]);
     }
@@ -317,7 +451,11 @@ class DashboardController extends Controller
     {
         switch ($preset) {
             case 'today':
-                $query->whereDate('created_at', Carbon::today());
+                if ($date && $date !== Carbon::today()->toDateString()) {
+                    $query->whereDate('created_at', Carbon::parse($date));
+                } else {
+                    $query->whereDate('created_at', Carbon::today());
+                }
                 break;
             case 'yesterday':
                 $query->whereDate('created_at', Carbon::yesterday());
@@ -347,7 +485,11 @@ class DashboardController extends Controller
                 // No date restriction
                 break;
             default:
-                $query->whereDate('created_at', Carbon::today());
+                if ($date) {
+                    $query->whereDate('created_at', Carbon::parse($date));
+                } else {
+                    $query->whereDate('created_at', Carbon::today());
+                }
                 break;
         }
     }

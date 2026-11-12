@@ -16,6 +16,7 @@ use App\Http\Controllers\MenuTypeController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\RestaurantTableController;
 use App\Http\Controllers\RoleController;
+use App\Http\Controllers\StockController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Broadcasting\BroadcastController;
@@ -38,7 +39,6 @@ Route::middleware('guest')->group(function () {
 Route::middleware(['auth', 'account.active'])->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::post('/broadcasting/auth', [BroadcastController::class, 'authenticate'])->name('web.broadcasting.auth');
-    Route::view('/dashboard', 'dashboard')->name('dashboard');
     Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])->name('logout');
 
     Route::get('/companies', [CompanyController::class, 'index'])->name('companies.index')->middleware('permission:company.view');
@@ -127,6 +127,24 @@ Route::middleware(['auth', 'account.active'])->group(function () {
     Route::get('/roles/{role}/edit', [RoleController::class, 'edit'])->name('roles.edit')->middleware('permission:role.edit');
     Route::put('/roles/{role}', [RoleController::class, 'update'])->name('roles.update')->middleware('permission:role.edit');
     Route::delete('/roles/{role}', [RoleController::class, 'destroy'])->name('roles.destroy')->middleware('permission:role.delete');
+
+    // Stock Management - Sub-Modules
+    Route::get('/stock', [StockController::class, 'index'])->name('stock.index')->middleware('permission:menu-item.view');
+    Route::get('/stock/overview', [StockController::class, 'overview'])->name('stock.overview')->middleware('permission:menu-item.view');
+    Route::get('/stock/stock-in', [StockController::class, 'stockInView'])->name('stock.stock-in')->middleware('permission:menu-item.view');
+    Route::get('/stock/validation', [StockController::class, 'validation'])->name('stock.validation')->middleware('permission:menu-item.view');
+    Route::get('/stock/adjustments', [StockController::class, 'adjustments'])->name('stock.adjustments')->middleware('permission:menu-item.view');
+    Route::get('/stock/history', [StockController::class, 'history'])->name('stock.history')->middleware('permission:menu-item.view');
+    Route::get('/stock/availability', [StockController::class, 'availabilityBoard'])->name('stock.availability-board')->middleware('permission:menu-item.view');
+
+    // Stock Mutation Endpoints
+    Route::post('/stock/{menuItem}/opening-stock', [StockController::class, 'setOpeningStock'])->name('stock.opening-stock')->middleware('permission:menu-item.stock-adjustment');
+    Route::post('/stock/{menuItem}/stock-in', [StockController::class, 'recordStockIn'])->name('stock.record-stock-in')->middleware('permission:menu-item.stock-adjustment');
+    Route::post('/stock/batch-stock-in', [StockController::class, 'batchStockIn'])->name('stock.batch-stock-in')->middleware('permission:menu-item.stock-adjustment');
+    Route::post('/stock/{menuItem}/adjust', [StockController::class, 'adjust'])->name('stock.adjust')->middleware('permission:menu-item.stock-adjustment');
+    Route::patch('/stock/{menuItem}/availability', [StockController::class, 'setAvailability'])->name('stock.availability')->middleware('permission:menu-item.stock-adjustment');
+    Route::post('/stock/{menuItem}/toggle-tracking', [StockController::class, 'toggleTracking'])->name('stock.toggle-tracking')->middleware('permission:menu-item.stock-adjustment');
+    Route::get('/stock/{menuItem}/transactions', [StockController::class, 'transactions'])->name('stock.transactions')->middleware('permission:menu-item.view');
 
     // Orders Management
     Route::get('/orders', [OrderController::class, 'index'])->name('orders.index')->middleware('permission:order.view');

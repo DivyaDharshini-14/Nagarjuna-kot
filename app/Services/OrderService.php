@@ -1086,22 +1086,64 @@ class OrderService
 
     protected function generateOrderNumber(int $branchId): string
     {
-        $prefix = 'ORD-' . date('Ymd');
-        $count = Order::where('branch_id', $branchId)
-            ->whereDate('created_at', today())
-            ->count();
+        $latestOrder = Order::withTrashed()
+            ->where('order_number', 'like', 'ORD-%')
+            ->where('order_number', 'not like', 'ORD-%-%')
+            ->orderByDesc('id')
+            ->first();
 
-        return sprintf('%s-%04d', $prefix, $count + 1);
+        $nextNumber = 1;
+        if ($latestOrder && preg_match('/^ORD-(\d+)$/', $latestOrder->order_number, $matches)) {
+            $nextNumber = ((int) $matches[1]) + 1;
+        } else {
+            $count = Order::withTrashed()
+                ->where('order_number', 'like', 'ORD-%')
+                ->where('order_number', 'not like', 'ORD-%-%')
+                ->count();
+            $nextNumber = max($nextNumber, $count + 1);
+        }
+
+        do {
+            $candidate = sprintf('ORD-%04d', $nextNumber);
+            $exists = Order::withTrashed()->where('order_number', $candidate)->exists();
+            if ($exists) {
+                $nextNumber++;
+            }
+        } while ($exists);
+
+        return $candidate;
     }
 
     protected function generateKotNumber(int $kitchenId): string
     {
-        $prefix = 'KOT-' . date('Ymd');
-        $count = KotTicket::where('kitchen_id', $kitchenId)
-            ->whereDate('created_at', today())
-            ->count();
+        $prefix = sprintf('K%d-', $kitchenId);
 
-        return sprintf('%s-K%d-%04d', $prefix, $kitchenId, $count + 1);
+        $latestTicket = KotTicket::withTrashed()
+            ->where('kitchen_id', $kitchenId)
+            ->where('kot_number', 'like', $prefix.'%')
+            ->orderByDesc('id')
+            ->first();
+
+        $nextNumber = 1;
+        if ($latestTicket && preg_match('/^K\d+-(\d+)$/', $latestTicket->kot_number, $matches)) {
+            $nextNumber = ((int) $matches[1]) + 1;
+        } else {
+            $count = KotTicket::withTrashed()
+                ->where('kitchen_id', $kitchenId)
+                ->where('kot_number', 'like', $prefix.'%')
+                ->count();
+            $nextNumber = max($nextNumber, $count + 1);
+        }
+
+        do {
+            $candidate = sprintf('%s%04d', $prefix, $nextNumber);
+            $exists = KotTicket::withTrashed()->where('kot_number', $candidate)->exists();
+            if ($exists) {
+                $nextNumber++;
+            }
+        } while ($exists);
+
+        return $candidate;
     }
 }
 

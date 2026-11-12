@@ -1,4 +1,5 @@
-<ul class="nav flex-column mb-auto">
+<ul class="nav flex-column mb-auto pb-4">
+    <li class="sidebar-heading">Main</li>
     {{-- Dashboard --}}
     <li class="nav-item">
         <a class="nav-link {{ request()->routeIs('dashboard') ? 'active' : '' }}" href="{{ route('dashboard') }}">
@@ -16,6 +17,14 @@
                 <span>Kitchen Display (KDS)</span>
             </a>
         </li>
+        @if(auth()->user()->hasPermission('menu-item.view'))
+            <li class="nav-item">
+                <a class="nav-link {{ request()->routeIs('stock.*') ? 'active' : '' }}" href="{{ route('stock.index') }}">
+                    <i class="bi bi-boxes"></i>
+                    <span>Stock Management</span>
+                </a>
+            </li>
+        @endif
         <li class="nav-item">
             <a class="nav-link {{ request()->routeIs('kots.*') ? 'active' : '' }}" href="{{ route('kots.index') }}">
                 <i class="bi bi-card-checklist"></i>
@@ -71,6 +80,15 @@
                     <a class="nav-link {{ request()->routeIs('kots.*') ? 'active' : '' }}" href="{{ route('kots.index') }}">
                         <i class="bi bi-clock-history"></i>
                         <span>KOT Monitoring</span>
+                    </a>
+                </li>
+            @endif
+
+            @if(auth()->user()->hasPermission('menu-item.view'))
+                <li class="nav-item">
+                    <a class="nav-link {{ request()->routeIs('stock.*') ? 'active' : '' }}" href="{{ route('stock.index') }}">
+                        <i class="bi bi-boxes"></i>
+                        <span>Stock Management</span>
                     </a>
                 </li>
             @endif
