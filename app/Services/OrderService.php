@@ -203,6 +203,7 @@ class OrderService
 
             // Generate tickets only for the new items
             $this->generateKitchenTickets($order, collect($createdOrderItems));
+            $this->syncOrderStatusFromTickets($order);
 
             return $order->fresh([
                 'table',
@@ -572,6 +573,100 @@ class OrderService
         });
     }
 
+    /** Mark a fully ready order line served across every kitchen ticket that contains it. */
+    public function markMobileOrderItemServed(Order $order, OrderItem $item): Order
+    {
+        return DB::transaction(function () use ($order, $item) {
+            KotTicket::query()
+                ->where('order_id', $order->id)
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get(['id']);
+
+            $lockedOrder = Order::query()
+                ->whereKey($order->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+            abort_if(in_array($lockedOrder->status, ['completed', 'cancelled'], true), 409, 'This order is already closed.');
+
+            $lockedItem = OrderItem::query()
+                ->where('order_id', $lockedOrder->id)
+                ->whereKey($item->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+            abort_if($lockedItem->cancelled_quantity >= $lockedItem->quantity, 409, 'This dish has already been cancelled.');
+            abort_if(
+                ItemCancellation::query()->where('order_item_id', $lockedItem->id)->where('status', 'pending')->exists(),
+                409,
+                'Resolve the pending cancellation before marking this dish served.',
+            );
+
+            $kotItems = KotItem::query()
+                ->where('order_item_id', $lockedItem->id)
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get();
+            abort_unless($kotItems->isNotEmpty(), 409, 'This dish has no kitchen ticket.');
+            if ($kotItems->every(fn (KotItem $kotItem) => strtolower((string) $kotItem->item_status) === 'served')) {
+                return $lockedOrder->fresh([
+                    'table',
+                    'items.menuItem',
+                    'items.kotItems',
+                    'items.cancellations.requester',
+                    'items.cancellations.decider',
+                    'kotTickets.kitchen',
+                    'kotTickets.items.menuItem',
+                ]);
+            }
+            abort_unless(
+                $kotItems->every(fn (KotItem $kotItem) => strtolower((string) $kotItem->item_status) === 'ready'),
+                409,
+                'Every kitchen handling this dish must mark it ready before it can be served.',
+            );
+
+            $kotItems->each(fn (KotItem $kotItem) => $kotItem->update(['item_status' => 'served']));
+            $lockedItem->update(['status' => 'served']);
+
+            foreach ($kotItems->pluck('kot_ticket_id')->unique() as $ticketId) {
+                $ticket = KotTicket::query()->whereKey($ticketId)->lockForUpdate()->firstOrFail();
+                $activeStatuses = KotItem::query()
+                    ->where('kot_ticket_id', $ticket->id)
+                    ->whereColumn('cancelled_quantity', '<', 'quantity')
+                    ->pluck('item_status')
+                    ->map(fn ($status) => strtolower((string) $status));
+
+                $ticketStatus = $activeStatuses->isEmpty()
+                    ? 'cancelled'
+                    : ($activeStatuses->every(fn ($status) => in_array($status, ['ready', 'served'], true))
+                        ? ($activeStatuses->contains('ready') ? 'ready' : 'served')
+                        : null);
+
+                if ($ticketStatus !== null && $ticket->ticket_status !== $ticketStatus) {
+                    $ticket->update(['ticket_status' => $ticketStatus]);
+                }
+                event(new KotTicketChanged(
+                    (int) $ticket->id,
+                    (int) $ticket->kitchen_id,
+                    (int) $ticket->order_id,
+                    'updated',
+                    (string) ($ticketStatus ?? $ticket->ticket_status),
+                ));
+            }
+
+            $this->syncOrderStatusFromTickets($lockedOrder);
+
+            return $lockedOrder->fresh([
+                'table',
+                'items.menuItem',
+                'items.kotItems',
+                'items.cancellations.requester',
+                'items.cancellations.decider',
+                'kotTickets.kitchen',
+                'kotTickets.items.menuItem',
+            ]);
+        });
+    }
+
     /**
      * Update order status directly (e.g. completed, cancelled).
      */
@@ -597,8 +692,9 @@ class OrderService
     }
 
     /**
-     * Create a reasoned cancellation request. A user with approval permission
-     * may approve the batch immediately; otherwise a manager must decide it.
+     * Apply a reasoned cancellation immediately unless the branch requires
+     * manager approval. order.cancel authorizes the action; order.approve
+     * authorizes deciding requests when branch approval is enabled.
      */
     public function requestItemCancellations(
         Order $order,
@@ -651,7 +747,7 @@ class OrderService
             $approvalRequired = (bool) Branch::query()
                 ->whereKey($lockedOrder->branch_id)
                 ->value('cancellation_approval_required');
-            $autoApprove = $requester->hasPermission('order.approve') && ! $approvalRequired;
+            $autoApprove = ! $approvalRequired;
             $created = collect();
 
             foreach ($requestedQuantities as $itemId => $quantity) {
@@ -899,7 +995,7 @@ class OrderService
                 ->where('order_id', $order->id)
                 ->orderBy('id')
                 ->lockForUpdate()
-                ->get(['id', 'ticket_status']);
+                ->get(['id', 'kitchen_id', 'ticket_status']);
 
             $lockedOrder = Order::query()
                 ->whereKey($order->id)
@@ -944,6 +1040,16 @@ class OrderService
 
             $lockedOrder->update(['status' => 'completed']);
 
+            foreach ($tickets as $ticket) {
+                event(new KotTicketChanged(
+                    (int) $ticket->id,
+                    (int) $ticket->kitchen_id,
+                    (int) $lockedOrder->id,
+                    'updated',
+                    (string) $ticket->ticket_status,
+                ));
+            }
+
             $anotherActiveOrder = Order::query()
                 ->where('table_id', $table->id)
                 ->where('id', '<>', $lockedOrder->id)
@@ -967,6 +1073,10 @@ class OrderService
 
         if ($activeStatuses->contains('preparing')) {
             $order->update(['status' => 'preparing']);
+        } elseif ($activeStatuses->contains('new')) {
+            $order->update(['status' => 'new']);
+        } elseif ($activeStatuses->contains('accepted')) {
+            $order->update(['status' => 'accepted']);
         } elseif ($activeStatuses->isNotEmpty() && $activeStatuses->every(fn ($status) => in_array(
             $status, ['ready', 'served'], true,
         ))) {
