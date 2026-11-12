@@ -20,17 +20,18 @@
 
     <style>
         :root {
-            --theme-primary: #f97316;
-            --theme-primary-hover: #ea580c;
-            --theme-primary-dark: #c2410c;
-            --theme-sidebar-bg: #1f140e;
-            --theme-sidebar-hover: #2e1d15;
-            --theme-sidebar-text: #c8beb2;
-            --theme-sidebar-muted: #8e7c6e;
-            --theme-page-bg: #faf7f2;
+            --theme-primary: #10b981;
+            --theme-primary-hover: #059669;
+            --theme-primary-dark: #047857;
+            --theme-primary-light: #ecfdf5;
+            --theme-sidebar-bg: #0c1e17;
+            --theme-sidebar-hover: #132c22;
+            --theme-sidebar-text: #9ca3af;
+            --theme-sidebar-muted: #6b7280;
+            --theme-page-bg: #f8fafc;
             --theme-card-bg: #ffffff;
-            --theme-card-border: #ede5da;
-            --theme-text-main: #1e293b;
+            --theme-card-border: #eef2f6;
+            --theme-text-main: #0f172a;
             --theme-text-muted: #64748b;
         }
 
@@ -40,26 +41,83 @@
             color: var(--theme-text-main);
             min-height: 100vh;
             overflow-x: hidden;
+            margin: 0;
+            padding: 0;
         }
 
-        /* Sidebar Styling (Matches Dark Warm Chocolate Theme in Reference) */
-        .sidebar {
-            background-color: var(--theme-sidebar-bg);
+        /* App Flex Layout (Matching Reference Widths & Proportions) */
+        .app-layout {
+            display: flex;
             min-height: 100vh;
+            width: 100%;
+        }
+
+        /* Sidebar: Fixed 250px compact width matching Dashcart reference */
+        .app-sidebar {
+            width: 250px;
+            min-width: 250px;
+            max-width: 250px;
+            flex-shrink: 0;
+            background-color: var(--theme-sidebar-bg);
+            height: 100vh;
+            max-height: 100vh;
             position: sticky;
             top: 0;
-            padding: 1.5rem 1rem;
+            padding: 1.25rem 1rem 1rem;
             display: flex;
             flex-direction: column;
-            border-right: 1px solid #2e1e16;
+            border-right: 1px solid rgba(255, 255, 255, 0.06);
             z-index: 100;
+            overflow: hidden;
+        }
+
+        /* Independent Sidebar Nav Scrolling */
+        .sidebar-nav-scroll {
+            flex: 1 1 auto;
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding-right: 2px;
+            margin-right: -2px;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+        }
+
+        .sidebar-nav-scroll::-webkit-scrollbar {
+            width: 4px;
+        }
+        .sidebar-nav-scroll::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .sidebar-nav-scroll::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.16);
+            border-radius: 4px;
+        }
+        .sidebar-nav-scroll::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.32);
+        }
+
+        /* Main Content: Takes 100% of remaining width with generous breathing room */
+        .app-main {
+            flex: 1 1 auto;
+            min-width: 0;
+            background-color: var(--theme-page-bg);
+            padding: 1.25rem 2.25rem 2.5rem;
+        }
+
+        @media (max-width: 991.98px) {
+            .app-sidebar {
+                display: none !important;
+            }
+            .app-main {
+                padding: 1rem 1rem 2rem;
+            }
         }
 
         .sidebar-brand {
             display: flex;
             align-items: center;
             gap: 0.75rem;
-            padding: 0.25rem 0.5rem 1.5rem 0.5rem;
+            padding: 0.25rem 0.5rem 1.25rem 0.5rem;
             text-decoration: none;
             border-bottom: 1px solid rgba(255, 255, 255, 0.08);
             margin-bottom: 1.25rem;
@@ -69,14 +127,15 @@
             width: 38px;
             height: 38px;
             border-radius: 10px;
-            background: linear-gradient(135deg, rgba(249, 115, 22, 0.2), rgba(234, 88, 12, 0.08));
-            border: 1px solid rgba(249, 115, 22, 0.35);
+            background: linear-gradient(135deg, #10b981, #059669);
             display: flex;
             align-items: center;
             justify-content: center;
-            color: #f97316;
+            color: #ffffff;
             font-size: 1.25rem;
+            font-weight: 800;
             flex-shrink: 0;
+            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.35);
         }
 
         .sidebar-brand-text h1 {
@@ -96,7 +155,7 @@
         }
 
         .sidebar-heading {
-            font-size: 0.7rem;
+            font-size: 0.68rem;
             text-transform: uppercase;
             letter-spacing: 0.08em;
             color: var(--theme-sidebar-muted);
@@ -104,7 +163,8 @@
             padding: 0.85rem 0.75rem 0.35rem;
         }
 
-        .sidebar .nav-link {
+        .app-sidebar .nav-link,
+        .offcanvas-body .nav-link {
             color: var(--theme-sidebar-text);
             font-size: 0.88rem;
             font-weight: 500;
@@ -118,38 +178,33 @@
             text-decoration: none;
         }
 
-        .sidebar .nav-link:hover {
+        .app-sidebar .nav-link:hover,
+        .offcanvas-body .nav-link:hover {
             color: #ffffff;
             background-color: var(--theme-sidebar-hover);
         }
 
-        .sidebar .nav-link.active {
-            color: #ffffff;
-            background-color: var(--theme-primary);
+        .app-sidebar .nav-link.active,
+        .offcanvas-body .nav-link.active {
+            color: #ffffff !important;
+            background-color: var(--theme-primary) !important;
             font-weight: 600;
-            box-shadow: 0 4px 12px rgba(249, 115, 22, 0.35);
+            box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
         }
 
-        .sidebar .nav-link i {
+        .app-sidebar .nav-link i,
+        .offcanvas-body .nav-link i {
             font-size: 1.05rem;
             width: 20px;
             display: inline-flex;
             justify-content: center;
         }
 
-        .sidebar-watermark {
-            margin-top: auto;
-            padding: 1.5rem 0.5rem 0.5rem;
-            opacity: 0.12;
-            text-align: center;
-            pointer-events: none;
-        }
-
         /* Top Bar Styling */
         .topbar {
             background-color: transparent;
-            padding: 1.25rem 0 0.75rem;
-            margin-bottom: 1.25rem;
+            padding: 0.5rem 0 1.25rem;
+            margin-bottom: 1rem;
         }
 
         .user-profile-badge {
@@ -170,7 +225,7 @@
             width: 34px;
             height: 34px;
             border-radius: 50%;
-            background: linear-gradient(135deg, #f97316, #ea580c);
+            background: linear-gradient(135deg, #10b981, #059669);
             color: #ffffff;
             font-size: 0.8rem;
             font-weight: 700;
@@ -180,8 +235,8 @@
         }
 
         .notification-btn {
-            width: 40px;
-            height: 40px;
+            width: 38px;
+            height: 38px;
             border-radius: 50%;
             background: #ffffff;
             border: 1px solid var(--theme-card-border);
@@ -195,16 +250,16 @@
         }
         .notification-btn:hover {
             color: var(--theme-primary);
-            border-color: #fed7aa;
+            border-color: #a7f3d0;
         }
         .notification-btn .dot {
             position: absolute;
-            top: 9px;
-            right: 10px;
+            top: 8px;
+            right: 9px;
             width: 7px;
             height: 7px;
             border-radius: 50%;
-            background-color: #f97316;
+            background-color: #10b981;
             border: 1.5px solid #ffffff;
         }
 
@@ -213,32 +268,33 @@
             background-color: var(--theme-card-bg);
             border-radius: 16px;
             border: 1px solid var(--theme-card-border);
-            box-shadow: 0 4px 20px -2px rgba(225, 205, 185, 0.22), 0 1px 3px rgba(0, 0, 0, 0.02);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
             transition: all 0.2s ease;
         }
 
         .card-header {
             background-color: transparent;
-            border-bottom: 1px solid #f2ebe2;
+            border-bottom: 1px solid #f1f5f9;
             padding: 1.15rem 1.5rem;
         }
 
         /* Buttons Theme */
-        .btn-primary {
+        .btn-primary, .btn-orange {
             background-color: var(--theme-primary);
-            border-color: var(--theme-primary-hover);
+            border-color: var(--theme-primary);
             color: #ffffff;
             font-weight: 600;
             border-radius: 10px;
             padding: 0.5rem 1.15rem;
-            box-shadow: 0 2px 6px rgba(249, 115, 22, 0.25);
+            box-shadow: 0 2px 6px rgba(16, 185, 129, 0.25);
             transition: all 0.15s ease;
         }
-        .btn-primary:hover, .btn-primary:focus, .btn-primary:active {
+        .btn-primary:hover, .btn-primary:focus, .btn-primary:active,
+        .btn-orange:hover, .btn-orange:focus, .btn-orange:active {
             background-color: var(--theme-primary-hover) !important;
             border-color: var(--theme-primary-dark) !important;
             color: #ffffff !important;
-            box-shadow: 0 4px 12px rgba(249, 115, 22, 0.35);
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.35);
         }
 
         .btn-outline-primary {
@@ -255,20 +311,20 @@
         }
 
         .btn-outline-secondary {
-            border-color: #dfd7cc;
+            border-color: #e2e8f0;
             color: #64748b;
             border-radius: 10px;
         }
         .btn-outline-secondary:hover {
-            background-color: #f1ede7;
+            background-color: #f1f5f9;
             color: #1e293b;
-            border-color: #cfc5b8;
+            border-color: #cbd5e1;
         }
 
         /* Forms Theme */
         .form-control, .form-select {
             border-radius: 10px;
-            border: 1px solid #dfd7cc;
+            border: 1px solid #e2e8f0;
             background-color: #ffffff;
             padding: 0.55rem 0.85rem;
             font-size: 0.92rem;
@@ -277,7 +333,7 @@
         }
         .form-control:focus, .form-select:focus {
             border-color: var(--theme-primary);
-            box-shadow: 0 0 0 0.25rem rgba(249, 115, 22, 0.16);
+            box-shadow: 0 0 0 0.25rem rgba(16, 185, 129, 0.16);
             outline: 0;
         }
 
@@ -336,71 +392,68 @@
     </style>
 </head>
 <body>
-    <div class="container-fluid p-0">
-        <div class="row g-0">
-            <!-- Left Desktop Sidebar (Warm Dark Chocolate Theme) -->
-            <aside class="col-lg-3 col-xl-2 d-none d-lg-block sidebar">
-                <!-- Branding -->
-                <a href="{{ route('dashboard') }}" class="sidebar-brand">
-                    <div class="sidebar-brand-icon">
-                        <i class="bi bi-fire"></i>
-                    </div>
-                    <div class="sidebar-brand-text">
-                        <h1>Nagarjuna KOT</h1>
-                        <span>Restaurant Management</span>
-                    </div>
-                </a>
+    <div class="app-layout">
+        <!-- Left Desktop Sidebar (Fixed 250px Compact Width matching Reference) -->
+        <aside class="app-sidebar d-none d-lg-flex">
+            <!-- Branding: Nagarjuna KOT (Fixed at top) -->
+            <a href="{{ route('dashboard') }}" class="sidebar-brand flex-shrink-0">
+                <div class="sidebar-brand-icon">
+                    <span>N</span>
+                </div>
+                <div class="sidebar-brand-text">
+                    <h1>Nagarjuna KOT</h1>
+                    <span>Restaurant Management</span>
+                </div>
+            </a>
 
-                <!-- Nav Items List -->
+            <!-- Nav Items List (Independently scrollable) -->
+            <div class="sidebar-nav-scroll">
                 @include('partials.sidebar-nav')
-
-                <!-- Bottom Watermark Illustration -->
-                <div class="sidebar-watermark">
-                    <svg width="100" height="60" viewBox="0 0 100 60" fill="none" stroke="#f97316" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M15 45h70M25 45a25 25 0 0 1 50 0M50 20v-5M46 15h8"/>
-                    </svg>
-                </div>
-            </aside>
-
-            <!-- Mobile Offcanvas Sidebar -->
-            <div class="offcanvas offcanvas-start bg-dark text-white" tabindex="-1" id="sidebarOffcanvas" aria-labelledby="sidebarOffcanvasLabel" style="background-color: #1f140e !important; max-width: 280px;">
-                <div class="offcanvas-header border-bottom" style="border-color: #2e1d15 !important;">
-                    <div class="d-flex align-items-center gap-2">
-                        <div class="sidebar-brand-icon">
-                            <i class="bi bi-fire"></i>
-                        </div>
-                        <div>
-                            <h5 class="fw-bold mb-0 text-white" id="sidebarOffcanvasLabel" style="font-size: 1rem;">Nagarjuna KOT</h5>
-                            <span class="small text-muted" style="font-size: 0.72rem;">Restaurant Management</span>
-                        </div>
-                    </div>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas" aria-label="Close"></button>
-                </div>
-                <div class="offcanvas-body p-3">
-                    @include('partials.sidebar-nav')
-                </div>
             </div>
+        </aside>
 
-            <!-- Main Content Area -->
-            <main class="col-12 col-lg-9 col-xl-10 px-3 px-md-4 px-xl-5 py-3">
-                <!-- Topbar Header -->
-                <header class="topbar d-flex align-items-center justify-content-between">
+        <!-- Mobile Offcanvas Sidebar -->
+        <div class="offcanvas offcanvas-start bg-dark text-white" tabindex="-1" id="sidebarOffcanvas" aria-labelledby="sidebarOffcanvasLabel" style="background-color: #0c1e17 !important; max-width: 280px;">
+            <div class="offcanvas-header border-bottom" style="border-color: rgba(255, 255, 255, 0.08) !important;">
+                <div class="d-flex align-items-center gap-2">
+                    <div class="sidebar-brand-icon">
+                        <span>N</span>
+                    </div>
+                    <div>
+                        <h5 class="fw-bold mb-0 text-white" id="sidebarOffcanvasLabel" style="font-size: 1rem;">Nagarjuna KOT</h5>
+                        <span class="small text-muted" style="font-size: 0.72rem;">Restaurant Management</span>
+                    </div>
+                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+            </div>
+            <div class="offcanvas-body p-3">
+                @include('partials.sidebar-nav')
+            </div>
+        </div>
+
+        <!-- Main Content Area (Full Expansive Width) -->
+        <main class="app-main">
+            <!-- Topbar Header (Matching Dashcart Topbar) -->
+            <header class="topbar d-flex align-items-center justify-content-between gap-3">
                     <!-- Mobile Hamburger Toggle -->
                     <button class="btn btn-outline-secondary btn-sm d-lg-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#sidebarOffcanvas" aria-controls="sidebarOffcanvas">
                         <i class="bi bi-list fs-5"></i>
                     </button>
 
-                    <div class="d-none d-lg-block">
-                        {{-- Breadcrumb or contextual indicator --}}
-                        <span class="badge bg-white text-secondary border px-3 py-1 rounded-pill small">
-                            <i class="bi bi-shield-check text-success me-1"></i>
-                            {{ auth()->user()->branch?->name ?? auth()->user()->company?->name ?? 'System Admin Mode' }}
-                        </span>
+                    <!-- Search Input Pill (Exact Match to Image 1: Q Search orders, people, reports) -->
+                    <div class="d-none d-md-flex align-items-center position-relative flex-grow-1" style="max-width: 440px;">
+                        <i class="bi bi-search position-absolute text-muted" style="left: 16px; font-size: 0.85rem;"></i>
+                        <input type="text" class="form-control rounded-pill ps-5 bg-white border-light-subtle shadow-none text-dark" placeholder="Search orders, people, reports" style="font-size: 0.85rem; height: 38px; border-color: #e2e8f0;">
                     </div>
 
-                    <!-- Right Controls: Notification & User Profile -->
-                    <div class="d-flex align-items-center gap-3 ms-auto">
-                        <!-- Notification Bell -->
+                    <!-- Right Controls: Dark Mode Toggle, Notification & User Profile -->
+                    <div class="d-flex align-items-center gap-2.5 ms-auto">
+                        <!-- Dark Mode Toggle Icon (Matching Image 1) -->
+                        <button type="button" class="notification-btn" title="Toggle theme">
+                            <i class="bi bi-moon"></i>
+                        </button>
+
+                        <!-- Notification Bell (Matching Image 1) -->
                         <a href="{{ route('orders.index') }}" class="notification-btn" title="View Recent Orders">
                             <i class="bi bi-bell"></i>
                             <span class="dot"></span>
@@ -468,7 +521,6 @@
                 @yield('content')
             </main>
         </div>
-    </div>
 
     <!-- Bootstrap Bundle JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
