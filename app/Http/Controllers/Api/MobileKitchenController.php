@@ -87,15 +87,14 @@ class MobileKitchenController extends Controller
     {
         $user = $request->user();
         $kitchens = $this->assignedKitchens($user);
-        $tickets = $this->ticketsForKitchens(
-            $user,
-            $kitchens->modelKeys(),
-        );
+        $view = $this->requestedTicketView($request);
+        $tickets = $this->ticketsForKitchens($user, $kitchens->modelKeys(), $view);
 
         return response()->json([
             'data' => [
                 'kitchens' => $kitchens->map(fn (Kitchen $kitchen) => $this->kitchenPayload($kitchen))->values(),
                 'tickets' => $tickets,
+                'view' => $view,
                 'refreshed_at' => now()->toIso8601String(),
             ],
         ]);
@@ -104,7 +103,8 @@ class MobileKitchenController extends Controller
     public function tickets(Request $request, Kitchen $kitchen): JsonResponse
     {
         $this->authorizeKitchen($request->user(), $kitchen);
-        $tickets = $this->ticketsForKitchens($request->user(), [$kitchen->id]);
+        $view = $this->requestedTicketView($request);
+        $tickets = $this->ticketsForKitchens($request->user(), [$kitchen->id], $view);
 
         return response()->json([
             'data' => [
@@ -114,6 +114,7 @@ class MobileKitchenController extends Controller
                     'code' => $kitchen->code,
                 ],
                 'tickets' => $tickets,
+                'view' => $view,
                 'refreshed_at' => now()->toIso8601String(),
             ],
         ]);
@@ -138,27 +139,52 @@ class MobileKitchenController extends Controller
         ];
     }
 
-    private function ticketsForKitchens(User $user, array $kitchenIds)
+    private function requestedTicketView(Request $request): string
     {
-        return KotTicket::query()
+        $view = $request->query('view', 'active');
+        abort_unless(in_array($view, ['active', 'completed', 'cancelled'], true), 422, 'The kitchen board view is invalid.');
+
+        return $view;
+    }
+
+    private function ticketsForKitchens(User $user, array $kitchenIds, string $view)
+    {
+        $query = KotTicket::query()
             ->where('company_id', $user->company_id)
             ->where('branch_id', $user->branch_id)
             ->whereIn('kitchen_id', $kitchenIds)
-            ->where(function ($query) {
-                $query->whereIn('ticket_status', ['new', 'accepted', 'preparing', 'ready'])
-                    ->orWhere(fn ($cancelled) => $cancelled
-                        ->where('ticket_status', 'cancelled')
-                        ->where('updated_at', '>=', now()->subMinutes(15)));
-            })
             ->with([
-                'order:id,order_number,table_id,created_at,special_instructions',
+                'order:id,order_number,table_id,created_at,special_instructions,status',
                 'order.table:id,name',
                 'items:id,kot_ticket_id,menu_item_id,quantity,cancelled_quantity,special_instructions,item_status',
                 'items.menuItem:id,name,menu_type_id',
                 'items.menuItem.menuType:id,name',
-            ])
-            ->orderBy('created_at')
-            ->get();
+            ]);
+
+        if ($view === 'active') {
+            $query->whereHas('order', fn ($order) => $order->where('status', '<>', 'completed'))
+                ->where(function ($tickets) {
+                $tickets->whereIn('ticket_status', ['new', 'accepted', 'preparing', 'ready'])
+                    ->orWhere(fn ($cancelled) => $cancelled
+                        ->where('ticket_status', 'cancelled')
+                        ->where('updated_at', '>=', now()->subMinutes(15)));
+                })
+                ->orderBy('created_at');
+        } elseif ($view === 'completed') {
+            $query->where(fn ($tickets) => $tickets
+                ->where('ticket_status', 'served')
+                ->orWhereHas('order', fn ($order) => $order->where('status', 'completed')))
+                ->orderByDesc('updated_at')
+                ->limit(100);
+        } else {
+            $query->where(fn ($tickets) => $tickets
+                ->where('ticket_status', 'cancelled')
+                ->orWhereHas('items', fn ($items) => $items->where('cancelled_quantity', '>', 0)))
+                ->orderByDesc('updated_at')
+                ->limit(100);
+        }
+
+        return $query->get();
     }
 
     public function updateTicketStatus(Request $request, KotTicket $ticket): JsonResponse

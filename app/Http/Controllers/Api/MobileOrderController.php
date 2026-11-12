@@ -179,6 +179,30 @@ class MobileOrderController extends Controller
         ]);
     }
 
+    public function markItemServed(Request $request, int $orderId, int $itemId): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+        abort_unless($user->company_id && $user->branch_id, Response::HTTP_FORBIDDEN, 'No branch is assigned to this account.');
+
+        $order = Order::query()
+            ->whereKey($orderId)
+            ->where('company_id', $user->company_id)
+            ->where('branch_id', $user->branch_id)
+            ->firstOrFail();
+        $item = OrderItem::query()
+            ->where('order_id', $order->id)
+            ->whereKey($itemId)
+            ->firstOrFail();
+
+        $updatedOrder = $this->orders->markMobileOrderItemServed($order, $item);
+
+        return response()->json([
+            'message' => 'Dish marked as served.',
+            'data' => ['order' => $this->orderPayload($updatedOrder)],
+        ]);
+    }
+
     public function cancelItems(Request $request, int $orderId): JsonResponse
     {
         /** @var User $user */
@@ -427,6 +451,11 @@ class MobileOrderController extends Controller
                     && $item->cancellations->where('status', 'pending')->isEmpty()
                     && $item->kotItems->isNotEmpty()
                     && $item->kotItems->every(fn ($kotItem) => in_array(strtolower((string) $kotItem->item_status), ['new', 'accepted'], true)),
+                'can_mark_served' => ! in_array($order->status, ['completed', 'cancelled'], true)
+                    && $item->cancelled_quantity < $item->quantity
+                    && $item->cancellations->where('status', 'pending')->isEmpty()
+                    && $item->kotItems->isNotEmpty()
+                    && $item->kotItems->every(fn ($kotItem) => strtolower((string) $kotItem->item_status) === 'ready'),
                 'unit_price' => (string) $item->unit_price,
                 'total_price' => (string) $item->total_price,
                 'special_instructions' => $item->special_instructions,

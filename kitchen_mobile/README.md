@@ -32,7 +32,7 @@ The API remains the source of ticket data. The kitchen board opens on **All assi
 
 Kitchen accounts need the `kitchen-staff` or `kitchen-manager` role, an active company and branch, and the `kot.view` and `kot.edit` permissions. A manager must assign active kitchen stations to the account in the web user editor. Ticket reads and updates are restricted to those assigned stations. Without Reverb configuration, tickets refresh every 12 seconds. Firebase Cloud Messaging alerts staff about new and cancelled tickets while the app is in the background; foreground alerts refresh the board. Configure this app's Firebase Android registration and `android/app/google-services.json` before release.
 
-The initial kitchen board supports ticket acceptance, preparation, and ready status. The browser KDS continues to be the project's existing large-screen kitchen display.
+The kitchen board supports ticket acceptance, preparation, and ready status; each dish also shows its own current state and cancelled quantity. Separate filters let staff review active queues, recently completed orders, and orders or items with cancellation history. The history endpoints remain scoped to the staff member's assigned kitchens. The browser KDS continues to be the project's existing large-screen kitchen display.
 
 ## Android release setup
 

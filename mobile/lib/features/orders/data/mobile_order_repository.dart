@@ -25,9 +25,20 @@ abstract interface class MobileOrderRepository {
     required String idempotencyKey,
   });
 
+  Future<void> increaseOrderItemQuantity({
+    required int orderId,
+    required int tableId,
+    required int menuItemId,
+    required int quantity,
+    required String? instructions,
+    required String idempotencyKey,
+  });
+
   Future<OrderStatusSnapshot> getOrderStatus(int orderId);
 
   Future<void> completeOrder(int orderId);
+
+  Future<void> markItemServed({required int orderId, required int orderItemId});
 
   Future<String> requestCancellation({
     required int orderId,
@@ -111,6 +122,32 @@ class ApiMobileOrderRepository implements MobileOrderRepository {
   }
 
   @override
+  Future<void> increaseOrderItemQuantity({
+    required int orderId,
+    required int tableId,
+    required int menuItemId,
+    required int quantity,
+    required String? instructions,
+    required String idempotencyKey,
+  }) async {
+    await api.post(
+      'mobile/orders/$orderId/items',
+      requestHeaders: {'Idempotency-Key': idempotencyKey},
+      body: {
+        'table_id': tableId,
+        'special_instructions': '',
+        'items': [
+          {
+            'menu_item_id': menuItemId,
+            'quantity': quantity,
+            'special_instructions': instructions ?? '',
+          },
+        ],
+      },
+    );
+  }
+
+  @override
   Future<OrderStatusSnapshot> getOrderStatus(int orderId) async {
     final response = await api.get('mobile/orders/$orderId');
     final data = response['data'];
@@ -132,12 +169,16 @@ class ApiMobileOrderRepository implements MobileOrderRepository {
       tableName: table is Map<String, dynamic> && table['name'] is String
           ? table['name'] as String
           : '—',
+      tableId: table is Map<String, dynamic> && table['id'] != null
+          ? _int(table['id'], 'table ID')
+          : null,
       items: items is List
           ? items
                 .whereType<Map<String, dynamic>>()
                 .map(
                   (item) => OrderItemProgress(
                     id: _int(item['id'], 'order item ID'),
+                    menuItemId: _intOptional(item['menu_item_id']),
                     name: item['name'] is String
                         ? item['name'] as String
                         : 'Menu item',
@@ -150,6 +191,7 @@ class ApiMobileOrderRepository implements MobileOrderRepository {
                       item['pending_cancellation_quantity'],
                     ),
                     canModify: item['can_modify'] == true,
+                    canMarkServed: item['can_mark_served'] == true,
                     cancellations: item['cancellations'] is List
                         ? (item['cancellations'] as List)
                               .whereType<Map<String, dynamic>>()
@@ -223,6 +265,14 @@ class ApiMobileOrderRepository implements MobileOrderRepository {
   @override
   Future<void> completeOrder(int orderId) async {
     await api.post('mobile/orders/$orderId/complete');
+  }
+
+  @override
+  Future<void> markItemServed({
+    required int orderId,
+    required int orderItemId,
+  }) async {
+    await api.post('mobile/orders/$orderId/items/$orderItemId/served');
   }
 
   @override

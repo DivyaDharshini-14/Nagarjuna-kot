@@ -91,6 +91,7 @@ class _NagarjunaWaiterAppState extends State<NagarjunaWaiterApp>
   bool _isRestoringSession = true;
   bool _isAuthenticated = false;
   bool _permissionsLoading = false;
+  String? _permissionsError;
   String? _sessionError;
   RestaurantTable? _selectedTable;
   int? _trackedOrderId;
@@ -98,6 +99,9 @@ class _NagarjunaWaiterAppState extends State<NagarjunaWaiterApp>
   int? _pendingPushOrderId;
   bool _canApproveCancellations = false;
   bool _hasFloorTableAccess = false;
+  bool _canAddOrderItems = false;
+  bool _canEditOrders = false;
+  bool _canCancelOrders = false;
   bool _showCancellationApprovals = false;
   final GlobalKey<ScaffoldMessengerState> _scaffoldMessengerKey =
       GlobalKey<ScaffoldMessengerState>();
@@ -177,6 +181,10 @@ class _NagarjunaWaiterAppState extends State<NagarjunaWaiterApp>
       _trackedOrderNumber = null;
       _canApproveCancellations = false;
       _hasFloorTableAccess = false;
+      _canAddOrderItems = false;
+      _canEditOrders = false;
+      _canCancelOrders = false;
+      _permissionsError = null;
       _permissionsLoading = false;
       _showCancellationApprovals = false;
     });
@@ -231,15 +239,30 @@ class _NagarjunaWaiterAppState extends State<NagarjunaWaiterApp>
   }
 
   Future<void> _refreshPermissions() async {
+    if (mounted) {
+      setState(() {
+        _permissionsLoading = true;
+        _permissionsError = null;
+      });
+    }
     try {
       final permissions = await widget.authRepository.loadPermissions();
       if (!mounted) return;
       setState(() {
         _canApproveCancellations = permissions.contains('order.approve');
+        _canAddOrderItems = permissions.contains('order.add');
+        _canEditOrders = permissions.contains('order.edit');
+        _canCancelOrders = permissions.contains('order.cancel');
         _hasFloorTableAccess =
             permissions.contains('floor.view') &&
-            permissions.contains('table.view');
+            permissions.contains('table.view') &&
+            permissions.contains('category.view') &&
+            permissions.contains('menu-type.view') &&
+            permissions.contains('menu-item.view') &&
+            permissions.contains('order.view') &&
+            _canAddOrderItems;
         _permissionsLoading = false;
+        _permissionsError = null;
         if (_canApproveCancellations && !_hasFloorTableAccess) {
           _showCancellationApprovals = true;
         }
@@ -247,9 +270,8 @@ class _NagarjunaWaiterAppState extends State<NagarjunaWaiterApp>
     } on Object {
       if (!mounted) return;
       setState(() {
-        _canApproveCancellations = false;
-        _hasFloorTableAccess = false;
         _permissionsLoading = false;
+        _permissionsError = 'We could not check your staff permissions. Check your connection and retry.';
       });
     }
   }
@@ -279,6 +301,14 @@ class _NagarjunaWaiterAppState extends State<NagarjunaWaiterApp>
     setState(() {
       _trackedOrderId = orderId;
       _trackedOrderNumber = table.activeOrderNumber ?? 'Order';
+    });
+  }
+
+  void _editOrderInMenu(RestaurantTable table) {
+    setState(() {
+      _trackedOrderId = null;
+      _trackedOrderNumber = null;
+      _selectedTable = table;
     });
   }
 
@@ -323,6 +353,13 @@ class _NagarjunaWaiterAppState extends State<NagarjunaWaiterApp>
     if (_permissionsLoading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
+    if (_permissionsError != null) {
+      return _PermissionRetryScreen(
+        message: _permissionsError!,
+        onRetry: _refreshPermissions,
+        onSignOut: _signOut,
+      );
+    }
     if (_showCancellationApprovals) {
       return CancellationApprovalScreen(
         repository: widget.orderRepository,
@@ -338,6 +375,9 @@ class _NagarjunaWaiterAppState extends State<NagarjunaWaiterApp>
         onBack: _signOut,
         onSessionExpired: _expireSession,
       );
+    }
+    if (!_hasFloorTableAccess) {
+      return _NoMobileAccessScreen(onSignOut: _signOut);
     }
     final selectedTable = _selectedTable;
     if (selectedTable != null) {
@@ -363,6 +403,10 @@ class _NagarjunaWaiterAppState extends State<NagarjunaWaiterApp>
         liveConnection: widget.liveConnection,
         onBack: _closeOrderProgress,
         onOrderCompleted: _closeOrderProgress,
+        onEditOrder: _editOrderInMenu,
+        canAddItems: _canAddOrderItems,
+        canEditOrders: _canEditOrders,
+        canCancelOrders: _canCancelOrders,
         onSessionExpired: _expireSession,
       );
     }
@@ -385,6 +429,90 @@ class _NagarjunaWaiterAppState extends State<NagarjunaWaiterApp>
     if (error is ApiException) return error.message;
     return 'We could not check your saved session. Check your connection and retry.';
   }
+}
+
+class _PermissionRetryScreen extends StatelessWidget {
+  const _PermissionRetryScreen({
+    required this.message,
+    required this.onRetry,
+    required this.onSignOut,
+  });
+
+  final String message;
+  final Future<void> Function() onRetry;
+  final Future<void> Function() onSignOut;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: SafeArea(
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(26),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.security_rounded, size: 42),
+              const SizedBox(height: 14),
+              Text(
+                'Could not confirm your access',
+                style: Theme.of(context).textTheme.titleLarge,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(message, textAlign: TextAlign.center),
+              const SizedBox(height: 20),
+              FilledButton.icon(
+                onPressed: onRetry,
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Retry'),
+              ),
+              TextButton(onPressed: onSignOut, child: const Text('Sign out')),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _NoMobileAccessScreen extends StatelessWidget {
+  const _NoMobileAccessScreen({required this.onSignOut});
+
+  final Future<void> Function() onSignOut;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: SafeArea(
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(26),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.lock_outline_rounded, size: 42),
+              const SizedBox(height: 14),
+              Text(
+                'Mobile access is not assigned',
+                style: Theme.of(context).textTheme.titleLarge,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Ask your manager to assign a waiter or cancellation-approval role, then sign in again.',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 20),
+              FilledButton.icon(
+                onPressed: onSignOut,
+                icon: const Icon(Icons.logout_rounded),
+                label: const Text('Sign out'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class _SessionRetryScreen extends StatelessWidget {

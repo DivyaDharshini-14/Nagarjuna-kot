@@ -38,11 +38,14 @@ class KitchenRepository {
         .toList(growable: false);
   }
 
-  Future<List<KotTicket>> getTickets(int? kitchenId) async {
+  Future<List<KotTicket>> getTickets(
+    int? kitchenId, {
+    String view = 'active',
+  }) async {
     final response = await api.get(
       kitchenId == null
-          ? '/kitchen-mobile/kot'
-          : '/kitchen-mobile/kitchens/$kitchenId/kot',
+          ? '/kitchen-mobile/kot?view=$view'
+          : '/kitchen-mobile/kitchens/$kitchenId/kot?view=$view',
     );
     final data = response['data'] as Map<String, dynamic>;
     return (data['tickets'] as List<dynamic>? ?? const [])

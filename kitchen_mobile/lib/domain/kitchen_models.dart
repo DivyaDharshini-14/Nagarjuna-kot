@@ -146,6 +146,7 @@ class KotTicket {
     required this.status,
     required this.createdAt,
     required this.orderNumber,
+    required this.orderStatus,
     required this.tableName,
     required this.orderNote,
     required this.kitchenNote,
@@ -157,6 +158,7 @@ class KotTicket {
   final String status;
   final DateTime createdAt;
   final String orderNumber;
+  final String orderStatus;
   final String tableName;
   final String? orderNote;
   final String? kitchenNote;
@@ -174,6 +176,7 @@ class KotTicket {
           DateTime.tryParse(json['created_at'] as String? ?? '')?.toLocal() ??
           DateTime.now(),
       orderNumber: order['order_number'] as String? ?? 'Order',
+      orderStatus: order['status'] as String? ?? 'active',
       tableName: table['name'] as String? ?? 'Takeaway',
       orderNote: order['special_instructions'] as String?,
       kitchenNote: json['notes'] as String?,

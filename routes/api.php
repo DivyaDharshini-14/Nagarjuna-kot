@@ -67,6 +67,12 @@ Route::prefix('v1')->group(function () {
             ->whereNumber('item')
             ->name('api.mobile.orders.items.instructions');
 
+        Route::post('/mobile/orders/{order}/items/{item}/served', [MobileOrderController::class, 'markItemServed'])
+            ->middleware('permission:order.edit')
+            ->whereNumber('order')
+            ->whereNumber('item')
+            ->name('api.mobile.orders.items.served');
+
         Route::post('/mobile/orders/{order}/complete', [MobileOrderController::class, 'complete'])
             ->middleware('permission:order.edit')
             ->whereNumber('order')

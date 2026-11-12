@@ -4,15 +4,18 @@ class OrderItemProgress {
     required this.name,
     required this.quantity,
     required this.status,
+    this.menuItemId,
     this.cancellableQuantity = 0,
     this.cancelledQuantity = 0,
     this.pendingCancellationQuantity = 0,
     this.canModify = false,
+    this.canMarkServed = false,
     this.cancellations = const [],
     this.instructions,
   });
 
   final int id;
+  final int? menuItemId;
   final String name;
   final int quantity;
   final String status;
@@ -20,6 +23,7 @@ class OrderItemProgress {
   final int cancelledQuantity;
   final int pendingCancellationQuantity;
   final bool canModify;
+  final bool canMarkServed;
   final List<ItemCancellationProgress> cancellations;
   final String? instructions;
 }
@@ -68,6 +72,7 @@ class OrderStatusSnapshot {
     required this.orderNumber,
     required this.orderStatus,
     required this.tableName,
+    this.tableId,
     required this.items,
     required this.tickets,
     required this.updatedAt,
@@ -77,6 +82,7 @@ class OrderStatusSnapshot {
   final String orderNumber;
   final String orderStatus;
   final String tableName;
+  final int? tableId;
   final List<OrderItemProgress> items;
   final List<KitchenTicketProgress> tickets;
   final DateTime? updatedAt;

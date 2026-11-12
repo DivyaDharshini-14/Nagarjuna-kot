@@ -76,6 +76,7 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
   String? _startupError;
   String? _boardError;
   String? _busyTicketId;
+  String _boardView = 'active';
   DateTime? _refreshedAt;
   bool _hasBoardSnapshot = false;
   bool _liveConnected = false;
@@ -180,6 +181,7 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
       _kitchens = kitchens;
       _selectedKitchen = null;
       _tickets = const [];
+      _boardView = 'active';
       _restoring = false;
       _startupError = null;
       _refreshing = false;
@@ -318,7 +320,10 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
       _boardError = null;
     });
     try {
-      final tickets = await widget.repository.getTickets(kitchen?.id);
+      final tickets = await widget.repository.getTickets(
+        kitchen?.id,
+        view: _boardView,
+      );
       if (!mounted || generation != _refreshGeneration) return;
       if (_selectedKitchen?.id != kitchen?.id) {
         setState(() {
@@ -327,7 +332,9 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
         });
         return;
       }
-      if (notify && _hasBoardSnapshot) _notifyTicketChanges(tickets);
+      if (notify && _hasBoardSnapshot && _boardView == 'active') {
+        _notifyTicketChanges(tickets);
+      }
       setState(() {
         _tickets = tickets;
         _ticketStatuses = {
@@ -375,6 +382,16 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
         });
       }
     }
+  }
+
+  Future<void> _changeBoardView(String view) async {
+    if (_boardView == view) return;
+    setState(() {
+      _boardView = view;
+      _tickets = const [];
+      _hasBoardSnapshot = false;
+    });
+    await _refreshTickets(force: true);
   }
 
   void _notifyTicketChanges(List<KotTicket> tickets) {
@@ -523,6 +540,8 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
       liveConfigured: widget.liveConnection.isConfigured,
       liveConnected: _liveConnected,
       onRefresh: () => _refreshTickets(notify: false),
+      boardView: _boardView,
+      onBoardViewChanged: _changeBoardView,
       onKitchenChanged: _changeKitchen,
       onStatusChange: _updateTicket,
       onSignOut: _signOut,
