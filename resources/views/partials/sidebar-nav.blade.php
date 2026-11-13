@@ -1,4 +1,5 @@
-<ul class="nav flex-column mb-auto">
+<ul class="nav flex-column mb-auto pb-4">
+    <li class="sidebar-heading">Main</li>
     {{-- Dashboard --}}
     <li class="nav-item">
         <a class="nav-link {{ request()->routeIs('dashboard') ? 'active' : '' }}" href="{{ route('dashboard') }}">
@@ -16,6 +17,26 @@
                 <span>Kitchen Display (KDS)</span>
             </a>
         </li>
+        @if(auth()->user()->hasPermission('menu-item.view'))
+            <li class="nav-item">
+                <a class="nav-link {{ request()->routeIs('stock.index') || request()->routeIs('stock.stock-in') ? 'active' : '' }}" href="{{ route('stock.stock-in') }}">
+                    <i class="bi bi-box-arrow-in-down"></i>
+                    <span>Kitchen Stock In</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {{ request()->routeIs('stock.adjustments') ? 'active' : '' }}" href="{{ route('stock.adjustments') }}">
+                    <i class="bi bi-sliders"></i>
+                    <span>Stock Adjustment</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {{ request()->routeIs('stock.history') ? 'active' : '' }}" href="{{ route('stock.history') }}">
+                    <i class="bi bi-clock-history"></i>
+                    <span>Stock Transaction History</span>
+                </a>
+            </li>
+        @endif
         <li class="nav-item">
             <a class="nav-link {{ request()->routeIs('kots.*') ? 'active' : '' }}" href="{{ route('kots.index') }}">
                 <i class="bi bi-card-checklist"></i>
@@ -71,6 +92,27 @@
                     <a class="nav-link {{ request()->routeIs('kots.*') ? 'active' : '' }}" href="{{ route('kots.index') }}">
                         <i class="bi bi-clock-history"></i>
                         <span>KOT Monitoring</span>
+                    </a>
+                </li>
+            @endif
+
+            @if(auth()->user()->hasPermission('menu-item.view'))
+                <li class="nav-item">
+                    <a class="nav-link {{ request()->routeIs('stock.index') || request()->routeIs('stock.stock-in') ? 'active' : '' }}" href="{{ route('stock.stock-in') }}">
+                        <i class="bi bi-box-arrow-in-down"></i>
+                        <span>Kitchen Stock In</span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link {{ request()->routeIs('stock.adjustments') ? 'active' : '' }}" href="{{ route('stock.adjustments') }}">
+                        <i class="bi bi-sliders"></i>
+                        <span>Stock Adjustment</span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link {{ request()->routeIs('stock.history') ? 'active' : '' }}" href="{{ route('stock.history') }}">
+                        <i class="bi bi-clock-history"></i>
+                        <span>Stock Transaction History</span>
                     </a>
                 </li>
             @endif

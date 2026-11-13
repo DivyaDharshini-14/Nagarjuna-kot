@@ -169,7 +169,7 @@ class OrderApiController extends Controller
         $approved = $cancellations->every(fn ($cancellation) => $cancellation->status === 'approved');
         return response()->json([
             'message' => $approved
-                ? 'Cancellation approved and sent to the kitchen.'
+                ? 'Cancellation completed and sent to the kitchen.'
                 : 'Cancellation request sent for manager approval.',
             'data' => [
                 'request_batch' => $batch,

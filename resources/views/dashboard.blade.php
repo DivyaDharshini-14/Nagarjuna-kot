@@ -3,35 +3,37 @@
 @section('title', 'Dashboard')
 
 @section('content')
-<div class="dashboard-wrapper">
-    {{-- Top Greeting Header with Artistic Watermark (Matching Reference) --}}
-    <div class="dashboard-header d-flex align-items-center justify-content-between position-relative mb-4">
+<div class="tabletop-dashboard py-2">
+    {{-- Breadcrumb / Super-title --}}
+    <div class="text-secondary small mb-1" style="font-size: 0.82rem; color: #6b7280;">
+        Dashboard / Overview
+    </div>
+
+    {{-- Top Header: Greeting, Subtitle & Branch Badge --}}
+    <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-3 mb-4">
         <div>
-            <h1 class="greeting-title fw-bold mb-1">
-                Welcome back, {{ auth()->user()->name }} <span class="wave-emoji">👋</span>
+            @php
+                $hour = (int) date('H');
+                $greeting = $hour < 12 ? 'Good morning' : ($hour < 17 ? 'Good afternoon' : 'Good evening');
+            @endphp
+            <h1 class="fw-bold text-dark mb-1" style="font-size: 1.75rem; letter-spacing: -0.02em;">
+                {{ $greeting }}, {{ auth()->user()->name }} <span class="wave-emoji">👋</span>
             </h1>
-            <p class="greeting-subtitle text-muted mb-0">
+            <p class="text-secondary small mb-0" style="font-size: 0.86rem; color: #6b7280;">
                 Here's what's happening at your restaurant today.
             </p>
         </div>
 
-        {{-- Hand-drawn Biryani Pot Decorative Illustration --}}
-        <div class="header-sketch-container d-none d-md-block">
-            <svg width="170" height="95" viewBox="0 0 200 130" fill="none" stroke="#d5c7b7" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <!-- Bowl body -->
-                <path d="M22 65 Q 28 118, 100 118 Q 172 118, 178 65 Z" fill="#faf7f2" />
-                <path d="M18 65 C 18 57, 182 57, 182 65 C 182 73, 18 73, 18 65 Z" />
-                <!-- Rice mound -->
-                <path d="M38 60 Q 100 16, 162 60" />
-                <path d="M52 52 Q 100 24, 148 52" />
-                <!-- Garnish & aromatic steam -->
-                <path d="M100 20 Q 106 8, 114 14 Q 120 20, 112 28" />
-                <path d="M88 30 Q 94 16, 100 24" />
-                <circle cx="75" cy="48" r="2.5" fill="#d5c7b7" />
-                <circle cx="120" cy="45" r="2" fill="#d5c7b7" />
-                <!-- Base stand -->
-                <path d="M62 118 L 57 126 H 143 L 138 118" />
-            </svg>
+        <div class="d-flex align-items-center gap-2">
+            @if(!empty($locksBranch))
+                <span class="badge bg-light text-secondary border px-3 py-1.5 fw-semibold" style="font-size: 0.75rem; border-radius: 6px;">
+                    <i class="bi bi-geo-alt me-1 text-danger"></i>{{ auth()->user()->branch?->name ?? 'Assigned Branch' }}
+                </span>
+            @else
+                <span class="badge bg-light text-secondary border px-3 py-1.5 fw-semibold" style="font-size: 0.75rem; border-radius: 6px;">
+                    <i class="bi bi-buildings me-1 text-danger"></i>All Branches
+                </span>
+            @endif
         </div>
     </div>
 
@@ -55,762 +57,1156 @@
                         >
                     </div>
                 </div>
+    {{-- Hidden form for background real-time sync (No UI filter controls) --}}
+    <form id="dashboardFilters" method="GET" action="{{ route('dashboard') }}" class="d-none">
+        <input type="hidden" name="format" value="json">
+    </form>
 
-                {{-- Company Selector (Super Admin) --}}
-                @if($isSuper)
-                    <div class="col-12 col-sm-6 col-lg-3">
-                        <select name="company_id" class="form-select form-select-clean" onchange="this.form.submit()">
-                            <option value="">All Companies</option>
-                            @foreach($companies as $comp)
-                                <option value="{{ $comp->id }}" @selected((string)$selectedCompanyId === (string)$comp->id)>
-                                    {{ $comp->name }}
-                                </option>
-                            @endforeach
-                        </select>
-                    </div>
-                @endif
-
-                {{-- Branch Selector --}}
-                @if(!$locksBranch)
-                    <div class="col-12 col-sm-6 col-lg-{{ $isSuper ? '2' : '3' }}">
-                        <select name="branch_id" class="form-select form-select-clean" onchange="this.form.submit()">
-                            <option value="">All Branches</option>
-                            @foreach($branches as $b)
-                                <option value="{{ $b->id }}" @selected((string)$selectedBranchId === (string)$b->id)>
-                                    {{ $b->name }}
-                                </option>
-                            @endforeach
-                        </select>
-                    </div>
-                @else
-                    <input type="hidden" name="branch_id" value="{{ $selectedBranchId }}">
-                @endif
-
-                {{-- Kitchen Station Selector --}}
-                <div class="col-12 col-sm-6 col-lg-{{ $isSuper ? '2' : '3' }}">
-                    <select name="kitchen_id" class="form-select form-select-clean" onchange="this.form.submit()">
-                        <option value="">All Kitchens</option>
-                        @foreach($kitchens as $k)
-                            <option value="{{ $k->id }}" @selected((string)$selectedKitchenId === (string)$k->id)>
-                                {{ $k->name }}
-                            </option>
-                        @endforeach
-                    </select>
-                </div>
-
-                {{-- Refresh Action Button --}}
-                <div class="col-12 col-sm-6 col-lg-2 ms-auto text-end">
-                    <button type="submit" class="btn btn-refresh w-100 shadow-sm">
-                        <i class="bi bi-arrow-repeat me-1"></i>Refresh
-                    </button>
-                </div>
-            </div>
-        </form>
-    </div>
-
-    {{-- 6 Summary Cards (Exact Color Tints, Icons & Badges from Reference) --}}
+    {{-- 1. Six Tabletop KPI Summary Cards --}}
     <div class="row g-3 mb-4">
-        {{-- 1. Total Orders (Peach / Cream Card) --}}
+        {{-- Total Orders --}}
         <div class="col-6 col-md-4 col-xl-2">
-            <div class="stat-card stat-card-total p-3 h-100">
-                <div class="d-flex align-items-center gap-3">
-                    <div class="stat-icon stat-icon-total">
-                        <i class="bi bi-bag"></i>
-                    </div>
-                    <div>
-                        <div class="stat-label">Total Orders</div>
-                        <div class="stat-num">{{ number_format($summary['total'] > 0 ? $summary['total'] : 120) }}</div>
-                    </div>
-                </div>
-                <div class="stat-trend text-success mt-2">
-                    <i class="bi bi-arrow-up-short"></i>+{{ $vsYesterdayPct ?: 12 }}% vs yesterday
-                </div>
-            </div>
-        </div>
-
-        {{-- 2. Active Orders (Soft Cyan / Mint Card) --}}
-        <div class="col-6 col-md-4 col-xl-2">
-            <div class="stat-card stat-card-active p-3 h-100">
-                <div class="d-flex align-items-center gap-3">
-                    <div class="stat-icon stat-icon-active">
-                        <i class="bi bi-egg"></i>
-                    </div>
-                    <div>
-                        <div class="stat-label">Active Orders</div>
-                        <div class="stat-num">{{ number_format($summary['active'] > 0 ? $summary['active'] : 18) }}</div>
-                    </div>
-                </div>
-                <div class="stat-trend text-muted mt-2">
-                    <span class="dot-live"></span> Live in dining
-                </div>
-            </div>
-        </div>
-
-        {{-- 3. Preparing (Soft Amber / Light Orange Card) --}}
-        <div class="col-6 col-md-4 col-xl-2">
-            <div class="stat-card stat-card-preparing p-3 h-100">
-                <div class="d-flex align-items-center gap-3">
-                    <div class="stat-icon stat-icon-preparing">
-                        <i class="bi bi-fire"></i>
-                    </div>
-                    <div>
-                        <div class="stat-label">Preparing</div>
-                        <div class="stat-num">{{ number_format($summary['preparing'] > 0 ? $summary['preparing'] : 12) }}</div>
-                    </div>
-                </div>
-                <div class="stat-trend text-warning mt-2">
-                    <i class="bi bi-clock me-1"></i>In kitchen prep
-                </div>
-            </div>
-        </div>
-
-        {{-- 4. Ready (Soft Green Card) --}}
-        <div class="col-6 col-md-4 col-xl-2">
-            <div class="stat-card stat-card-ready p-3 h-100">
-                <div class="d-flex align-items-center gap-3">
-                    <div class="stat-icon stat-icon-ready">
-                        <i class="bi bi-check2-circle"></i>
-                    </div>
-                    <div>
-                        <div class="stat-label">Ready</div>
-                        <div class="stat-num">{{ number_format($summary['ready'] > 0 ? $summary['ready'] : 6) }}</div>
-                    </div>
-                </div>
-                <div class="stat-trend text-success mt-2">
-                    <i class="bi bi-bell me-1"></i>Ready for pickup
-                </div>
-            </div>
-        </div>
-
-        {{-- 5. Completed (Soft Lavender / Purple Card) --}}
-        <div class="col-6 col-md-4 col-xl-2">
-            <div class="stat-card stat-card-completed p-3 h-100">
-                <div class="d-flex align-items-center gap-3">
-                    <div class="stat-icon stat-icon-completed">
-                        <i class="bi bi-check-all"></i>
-                    </div>
-                    <div>
-                        <div class="stat-label">Completed</div>
-                        <div class="stat-num">{{ number_format($summary['completed'] > 0 ? $summary['completed'] : 95) }}</div>
-                    </div>
-                </div>
-                <div class="stat-trend text-purple mt-2" style="color: #7c3aed;">
-                    <i class="bi bi-patch-check me-1"></i>Billed &amp; settled
-                </div>
-            </div>
-        </div>
-
-        {{-- 6. Cancelled (Soft Rose / Red Card) --}}
-        <div class="col-6 col-md-4 col-xl-2">
-            <div class="stat-card stat-card-cancelled p-3 h-100">
-                <div class="d-flex align-items-center gap-3">
-                    <div class="stat-icon stat-icon-cancelled">
-                        <i class="bi bi-x-circle"></i>
-                    </div>
-                    <div>
-                        <div class="stat-label">Cancelled</div>
-                        <div class="stat-num">{{ number_format($summary['cancelled'] > 0 ? $summary['cancelled'] : 7) }}</div>
-                    </div>
-                </div>
-                <div class="stat-trend text-danger mt-2">
-                    <i class="bi bi-dash-circle me-1"></i>Voided orders
-                </div>
-            </div>
-        </div>
-    </div>
-
-    {{-- Main 4-Grid Section (Matching Reference: 2x2 Layout) --}}
-    <div class="row g-4">
-        {{-- Card 1: Branch-wise Order Count (Horizontal Orange Bars) --}}
-        <div class="col-12 col-lg-6">
-            <div class="card theme-panel-card h-100 p-4">
-                <div class="d-flex align-items-center justify-content-between mb-4">
-                    <div class="d-flex align-items-center gap-2">
-                        <div class="panel-header-icon">
-                            <i class="bi bi-building"></i>
+            <div class="tabletop-card tabletop-kpi-card p-3 h-100 d-flex flex-column justify-content-between">
+                <div>
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <span class="kpi-label">Total Orders</span>
+                        <div class="kpi-icon-box bg-emerald-subtle text-emerald">
+                            <i class="bi bi-bag-check"></i>
                         </div>
-                        <h2 class="panel-header-title mb-0">Branch-wise Order Count</h2>
+                    </div>
+                    <div class="kpi-value text-dark" id="stat-total">
+                        {{ number_format($summary['total'] ?? 0) }}
                     </div>
                 </div>
-
-                <div class="branch-chart-container py-2">
-                    @php
-                        // Mock fallback matching reference visual if fresh database
-                        $displayBranches = $branchBreakdown->count() > 0 ? $branchBreakdown : collect([
-                            ['branch' => (object)['name' => 'HSR Layout'], 'total' => 75],
-                            ['branch' => (object)['name' => 'Indiranagar'], 'total' => 45],
-                            ['branch' => (object)['name' => 'Whitefield'], 'total' => 20],
-                        ]);
-                        $maxVal = max(80, (int)$displayBranches->max('total'));
-                    @endphp
-
-                    @foreach($displayBranches as $index => $b)
-                        @php
-                            $bName = is_array($b) ? $b['branch']->name : $b->branch->name;
-                            $bTotal = is_array($b) ? $b['total'] : $b->total;
-                            $barWidthPct = min(100, max(8, round(($bTotal / $maxVal) * 100)));
-                            
-                            // Visual gradient color matching reference
-                            $barGradient = match($index % 3) {
-                                0 => 'linear-gradient(90deg, #f97316, #ea580c)',
-                                1 => 'linear-gradient(90deg, #fdba74, #fb923c)',
-                                default => 'linear-gradient(90deg, #fed7aa, #fdba74)',
-                            };
-                        @endphp
-                        <div class="branch-bar-row mb-4">
-                            <div class="d-flex align-items-center gap-3">
-                                <div class="branch-name-label text-truncate" title="{{ $bName }}">
-                                    {{ $bName }}
-                                </div>
-                                <div class="branch-bar-track flex-grow-1 position-relative">
-                                    <div class="branch-bar-fill" style="width: {{ $barWidthPct }}%; background: {{ $barGradient }};"></div>
-                                </div>
-                                <div class="branch-count-badge">
-                                    {{ $bTotal }}
-                                </div>
-                            </div>
-                        </div>
-                    @endforeach
-
-                    {{-- Horizontal Scale Axis --}}
-                    <div class="branch-scale-axis d-flex justify-content-between pt-2 border-top text-muted small">
-                        <span>0</span>
-                        <span>20</span>
-                        <span>40</span>
-                        <span>60</span>
-                        <span>80</span>
+                <div class="d-flex align-items-center justify-content-between pt-2 border-top" style="border-color: #f3f4f6 !important;">
+                    <div class="kpi-meta {{ ($vsYesterdayPct ?? 0) >= 0 ? 'text-success' : 'text-danger' }}" id="stat-trend-total">
+                        <i class="bi {{ ($vsYesterdayPct ?? 0) >= 0 ? 'bi-arrow-up-short' : 'bi-arrow-down-short' }}"></i>
+                        <span>{{ ($vsYesterdayPct ?? 0) >= 0 ? '+' : '' }}{{ $vsYesterdayPct ?? 0 }}% vs yest</span>
+                    </div>
+                    <div class="mini-sparkline">
+                        <svg viewBox="0 0 50 16" style="width: 40px; height: 14px; stroke: {{ ($vsYesterdayPct ?? 0) >= 0 ? '#10b981' : '#ef4444' }}; fill: none; stroke-width: 1.8;">
+                            <path d="M0,12 Q12,6 25,10 T50,{{ ($vsYesterdayPct ?? 0) >= 0 ? '3' : '14' }}"></path>
+                        </svg>
                     </div>
                 </div>
             </div>
         </div>
 
-        {{-- Card 2: Kitchen-wise Pending Orders (Clean Table with Red Pill Counts) --}}
-        <div class="col-12 col-lg-6">
-            <div class="card theme-panel-card h-100 p-4">
-                <div class="d-flex align-items-center justify-content-between mb-3">
-                    <div class="d-flex align-items-center gap-2">
-                        <div class="panel-header-icon">
+        {{-- Active Orders --}}
+        <div class="col-6 col-md-4 col-xl-2">
+            <div class="tabletop-card tabletop-kpi-card p-3 h-100 d-flex flex-column justify-content-between">
+                <div>
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <span class="kpi-label">Active Orders</span>
+                        <div class="kpi-icon-box bg-blue-subtle text-primary">
+                            <i class="bi bi-egg"></i>
+                        </div>
+                    </div>
+                    <div class="kpi-value text-dark" id="stat-active">
+                        {{ number_format($summary['active'] ?? 0) }}
+                    </div>
+                </div>
+                <div class="d-flex align-items-center justify-content-between pt-2 border-top" style="border-color: #f3f4f6 !important;">
+                    <div class="kpi-meta text-muted">
+                        <span class="dot-live"></span> Live dining
+                    </div>
+                    <div class="mini-sparkline">
+                        <svg viewBox="0 0 50 16" style="width: 40px; height: 14px; stroke: #0284c7; fill: none; stroke-width: 1.8;">
+                            <path d="M0,10 Q15,4 30,12 T50,6"></path>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {{-- Preparing --}}
+        <div class="col-6 col-md-4 col-xl-2">
+            <div class="tabletop-card tabletop-kpi-card p-3 h-100 d-flex flex-column justify-content-between">
+                <div>
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <span class="kpi-label">Preparing</span>
+                        <div class="kpi-icon-box bg-amber-subtle text-amber">
                             <i class="bi bi-fire"></i>
                         </div>
-                        <h2 class="panel-header-title mb-0">Kitchen-wise Pending Orders</h2>
+                    </div>
+                    <div class="kpi-value text-dark" id="stat-preparing">
+                        {{ number_format($summary['preparing'] ?? 0) }}
+                    </div>
+                </div>
+                <div class="d-flex align-items-center justify-content-between pt-2 border-top" style="border-color: #f3f4f6 !important;">
+                    <div class="kpi-meta text-warning">
+                        <i class="bi bi-clock me-1"></i>In kitchen
+                    </div>
+                    <div class="mini-sparkline">
+                        <svg viewBox="0 0 50 16" style="width: 40px; height: 14px; stroke: #f59e0b; fill: none; stroke-width: 1.8;">
+                            <path d="M0,12 Q15,6 30,10 T50,4"></path>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {{-- Ready --}}
+        <div class="col-6 col-md-4 col-xl-2">
+            <div class="tabletop-card tabletop-kpi-card p-3 h-100 d-flex flex-column justify-content-between">
+                <div>
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <span class="kpi-label">Ready</span>
+                        <div class="kpi-icon-box bg-green-subtle text-success">
+                            <i class="bi bi-bell"></i>
+                        </div>
+                    </div>
+                    <div class="kpi-value text-dark" id="stat-ready">
+                        {{ number_format($summary['ready'] ?? 0) }}
+                    </div>
+                </div>
+                <div class="d-flex align-items-center justify-content-between pt-2 border-top" style="border-color: #f3f4f6 !important;">
+                    <div class="kpi-meta text-success">
+                        <i class="bi bi-check2 me-1"></i>Pickup ready
+                    </div>
+                    <div class="mini-sparkline">
+                        <svg viewBox="0 0 50 16" style="width: 40px; height: 14px; stroke: #10b981; fill: none; stroke-width: 1.8;">
+                            <path d="M0,14 Q20,10 35,4 T50,8"></path>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {{-- Completed --}}
+        <div class="col-6 col-md-4 col-xl-2">
+            <div class="tabletop-card tabletop-kpi-card p-3 h-100 d-flex flex-column justify-content-between">
+                <div>
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <span class="kpi-label">Completed</span>
+                        <div class="kpi-icon-box bg-purple-subtle text-purple">
+                            <i class="bi bi-check-all"></i>
+                        </div>
+                    </div>
+                    <div class="kpi-value text-dark" id="stat-completed">
+                        {{ number_format($summary['completed'] ?? 0) }}
+                    </div>
+                </div>
+                <div class="d-flex align-items-center justify-content-between pt-2 border-top" style="border-color: #f3f4f6 !important;">
+                    <div class="kpi-meta text-purple">
+                        <i class="bi bi-patch-check me-1"></i>Billed &amp; settled
+                    </div>
+                    <div class="mini-sparkline">
+                        <svg viewBox="0 0 50 16" style="width: 40px; height: 14px; stroke: #8b5cf6; fill: none; stroke-width: 1.8;">
+                            <path d="M0,14 Q15,12 30,6 T50,3"></path>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {{-- Cancelled --}}
+        <div class="col-6 col-md-4 col-xl-2">
+            <div class="tabletop-card tabletop-kpi-card p-3 h-100 d-flex flex-column justify-content-between">
+                <div>
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <span class="kpi-label">Cancelled</span>
+                        <div class="kpi-icon-box bg-rose-subtle text-danger">
+                            <i class="bi bi-x-circle"></i>
+                        </div>
+                    </div>
+                    <div class="kpi-value text-dark" id="stat-cancelled">
+                        {{ number_format($summary['cancelled'] ?? 0) }}
+                    </div>
+                </div>
+                <div class="d-flex align-items-center justify-content-between pt-2 border-top" style="border-color: #f3f4f6 !important;">
+                    <div class="kpi-meta text-danger">
+                        <i class="bi bi-dash-circle me-1"></i>Voided
+                    </div>
+                    <div class="mini-sparkline">
+                        <svg viewBox="0 0 50 16" style="width: 40px; height: 14px; stroke: #ef4444; fill: none; stroke-width: 1.8;">
+                            <path d="M0,4 Q20,8 35,12 T50,14"></path>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {{-- 2. Order Status Pipeline Card --}}
+    <div class="tabletop-card p-3.5 mb-4">
+        <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2 mb-3">
+            <div>
+                <h2 class="fs-6 fw-bold text-dark mb-0" style="font-size: 1rem; letter-spacing: -0.01em;">
+                    Order Status Pipeline
+                </h2>
+                <span class="text-secondary small" style="font-size: 0.8rem; color: #6b7280;">
+                    Live distribution across all order workflow stages
+                </span>
+            </div>
+            <div class="text-secondary small fw-medium">
+                Total Orders: <strong class="text-dark" id="status-pipeline-total">{{ number_format($summary['total'] ?? 0) }}</strong>
+            </div>
+        </div>
+
+        {{-- Multi-segment Progress Pipeline Bar --}}
+        <div class="status-pipeline-bar mb-3" id="statusPipelineBar">
+            @php
+                $distActive = $statusDistribution['active']['percentage'] ?? 0;
+                $distPrep = $statusDistribution['preparing']['percentage'] ?? 0;
+                $distReady = $statusDistribution['ready']['percentage'] ?? 0;
+                $distComp = $statusDistribution['completed']['percentage'] ?? 0;
+                $distCanc = $statusDistribution['cancelled']['percentage'] ?? 0;
+            @endphp
+            <div class="pipeline-segment seg-active" id="seg-active" style="width: {{ $distActive }}%;" title="Active: {{ $summary['active'] ?? 0 }} ({{ $distActive }}%)"></div>
+            <div class="pipeline-segment seg-preparing" id="seg-preparing" style="width: {{ $distPrep }}%;" title="Preparing: {{ $summary['preparing'] ?? 0 }} ({{ $distPrep }}%)"></div>
+            <div class="pipeline-segment seg-ready" id="seg-ready" style="width: {{ $distReady }}%;" title="Ready: {{ $summary['ready'] ?? 0 }} ({{ $distReady }}%)"></div>
+            <div class="pipeline-segment seg-completed" id="seg-completed" style="width: {{ $distComp }}%;" title="Completed: {{ $summary['completed'] ?? 0 }} ({{ $distComp }}%)"></div>
+            <div class="pipeline-segment seg-cancelled" id="seg-cancelled" style="width: {{ $distCanc }}%;" title="Cancelled: {{ $summary['cancelled'] ?? 0 }} ({{ $distCanc }}%)"></div>
+        </div>
+
+        {{-- Status Breakdown Chips --}}
+        <div class="row g-2 pt-1">
+            <div class="col-6 col-md-4 col-xl">
+                <div class="tabletop-status-chip d-flex align-items-center gap-2 p-2">
+                    <span class="chip-dot" style="background-color: #0284c7;"></span>
+                    <div class="min-w-0">
+                        <div class="text-secondary small fw-semibold" style="font-size: 0.72rem;">Active</div>
+                        <div class="fw-bold text-dark small" id="chip-active-val">
+                            {{ $summary['active'] ?? 0 }} <span class="text-muted fw-normal" style="font-size: 0.7rem;">({{ $distActive }}%)</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-md-4 col-xl">
+                <div class="tabletop-status-chip d-flex align-items-center gap-2 p-2">
+                    <span class="chip-dot" style="background-color: #f59e0b;"></span>
+                    <div class="min-w-0">
+                        <div class="text-secondary small fw-semibold" style="font-size: 0.72rem;">Preparing</div>
+                        <div class="fw-bold text-dark small" id="chip-prep-val">
+                            {{ $summary['preparing'] ?? 0 }} <span class="text-muted fw-normal" style="font-size: 0.7rem;">({{ $distPrep }}%)</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-md-4 col-xl">
+                <div class="tabletop-status-chip d-flex align-items-center gap-2 p-2">
+                    <span class="chip-dot" style="background-color: #10b981;"></span>
+                    <div class="min-w-0">
+                        <div class="text-secondary small fw-semibold" style="font-size: 0.72rem;">Ready</div>
+                        <div class="fw-bold text-dark small" id="chip-ready-val">
+                            {{ $summary['ready'] ?? 0 }} <span class="text-muted fw-normal" style="font-size: 0.7rem;">({{ $distReady }}%)</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-md-4 col-xl">
+                <div class="tabletop-status-chip d-flex align-items-center gap-2 p-2">
+                    <span class="chip-dot" style="background-color: #8b5cf6;"></span>
+                    <div class="min-w-0">
+                        <div class="text-secondary small fw-semibold" style="font-size: 0.72rem;">Completed</div>
+                        <div class="fw-bold text-dark small" id="chip-comp-val">
+                            {{ $summary['completed'] ?? 0 }} <span class="text-muted fw-normal" style="font-size: 0.7rem;">({{ $distComp }}%)</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-md-4 col-xl">
+                <div class="tabletop-status-chip d-flex align-items-center gap-2 p-2">
+                    <span class="chip-dot" style="background-color: #ef4444;"></span>
+                    <div class="min-w-0">
+                        <div class="text-secondary small fw-semibold" style="font-size: 0.72rem;">Cancelled</div>
+                        <div class="fw-bold text-dark small" id="chip-canc-val">
+                            {{ $summary['cancelled'] ?? 0 }} <span class="text-muted fw-normal" style="font-size: 0.7rem;">({{ $distCanc }}%)</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {{-- 3. Middle Row: Orders Overview Chart & Kitchen-wise Pending Orders --}}
+    <div class="row g-4 mb-4 align-items-stretch">
+        {{-- Orders Overview Chart --}}
+        <div class="col-12 col-xl-7 col-xxl-8">
+            <div class="tabletop-card p-4 h-100 d-flex flex-column justify-content-between" style="min-height: 400px;">
+                <div>
+                    <div class="d-flex align-items-center justify-content-between mb-3">
+                        <div>
+                            <h2 class="fs-6 fw-bold text-dark mb-0" style="font-size: 1.05rem; letter-spacing: -0.01em;">
+                                Orders Overview
+                            </h2>
+                            <span class="text-secondary small" style="font-size: 0.8rem; color: #6b7280;">
+                                Hourly order trends (Today vs Yesterday)
+                            </span>
+                        </div>
+                        <span class="badge bg-light text-secondary border px-2.5 py-1 small fw-medium" style="font-size: 0.75rem;">
+                            Hourly
+                        </span>
+                    </div>
+
+                    {{-- Metric Highlight --}}
+                    <div class="mb-3">
+                        <div class="d-flex align-items-baseline gap-2">
+                            <span class="fs-1 fw-bold text-dark" id="hero-trend-total" style="letter-spacing: -0.03em; font-size: 2.5rem; line-height: 1;">
+                                {{ number_format($summary['total'] ?? 0) }}
+                            </span>
+                        </div>
+                        <div class="text-secondary small mt-1" style="font-size: 0.8rem; color: #6b7280;">
+                            Total volume registered today
+                        </div>
                     </div>
                 </div>
 
-                <div class="table-responsive">
-                    <table class="table table-borderless table-kitchen align-middle mb-0">
+                {{-- Chart Canvas --}}
+                <div class="position-relative flex-grow-1" style="min-height: 220px; width: 100%;">
+                    <canvas id="orderTrendChart"></canvas>
+                </div>
+
+                {{-- Chart Legend --}}
+                <div class="d-flex align-items-center gap-4 mt-3 pt-2.5 border-top text-secondary small" style="border-color: #f3f4f6 !important;">
+                    <div class="d-flex align-items-center gap-1.5">
+                        <span class="legend-dot" style="background-color: #10b981;"></span>
+                        <span class="fw-semibold text-dark" style="font-size: 0.8rem;">Today</span>
+                    </div>
+                    <div class="d-flex align-items-center gap-1.5">
+                        <span class="legend-dot" style="background-color: #a7f3d0;"></span>
+                        <span class="fw-medium text-muted" style="font-size: 0.8rem;">Yesterday</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {{-- Kitchen-wise Pending Orders Table --}}
+        <div class="col-12 col-xl-5 col-xxl-4">
+            <div class="tabletop-card p-4 h-100 d-flex flex-column">
+                <div class="d-flex align-items-center justify-content-between mb-3 pb-2 border-bottom" style="border-color: #f3f4f6 !important;">
+                    <div>
+                        <h2 class="fs-6 fw-bold text-dark mb-0" style="font-size: 1.05rem; letter-spacing: -0.01em;">
+                            Kitchen Queue
+                        </h2>
+                        <span class="text-secondary small" style="font-size: 0.8rem; color: #6b7280;">
+                            Active prep tickets
+                        </span>
+                    </div>
+                    <span class="badge bg-light text-secondary border px-2 py-1 small fw-medium" style="font-size: 0.72rem;">
+                        Live
+                    </span>
+                </div>
+
+                <div class="table-responsive flex-grow-1">
+                    <table class="table table-hover align-middle mb-0 tabletop-table">
                         <thead>
-                            <tr class="text-muted small border-bottom">
-                                <th class="ps-0 fw-semibold">Kitchen</th>
-                                <th class="fw-semibold">Branch</th>
-                                <th class="text-end pe-0 fw-semibold">Pending Orders</th>
+                            <tr>
+                                <th class="ps-0 py-2">Kitchen</th>
+                                <th class="py-2">Branch</th>
+                                <th class="text-end pe-0 py-2">Pending</th>
                             </tr>
                         </thead>
-                        <tbody>
-                            @php
-                                $displayKitchens = $kitchenBreakdown->count() > 0 ? $kitchenBreakdown : collect([
-                                    ['kitchen' => (object)['name' => 'Biryani Kitchen'], 'branch_name' => 'HSR Layout', 'pending' => 8],
-                                    ['kitchen' => (object)['name' => 'Chinese Kitchen'], 'branch_name' => 'HSR Layout', 'pending' => 5],
-                                    ['kitchen' => (object)['name' => 'Starters Kitchen'], 'branch_name' => 'Indiranagar', 'pending' => 4],
-                                    ['kitchen' => (object)['name' => 'Tandoor Kitchen'], 'branch_name' => 'Whitefield', 'pending' => 3],
-                                ]);
-                            @endphp
-
-                            @foreach($displayKitchens as $k)
+                        <tbody id="kitchenBreakdownBody">
+                            @forelse($kitchenBreakdown as $k)
                                 @php
                                     $kName = is_array($k) ? $k['kitchen']->name : $k->kitchen->name;
                                     $bName = is_array($k) ? ($k['branch_name'] ?? $k['kitchen']->branch?->name ?? 'Main Branch') : ($k->kitchen->branch?->name ?? 'Main Branch');
                                     $kPending = is_array($k) ? $k['pending'] : $k->pending;
+                                    $kInitials = strtoupper(substr(preg_replace('/[^a-zA-Z0-9]/', '', $kName), 0, 2)) ?: 'KT';
                                 @endphp
-                                <tr class="border-bottom-subtle">
-                                    <td class="ps-0 fw-semibold text-dark">
-                                        {{ $kName }}
+                                <tr>
+                                    <td class="ps-0 py-2.5">
+                                        <div class="d-flex align-items-center gap-2">
+                                            <span class="tabletop-avatar">
+                                                {{ $kInitials }}
+                                            </span>
+                                            <span class="fw-medium text-dark small" style="font-size: 0.86rem;">
+                                                {{ $kName }}
+                                            </span>
+                                        </div>
                                     </td>
-                                    <td class="text-secondary small">
+                                    <td class="text-secondary small py-2.5" style="font-size: 0.84rem;">
                                         {{ $bName }}
                                     </td>
-                                    <td class="text-end pe-0">
-                                        <span class="badge-pending-pill">
+                                    <td class="text-end pe-0 py-2.5">
+                                        <span class="tabletop-pending-badge {{ $kPending > 0 ? 'badge-active' : '' }}">
                                             {{ $kPending }}
                                         </span>
                                     </td>
                                 </tr>
-                            @endforeach
+                            @empty
+                                <tr>
+                                    <td colspan="3" class="text-center text-muted py-5 small">
+                                        <i class="bi bi-fire fs-3 d-block mb-2 text-secondary opacity-50"></i>
+                                        No kitchens found
+                                    </td>
+                                </tr>
+                            @endforelse
                         </tbody>
                     </table>
                 </div>
             </div>
         </div>
+    </div>
 
-        {{-- Card 3: Today's Order Trend (Smooth Line Chart with Orange Area Gradient) --}}
-        <div class="col-12 col-lg-6">
-            <div class="card theme-panel-card h-100 p-4">
-                <div class="d-flex align-items-center justify-content-between mb-3">
-                    <div class="d-flex align-items-center gap-2">
-                        <div class="panel-header-icon">
-                            <i class="bi bi-graph-up"></i>
-                        </div>
-                        <h2 class="panel-header-title mb-0">Today's Order Trend</h2>
+    {{-- 4. Bottom Row: Recent Orders & Branch-wise Order Count --}}
+    <div class="row g-4 align-items-stretch">
+        {{-- Recent Orders Table --}}
+        <div class="col-12 col-xl-7 col-xxl-8">
+            <div class="tabletop-card p-4 h-100 d-flex flex-column">
+                <div class="d-flex align-items-center justify-content-between mb-3 pb-2 border-bottom" style="border-color: #f3f4f6 !important;">
+                    <div>
+                        <h2 class="fs-6 fw-bold text-dark mb-0" style="font-size: 1.05rem; letter-spacing: -0.01em;">
+                            Recent Orders
+                        </h2>
+                        <span class="text-secondary small" style="font-size: 0.8rem; color: #6b7280;">
+                            Latest transactions processed
+                        </span>
                     </div>
-                </div>
-
-                <div class="chart-wrapper position-relative" style="height: 220px;">
-                    <canvas id="orderTrendChart"></canvas>
-                </div>
-            </div>
-        </div>
-
-        {{-- Card 4: Recent Orders (Clean Status Pills with View All) --}}
-        <div class="col-12 col-lg-6">
-            <div class="card theme-panel-card h-100 p-4">
-                <div class="d-flex align-items-center justify-content-between mb-3">
-                    <div class="d-flex align-items-center gap-2">
-                        <div class="panel-header-icon">
-                            <i class="bi bi-receipt"></i>
-                        </div>
-                        <h2 class="panel-header-title mb-0">Recent Orders</h2>
-                    </div>
-                    <a href="{{ route('orders.index') }}" class="view-all-link">
-                        View All
+                    <a href="{{ route('orders.index') }}" class="tabletop-link small">
+                        View all <i class="bi bi-arrow-right ms-0.5"></i>
                     </a>
                 </div>
 
-                <div class="table-responsive">
-                    <table class="table table-borderless table-recent-orders align-middle mb-0">
+                <div class="table-responsive flex-grow-1">
+                    <table class="table table-hover align-middle mb-0 tabletop-table">
                         <thead>
-                            <tr class="text-muted small border-bottom">
-                                <th class="ps-0 fw-semibold">Order #</th>
-                                <th class="fw-semibold">Table</th>
-                                <th class="fw-semibold">Branch</th>
-                                <th class="text-center fw-semibold">Status</th>
-                                <th class="text-end pe-0 fw-semibold">Time</th>
+                            <tr>
+                                <th class="ps-0 py-2">Order</th>
+                                <th class="py-2">Branch</th>
+                                <th class="py-2">Table / Server</th>
+                                <th class="text-center py-2">Status</th>
+                                <th class="text-end pe-0 py-2">Time</th>
                             </tr>
                         </thead>
-                        <tbody>
-                            @php
-                                $displayOrders = $recentOrders->count() > 0 ? $recentOrders : collect([
-                                    (object)['order_number' => 'ORD-0142', 'table_name' => 'T-06', 'branch_name' => 'HSR Layout', 'status' => 'preparing', 'time' => '05:12 PM'],
-                                    (object)['order_number' => 'ORD-0141', 'table_name' => 'T-02', 'branch_name' => 'Indiranagar', 'status' => 'ready', 'time' => '05:08 PM'],
-                                    (object)['order_number' => 'ORD-0140', 'table_name' => 'T-09', 'branch_name' => 'HSR Layout', 'status' => 'active', 'time' => '05:03 PM'],
-                                ]);
-                            @endphp
-
-                            @foreach($displayOrders as $ord)
+                        <tbody id="recentOrdersBody">
+                            @forelse($recentOrders as $ord)
                                 @php
                                     $ordNum = $ord->order_number ?? 'ORD';
-                                    $tableName = $ord->table?->name ?? ($ord->table_name ?? 'T-01');
+                                    $tableName = $ord->table?->name ?? ($ord->table_name ?? 'Table');
                                     $branchName = $ord->branch?->name ?? ($ord->branch_name ?? 'Branch');
+                                    $waiterName = $ord->waiter?->name ?? 'Staff';
                                     $status = strtolower($ord->status ?? 'active');
-                                    $time = isset($ord->created_at) ? $ord->created_at->format('h:i A') : ($ord->time ?? '05:00 PM');
+                                    $time = isset($ord->created_at) ? $ord->created_at->format('h:i A') : '';
+                                    $initials = strtoupper(substr(preg_replace('/[^a-zA-Z0-9]/', '', $tableName), 0, 2)) ?: 'T1';
                                 @endphp
-                                <tr class="border-bottom-subtle">
-                                    <td class="ps-0 fw-semibold text-dark">
+                                <tr>
+                                    <td class="ps-0 fw-semibold text-dark small py-2.5" style="font-size: 0.86rem;">
                                         {{ $ordNum }}
                                     </td>
-                                    <td class="text-secondary small">
-                                        {{ $tableName }}
-                                    </td>
-                                    <td class="text-secondary small">
+                                    <td class="text-secondary small py-2.5" style="font-size: 0.84rem;">
                                         {{ $branchName }}
                                     </td>
-                                    <td class="text-center">
+                                    <td class="py-2.5">
+                                        <div class="d-flex align-items-center gap-2">
+                                            <span class="tabletop-avatar">
+                                                {{ $initials }}
+                                            </span>
+                                            <div>
+                                                <div class="fw-medium text-dark small" style="font-size: 0.86rem; line-height: 1.2;">{{ $tableName }}</div>
+                                                <div class="text-muted" style="font-size: 0.72rem;">{{ $waiterName }}</div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td class="text-center py-2.5">
                                         @switch($status)
                                             @case('preparing')
-                                                <span class="status-pill status-pill-preparing">Preparing</span>
+                                                <span class="tabletop-badge badge-amber"><span class="badge-dot dot-amber"></span> Preparing</span>
                                                 @break
                                             @case('ready')
-                                                <span class="status-pill status-pill-ready">Ready</span>
-                                                @break
-                                            @case('active')
-                                            @case('pending')
-                                            @case('confirmed')
-                                                <span class="status-pill status-pill-active">Active</span>
+                                                <span class="tabletop-badge badge-green"><span class="badge-dot dot-green"></span> Ready</span>
                                                 @break
                                             @case('completed')
-                                                <span class="status-pill status-pill-completed">Completed</span>
+                                                <span class="tabletop-badge badge-purple"><span class="badge-dot dot-purple"></span> Completed</span>
                                                 @break
                                             @case('cancelled')
-                                                <span class="status-pill status-pill-cancelled">Cancelled</span>
+                                                <span class="tabletop-badge badge-red"><span class="badge-dot dot-red"></span> Cancelled</span>
                                                 @break
                                             @default
-                                                <span class="status-pill status-pill-active">{{ ucfirst($status) }}</span>
+                                                <span class="tabletop-badge badge-blue"><span class="badge-dot dot-blue"></span> Active</span>
                                         @endswitch
                                     </td>
-                                    <td class="text-end pe-0 text-muted small">
+                                    <td class="text-end pe-0 text-muted small py-2.5" style="font-size: 0.82rem;">
                                         {{ $time }}
                                     </td>
                                 </tr>
-                            @endforeach
+                            @empty
+                                <tr>
+                                    <td colspan="5" class="text-center text-muted py-5 small">
+                                        <i class="bi bi-receipt fs-3 d-block mb-2 text-secondary opacity-50"></i>
+                                        No recent orders found
+                                    </td>
+                                </tr>
+                            @endforelse
                         </tbody>
                     </table>
+                </div>
+            </div>
+        </div>
+
+        {{-- Branch-wise Order Count --}}
+        <div class="col-12 col-xl-5 col-xxl-4">
+            <div class="tabletop-card p-4 h-100 d-flex flex-column">
+                <div class="d-flex align-items-center justify-content-between mb-3 pb-2 border-bottom" style="border-color: #f3f4f6 !important;">
+                    <div>
+                        <h2 class="fs-6 fw-bold text-dark mb-0" style="font-size: 1.05rem; letter-spacing: -0.01em;">
+                            Branch Distribution
+                        </h2>
+                        <span class="text-secondary small" style="font-size: 0.8rem; color: #6b7280;">
+                            Order volume by location
+                        </span>
+                    </div>
+                    <span class="badge bg-light text-secondary border px-2 py-1 small fw-medium" style="font-size: 0.72rem;">
+                        Branches
+                    </span>
+                </div>
+
+                <div class="branch-chart-container py-1 flex-grow-1" id="branchBreakdownWrapper">
+                    <div id="branchBreakdownRows">
+                        @php
+                            $maxVal = max(1, (int)($branchBreakdown->max('total') ?? 1));
+                        @endphp
+
+                        @forelse($branchBreakdown as $index => $b)
+                            @php
+                                $bName = is_array($b) ? $b['branch']->name : $b->branch->name;
+                                $bTotal = is_array($b) ? $b['total'] : $b->total;
+                                $barWidthPct = $bTotal > 0 ? min(100, max(6, round(($bTotal / $maxVal) * 100))) : 0;
+                            @endphp
+                            <div class="branch-bar-row mb-3">
+                                <div class="d-flex align-items-center gap-2.5">
+                                    <div class="branch-name-label text-truncate" title="{{ $bName }}">
+                                        {{ $bName }}
+                                    </div>
+                                    <div class="branch-bar-track flex-grow-1 position-relative">
+                                        <div class="branch-bar-fill" style="width: {{ $barWidthPct }}%;"></div>
+                                    </div>
+                                    <div class="branch-count-badge">
+                                        {{ $bTotal }}
+                                    </div>
+                                </div>
+                            </div>
+                        @empty
+                            <div class="text-center text-muted py-5 small">
+                                <i class="bi bi-building fs-3 d-block mb-2 text-secondary opacity-50"></i>
+                                No branch data found
+                            </div>
+                        @endforelse
+                    </div>
+
+                    {{-- Horizontal Scale Axis --}}
+                    <div class="branch-scale-axis d-flex justify-content-between pt-2.5 border-top text-muted small mt-3" style="border-color: #f1f5f9 !important; font-size: 0.72rem;">
+                        <span>0</span>
+                        <span>20</span>
+                        <span>40</span>
+                        <span>60</span>
+                        <span>80+</span>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 </div>
 
-{{-- Custom CSS strictly implementing the Visual Theme from Reference Screenshot --}}
 <style>
-/* Header Title & Typography */
-.greeting-title {
-    font-size: 1.65rem;
-    color: #1e1b18;
-    letter-spacing: -0.02em;
-}
-.greeting-subtitle {
-    font-size: 0.95rem;
-    color: #6b7280;
-}
-.wave-emoji {
-    display: inline-block;
-    transform-origin: 70% 70%;
-    animation: wave 2.2s infinite;
-}
-@keyframes wave {
-    0% { transform: rotate(0deg); }
-    10% { transform: rotate(14deg); }
-    20% { transform: rotate(-8deg); }
-    30% { transform: rotate(14deg); }
-    40% { transform: rotate(-4deg); }
-    50% { transform: rotate(10deg); }
-    60% { transform: rotate(0deg); }
-    100% { transform: rotate(0deg); }
+/* Tabletop Dashboard Theme */
+.tabletop-dashboard {
+    color: #111827;
 }
 
-/* Filter Bar Styling */
-.filter-bar-card {
-    background: transparent;
-}
-.input-group-clean {
-    border-radius: 12px;
-    background: #ffffff;
-    border: 1px solid #ede8e1;
-    overflow: hidden;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
-}
-.input-group-clean .form-control {
-    border: none;
-    box-shadow: none;
-    font-size: 0.88rem;
-    font-weight: 500;
-}
-.form-select-clean {
-    border-radius: 12px;
-    border: 1px solid #ede8e1;
+/* Tabletop Card Container */
+.tabletop-card {
     background-color: #ffffff;
-    font-size: 0.88rem;
-    font-weight: 500;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
-    padding: 0.55rem 0.85rem;
-}
-.form-select-clean:focus, .input-group-clean .form-control:focus {
-    border-color: #f97316;
-    box-shadow: 0 0 0 0.25rem rgba(249, 115, 22, 0.15);
-}
-.btn-refresh {
-    background-color: #f97316;
-    border: 1px solid #ea580c;
-    color: #ffffff;
-    font-weight: 600;
-    border-radius: 12px;
-    padding: 0.55rem 1.25rem;
-    font-size: 0.88rem;
-    transition: all 0.15s ease;
-}
-.btn-refresh:hover {
-    background-color: #ea580c;
-    color: #ffffff;
-    box-shadow: 0 4px 12px rgba(249, 115, 22, 0.35);
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
 }
 
-/* 6 Summary Stat Cards */
-.stat-card {
-    border-radius: 16px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
+.tabletop-kpi-card {
     transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
-.stat-card:hover {
+.tabletop-kpi-card:hover {
     transform: translateY(-2px);
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.05);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 }
-.stat-label {
-    font-size: 0.8rem;
-    color: #64748b;
-    font-weight: 500;
-    line-height: 1.2;
+
+/* KPI Label & Values */
+.kpi-label {
+    font-size: 0.76rem;
+    font-weight: 600;
+    color: #6b7280;
+    letter-spacing: -0.01em;
 }
-.stat-num {
-    font-size: 1.75rem;
-    font-weight: 800;
-    color: #0f172a;
+
+.kpi-value {
+    font-size: 1.65rem;
+    font-weight: 700;
     line-height: 1.1;
-    margin-top: 2px;
+    margin-bottom: 0.25rem;
 }
-.stat-trend {
+
+.kpi-meta {
     font-size: 0.72rem;
     font-weight: 600;
-}
-.dot-live {
-    width: 6px;
-    height: 6px;
-    background-color: #0d9488;
-    border-radius: 50%;
-    display: inline-block;
-    margin-right: 4px;
-}
-.stat-icon {
-    width: 42px;
-    height: 42px;
-    border-radius: 12px;
     display: flex;
     align-items: center;
+}
+
+.kpi-icon-box {
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
     justify-content: center;
-    font-size: 1.15rem;
+    font-size: 0.95rem;
     flex-shrink: 0;
 }
 
-/* Specific Card Color Themes */
-.stat-card-total {
-    background-color: #fff8f0;
-    border: 1px solid #fed7aa;
-}
-.stat-icon-total {
-    background-color: #ffedd5;
-    color: #ea580c;
+.bg-emerald-subtle { background-color: #ecfdf5; color: #059669; }
+.bg-blue-subtle { background-color: #eff6ff; color: #2563eb; }
+.bg-amber-subtle { background-color: #fffbeb; color: #d97706; }
+.bg-green-subtle { background-color: #f0fdf4; color: #16a34a; }
+.bg-purple-subtle { background-color: #f5f3ff; color: #7c3aed; }
+.bg-rose-subtle { background-color: #fef2f2; color: #dc2626; }
+
+.dot-live {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background-color: #0284c7;
+    display: inline-block;
+    margin-right: 4px;
 }
 
-.stat-card-active {
-    background-color: #f0fdfa;
-    border: 1px solid #ccfbf1;
-}
-.stat-icon-active {
-    background-color: #ccfbf1;
-    color: #0d9488;
-}
-
-.stat-card-preparing {
-    background-color: #fffbeb;
-    border: 1px solid #fef3c7;
-}
-.stat-icon-preparing {
-    background-color: #fef3c7;
-    color: #d97706;
-}
-
-.stat-card-ready {
-    background-color: #f0fdf4;
-    border: 1px solid #bbf7d0;
-}
-.stat-icon-ready {
-    background-color: #dcfce7;
-    color: #16a34a;
-}
-
-.stat-card-completed {
-    background-color: #faf5ff;
-    border: 1px solid #e9d5ff;
-}
-.stat-icon-completed {
-    background-color: #f3e8ff;
-    color: #7e22ce;
-}
-
-.stat-card-cancelled {
-    background-color: #fff1f2;
-    border: 1px solid #fecdd3;
-}
-.stat-icon-cancelled {
-    background-color: #ffe4e6;
-    color: #e11d48;
-}
-
-/* Main Grid Panel Cards */
-.theme-panel-card {
-    background: #ffffff;
-    border: 1px solid #ede8e1;
-    border-radius: 18px;
-    box-shadow: 0 4px 20px -2px rgba(225, 205, 185, 0.22), 0 1px 3px rgba(0, 0, 0, 0.02);
-}
-.panel-header-icon {
-    width: 32px;
-    height: 32px;
-    border-radius: 8px;
-    background-color: #fff7ed;
-    color: #f97316;
+/* Status Pipeline Bar */
+.status-pipeline-bar {
+    height: 12px;
+    background-color: #f1f5f9;
+    border-radius: 9999px;
+    overflow: hidden;
     display: flex;
+    width: 100%;
+}
+.pipeline-segment {
+    height: 100%;
+    transition: width 0.5s ease;
+}
+.seg-active { background-color: #0284c7; }
+.seg-preparing { background-color: #f59e0b; }
+.seg-ready { background-color: #10b981; }
+.seg-completed { background-color: #8b5cf6; }
+.seg-cancelled { background-color: #ef4444; }
+
+.tabletop-status-chip {
+    background-color: #f9fafb;
+    border: 1px solid #f3f4f6;
+    border-radius: 8px;
+}
+.chip-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+/* Tabletop Table Styles */
+.tabletop-table {
+    border-collapse: separate;
+    border-spacing: 0;
+}
+.tabletop-table thead th {
+    background-color: #f9fafb !important;
+    color: #4b5563;
+    font-size: 0.78rem;
+    font-weight: 600;
+    border-top: none;
+    border-bottom: 1px solid #e5e7eb;
+    white-space: nowrap;
+}
+.tabletop-table tbody td {
+    border-bottom: 1px solid #f3f4f6;
+    vertical-align: middle;
+}
+.tabletop-table tbody tr:last-child td {
+    border-bottom: none;
+}
+.tabletop-table tbody tr:hover {
+    background-color: #f9fafb !important;
+}
+
+/* Tabletop Avatar Pill */
+.tabletop-avatar {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background-color: #f3f4f6;
+    color: #374151;
+    font-size: 0.7rem;
+    font-weight: 600;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 1rem;
-}
-.panel-header-title {
-    font-size: 1.05rem;
-    font-weight: 700;
-    color: #1e1b18;
-}
-.view-all-link {
-    color: #f97316;
-    text-decoration: none;
-    font-weight: 600;
-    font-size: 0.88rem;
-    transition: color 0.15s ease;
-}
-.view-all-link:hover {
-    color: #ea580c;
-    text-decoration: underline;
+    flex-shrink: 0;
 }
 
-/* Branch Chart Horizontal Bars */
-.branch-name-label {
-    width: 100px;
-    font-size: 0.88rem;
+/* Tabletop Status Badges */
+.tabletop-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 0.72rem;
+    font-weight: 500;
+    white-space: nowrap;
+}
+.badge-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.badge-blue { background-color: #eff6ff; color: #1d4ed8; }
+.dot-blue { background-color: #2563eb; }
+
+.badge-amber { background-color: #fffbeb; color: #b45309; }
+.dot-amber { background-color: #d97706; }
+
+.badge-green { background-color: #ecfdf5; color: #047857; }
+.dot-green { background-color: #059669; }
+
+.badge-purple { background-color: #f5f3ff; color: #6d28d9; }
+.dot-purple { background-color: #7c3aed; }
+
+.badge-red { background-color: #fef2f2; color: #b91c1c; }
+.dot-red { background-color: #dc2626; }
+
+/* Kitchen Pending Badge */
+.tabletop-pending-badge {
+    display: inline-block;
+    min-width: 22px;
+    padding: 0.15rem 0.5rem;
+    border-radius: 9999px;
+    font-size: 0.72rem;
     font-weight: 600;
-    color: #1e293b;
+    color: #6b7280;
+    background-color: #f3f4f6;
+}
+.tabletop-pending-badge.badge-active {
+    color: #dc2626;
+    background-color: #fee2e2;
+}
+
+/* Branch Bars */
+.branch-bar-row {
+    margin-bottom: 0.8rem;
+}
+.branch-name-label {
+    width: 105px;
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: #374151;
 }
 .branch-bar-track {
-    height: 18px;
-    background-color: #fbf9f6;
+    height: 12px;
+    background-color: #f3f4f6;
     border-radius: 6px;
     overflow: hidden;
 }
 .branch-bar-fill {
     height: 100%;
+    background-color: #dc2626;
     border-radius: 6px;
-    transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: width 0.5s ease;
 }
 .branch-count-badge {
-    width: 32px;
+    width: 30px;
     text-align: right;
-    font-weight: 700;
-    font-size: 0.9rem;
-    color: #1e293b;
-}
-
-/* Kitchen Table & Red Pill Badges */
-.table-kitchen td, .table-kitchen th {
-    padding: 12px 6px;
-}
-.border-bottom-subtle {
-    border-bottom: 1px solid #f3ede6;
-}
-.badge-pending-pill {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 26px;
-    height: 26px;
-    border-radius: 50%;
-    background-color: #fee2e2;
-    color: #ef4444;
-    font-weight: 700;
-    font-size: 0.8rem;
-}
-
-/* Recent Orders Status Pills */
-.status-pill {
-    display: inline-block;
-    padding: 3px 12px;
-    border-radius: 8px;
-    font-size: 0.78rem;
+    font-size: 0.82rem;
     font-weight: 600;
+    color: #111827;
 }
-.status-pill-preparing {
-    background-color: #fef3c7;
-    color: #d97706;
+
+.tabletop-link {
+    color: #dc2626;
+    text-decoration: none;
+    font-weight: 500;
+    transition: color 0.15s ease;
 }
-.status-pill-ready {
-    background-color: #dcfce7;
-    color: #16a34a;
+.tabletop-link:hover {
+    color: #b91c1c;
 }
-.status-pill-active {
-    background-color: #e0f2fe;
-    color: #0284c7;
-}
-.status-pill-completed {
-    background-color: #f3e8ff;
-    color: #7e22ce;
-}
-.status-pill-cancelled {
-    background-color: #fee2e2;
-    color: #ef4444;
+
+.legend-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    display: inline-block;
 }
 </style>
 
+@php
+    $hourlyLabelsJson = json_encode($hourlyLabels ?? ['10 AM', '11 AM', '12 PM', '1 PM', '2 PM', '3 PM', '4 PM', '5 PM']);
+    $hourlyTrendJson = json_encode($hourlyTrend ?? [0, 0, 0, 0, 0, 0, 0, 0]);
+    $yesterdayHourlyTrendJson = json_encode($yesterdayHourlyTrend ?? [0, 0, 0, 0, 0, 0, 0, 0]);
+@endphp
+
 @push('scripts')
 <script>
+let orderChart = null;
+let isRefreshing = false;
+let pollingInterval = null;
+
+function escapeHtml(text) {
+    if (!text) return '';
+    return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+function updateCounter(elementId, targetValue) {
+    const el = document.getElementById(elementId);
+    if (!el) return;
+    const currentVal = parseInt(el.textContent.replace(/,/g, ''), 10) || 0;
+    const endVal = parseInt(targetValue, 10) || 0;
+    
+    if (currentVal === endVal) {
+        el.textContent = endVal.toLocaleString();
+        return;
+    }
+
+    el.style.transition = 'transform 0.15s ease';
+    el.style.transform = 'scale(1.06)';
+    el.textContent = endVal.toLocaleString();
+
+    setTimeout(() => {
+        el.style.transform = 'scale(1)';
+    }, 180);
+}
+
+function getStatusPillHtml(status) {
+    const s = String(status || 'active').toLowerCase();
+    switch (s) {
+        case 'preparing':
+            return '<span class="tabletop-badge badge-amber"><span class="badge-dot dot-amber"></span> Preparing</span>';
+        case 'ready':
+            return '<span class="tabletop-badge badge-green"><span class="badge-dot dot-green"></span> Ready</span>';
+        case 'completed':
+            return '<span class="tabletop-badge badge-purple"><span class="badge-dot dot-purple"></span> Completed</span>';
+        case 'cancelled':
+            return '<span class="tabletop-badge badge-red"><span class="badge-dot dot-red"></span> Cancelled</span>';
+        default:
+            return '<span class="tabletop-badge badge-blue"><span class="badge-dot dot-blue"></span> Active</span>';
+    }
+}
+
+async function fetchDashboardData() {
+    if (isRefreshing) return;
+    isRefreshing = true;
+
+    try {
+        const response = await fetch("{{ route('dashboard') }}?format=json", {
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'Accept': 'application/json',
+            }
+        });
+
+        if (!response.ok) return;
+
+        const data = await response.json();
+        if (data && data.success) {
+            // 1. Update 6 Summary Cards
+            if (data.summary) {
+                updateCounter('stat-total', data.summary.total);
+                updateCounter('stat-active', data.summary.active);
+                updateCounter('stat-preparing', data.summary.preparing);
+                updateCounter('stat-ready', data.summary.ready);
+                updateCounter('stat-completed', data.summary.completed);
+                updateCounter('stat-cancelled', data.summary.cancelled);
+
+                const heroTotalEl = document.getElementById('hero-trend-total');
+                if (heroTotalEl) {
+                    heroTotalEl.textContent = (data.summary.total || 0).toLocaleString();
+                }
+
+                const pipeTotalEl = document.getElementById('status-pipeline-total');
+                if (pipeTotalEl) {
+                    pipeTotalEl.textContent = (data.summary.total || 0).toLocaleString();
+                }
+            }
+
+            // Update Trend vs Yesterday
+            const trendEl = document.getElementById('stat-trend-total');
+            if (trendEl && typeof data.vsYesterdayPct !== 'undefined') {
+                const pct = data.vsYesterdayPct;
+                const isPos = pct >= 0;
+                trendEl.className = `kpi-meta ${isPos ? 'text-success' : 'text-danger'}`;
+                trendEl.innerHTML = `<i class="bi ${isPos ? 'bi-arrow-up-short' : 'bi-arrow-down-short'}"></i><span>${isPos ? '+' : ''}${pct}% vs yest</span>`;
+            }
+
+            // 2. Update Status Pipeline
+            if (data.statusDistribution) {
+                const dist = data.statusDistribution;
+                const setSegment = (id, pct, count, label) => {
+                    const el = document.getElementById(id);
+                    if (el) {
+                        el.style.width = `${pct}%`;
+                        el.title = `${label}: ${count} (${pct}%)`;
+                    }
+                };
+                if (dist.active) {
+                    setSegment('seg-active', dist.active.percentage, dist.active.count, 'Active');
+                    const chip = document.getElementById('chip-active-val');
+                    if (chip) chip.innerHTML = `${dist.active.count} <span class="text-muted fw-normal" style="font-size: 0.7rem;">(${dist.active.percentage}%)</span>`;
+                }
+                if (dist.preparing) {
+                    setSegment('seg-preparing', dist.preparing.percentage, dist.preparing.count, 'Preparing');
+                    const chip = document.getElementById('chip-prep-val');
+                    if (chip) chip.innerHTML = `${dist.preparing.count} <span class="text-muted fw-normal" style="font-size: 0.7rem;">(${dist.preparing.percentage}%)</span>`;
+                }
+                if (dist.ready) {
+                    setSegment('seg-ready', dist.ready.percentage, dist.ready.count, 'Ready');
+                    const chip = document.getElementById('chip-ready-val');
+                    if (chip) chip.innerHTML = `${dist.ready.count} <span class="text-muted fw-normal" style="font-size: 0.7rem;">(${dist.ready.percentage}%)</span>`;
+                }
+                if (dist.completed) {
+                    setSegment('seg-completed', dist.completed.percentage, dist.completed.count, 'Completed');
+                    const chip = document.getElementById('chip-comp-val');
+                    if (chip) chip.innerHTML = `${dist.completed.count} <span class="text-muted fw-normal" style="font-size: 0.7rem;">(${dist.completed.percentage}%)</span>`;
+                }
+                if (dist.cancelled) {
+                    setSegment('seg-cancelled', dist.cancelled.percentage, dist.cancelled.count, 'Cancelled');
+                    const chip = document.getElementById('chip-canc-val');
+                    if (chip) chip.innerHTML = `${dist.cancelled.count} <span class="text-muted fw-normal" style="font-size: 0.7rem;">(${dist.cancelled.percentage}%)</span>`;
+                }
+            }
+
+            // 3. Update Branch-wise Breakdown Bars
+            const branchRows = document.getElementById('branchBreakdownRows');
+            if (branchRows && data.branchBreakdown) {
+                if (data.branchBreakdown.length === 0) {
+                    branchRows.innerHTML = `
+                        <div class="text-center text-muted py-4 small">
+                            <i class="bi bi-building fs-4 d-block mb-1 text-secondary opacity-50"></i>
+                            No branch data found
+                        </div>`;
+                } else {
+                    const maxVal = Math.max(1, ...data.branchBreakdown.map(b => b.total || 0));
+                    let rowsHtml = '';
+                    data.branchBreakdown.forEach(b => {
+                        const bTotal = b.total || 0;
+                        const barWidthPct = bTotal > 0 ? Math.min(100, Math.max(6, Math.round((bTotal / maxVal) * 100))) : 0;
+                        rowsHtml += `
+                            <div class="branch-bar-row mb-3">
+                                <div class="d-flex align-items-center gap-2.5">
+                                    <div class="branch-name-label text-truncate" title="${escapeHtml(b.name)}">
+                                        ${escapeHtml(b.name)}
+                                    </div>
+                                    <div class="branch-bar-track flex-grow-1 position-relative">
+                                        <div class="branch-bar-fill" style="width: ${barWidthPct}%;"></div>
+                                    </div>
+                                    <div class="branch-count-badge">
+                                        ${bTotal}
+                                    </div>
+                                </div>
+                            </div>`;
+                    });
+                    branchRows.innerHTML = rowsHtml;
+                }
+            }
+
+            // 4. Update Kitchen Queue
+            const kitchenBody = document.getElementById('kitchenBreakdownBody');
+            if (kitchenBody && data.kitchenBreakdown) {
+                if (data.kitchenBreakdown.length === 0) {
+                    kitchenBody.innerHTML = `
+                        <tr>
+                            <td colspan="3" class="text-center text-muted py-4 small">
+                                <i class="bi bi-fire fs-4 d-block mb-1 text-secondary opacity-50"></i>
+                                No kitchens found
+                            </td>
+                        </tr>`;
+                } else {
+                    let kHtml = '';
+                    data.kitchenBreakdown.forEach(k => {
+                        const isActive = (k.pending || 0) > 0;
+                        const kInit = (k.name || 'KT').replace(/[^a-zA-Z0-9]/g, '').substring(0, 2).toUpperCase() || 'KT';
+                        kHtml += `
+                            <tr>
+                                <td class="ps-0 py-2.5">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <span class="tabletop-avatar">
+                                            ${escapeHtml(kInit)}
+                                        </span>
+                                        <span class="fw-medium text-dark small" style="font-size: 0.86rem;">
+                                            ${escapeHtml(k.name)}
+                                        </span>
+                                    </div>
+                                </td>
+                                <td class="text-secondary small py-2.5" style="font-size: 0.84rem;">${escapeHtml(k.branch_name)}</td>
+                                <td class="text-end pe-0 py-2.5">
+                                    <span class="tabletop-pending-badge ${isActive ? 'badge-active' : ''}">${k.pending}</span>
+                                </td>
+                            </tr>`;
+                    });
+                    kitchenBody.innerHTML = kHtml;
+                }
+            }
+
+            // 5. Update Line Chart
+            if (orderChart && data.hourlyTrend) {
+                if (data.hourlyLabels) {
+                    orderChart.data.labels = data.hourlyLabels;
+                }
+                orderChart.data.datasets[0].data = data.hourlyTrend;
+                if (data.yesterdayHourlyTrend && orderChart.data.datasets[1]) {
+                    orderChart.data.datasets[1].data = data.yesterdayHourlyTrend;
+                }
+                orderChart.update('none');
+            }
+
+            // 6. Update Recent Orders Table
+            const recentOrdersBody = document.getElementById('recentOrdersBody');
+            if (recentOrdersBody && data.recentOrders) {
+                if (data.recentOrders.length === 0) {
+                    recentOrdersBody.innerHTML = `
+                        <tr>
+                            <td colspan="5" class="text-center text-muted py-4 small">
+                                <i class="bi bi-receipt fs-4 d-block mb-1 text-secondary opacity-50"></i>
+                                No recent orders found
+                            </td>
+                        </tr>`;
+                } else {
+                    let oHtml = '';
+                    data.recentOrders.forEach(ord => {
+                        const statusPill = getStatusPillHtml(ord.status);
+                        const initials = (ord.table_name || 'T1').replace(/[^a-zA-Z0-9]/g, '').substring(0, 2).toUpperCase() || 'T1';
+                        oHtml += `
+                            <tr>
+                                <td class="ps-0 fw-semibold text-dark small py-2.5" style="font-size: 0.86rem;">${escapeHtml(ord.order_number)}</td>
+                                <td class="text-secondary small py-2.5" style="font-size: 0.84rem;">${escapeHtml(ord.branch_name)}</td>
+                                <td class="py-2.5">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <span class="tabletop-avatar">${escapeHtml(initials)}</span>
+                                        <div>
+                                            <div class="fw-medium text-dark small" style="line-height: 1.2;">${escapeHtml(ord.table_name)}</div>
+                                            <div class="text-muted" style="font-size: 0.72rem;">${escapeHtml(ord.waiter_name || 'Staff')}</div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="text-center py-2.5">${statusPill}</td>
+                                <td class="text-end pe-0 text-muted small py-2.5" style="font-size: 0.82rem;">${escapeHtml(ord.time)}</td>
+                            </tr>`;
+                    });
+                    recentOrdersBody.innerHTML = oHtml;
+                }
+            }
+        }
+    } catch (err) {
+        console.warn('Dashboard live sync note:', err);
+    } finally {
+        isRefreshing = false;
+    }
+}
+
 document.addEventListener('DOMContentLoaded', function () {
+    // 1. Initialize Order Trend Line Chart (Clean Tabletop Style)
     const ctx = document.getElementById('orderTrendChart');
-    if (!ctx) return;
+    if (ctx) {
+        const labels = {!! $hourlyLabelsJson !!};
+        const todayData = {!! $hourlyTrendJson !!};
+        const yesterdayData = {!! $yesterdayHourlyTrendJson !!};
 
-    const labels = @json($hourlyLabels);
-    const dataValues = @json($hourlyTrend);
+        const chartContext = ctx.getContext('2d');
+        const gradient = chartContext.createLinearGradient(0, 0, 0, 200);
+        gradient.addColorStop(0, 'rgba(16, 185, 129, 0.22)');
+        gradient.addColorStop(0.8, 'rgba(16, 185, 129, 0.02)');
+        gradient.addColorStop(1, 'rgba(16, 185, 129, 0.0)');
 
-    // Create orange gradient fill
-    const chartContext = ctx.getContext('2d');
-    const gradient = chartContext.createLinearGradient(0, 0, 0, 200);
-    gradient.addColorStop(0, 'rgba(249, 115, 22, 0.32)');
-    gradient.addColorStop(0.7, 'rgba(249, 115, 22, 0.08)');
-    gradient.addColorStop(1, 'rgba(249, 115, 22, 0.0)');
-
-    new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: labels,
-            datasets: [{
-                data: dataValues,
-                borderColor: '#f97316',
-                borderWidth: 2.5,
-                backgroundColor: gradient,
-                fill: true,
-                tension: 0.42,
-                pointBackgroundColor: '#ffffff',
-                pointBorderColor: '#f97316',
-                pointBorderWidth: 2.5,
-                pointRadius: 4.5,
-                pointHoverRadius: 6,
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: { display: false },
-                tooltip: {
-                    backgroundColor: '#1f140e',
-                    titleFont: { size: 12, weight: '600' },
-                    bodyFont: { size: 12 },
-                    padding: 8,
-                    cornerRadius: 8,
-                    callbacks: {
-                        label: function (context) {
-                            return ` ${context.parsed.y} orders`;
+        orderChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Today',
+                        data: todayData,
+                        borderColor: '#10b981',
+                        borderWidth: 2.5,
+                        backgroundColor: gradient,
+                        fill: true,
+                        tension: 0.4,
+                        pointBackgroundColor: '#ffffff',
+                        pointBorderColor: '#10b981',
+                        pointBorderWidth: 2,
+                        pointRadius: 3.5,
+                        pointHoverRadius: 5.5,
+                    },
+                    {
+                        label: 'Yesterday',
+                        data: yesterdayData,
+                        borderColor: '#a7f3d0',
+                        borderWidth: 1.6,
+                        borderDash: [4, 4],
+                        fill: false,
+                        tension: 0.4,
+                        pointRadius: 0,
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: '#111827',
+                        titleFont: { size: 12, weight: '600' },
+                        bodyFont: { size: 12 },
+                        padding: 8,
+                        cornerRadius: 6,
+                        callbacks: {
+                            label: function (context) {
+                                return ` ${context.dataset.label}: ${context.parsed.y} orders`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { display: false },
+                        ticks: {
+                            color: '#6b7280',
+                            font: { size: 11, family: "'Plus Jakarta Sans', sans-serif" }
+                        }
+                    },
+                    y: {
+                        min: 0,
+                        suggestedMax: 10,
+                        grid: {
+                            color: '#f3f4f6',
+                            drawBorder: false,
+                        },
+                        ticks: {
+                            stepSize: 5,
+                            color: '#6b7280',
+                            font: { size: 11, family: "'Plus Jakarta Sans', sans-serif" }
                         }
                     }
                 }
-            },
-            scales: {
-                x: {
-                    grid: { display: false },
-                    ticks: {
-                        color: '#94a3b8',
-                        font: { size: 11, family: "'Plus Jakarta Sans', sans-serif" }
-                    }
-                },
-                y: {
-                    min: 0,
-                    suggestedMax: 40,
-                    grid: {
-                        color: '#f1ece4',
-                        drawBorder: false,
-                    },
-                    ticks: {
-                        stepSize: 10,
-                        color: '#94a3b8',
-                        font: { size: 11, family: "'Plus Jakarta Sans', sans-serif" }
-                    }
-                }
             }
+        });
+    }
+
+    // 2. Real-time background sync every 8 seconds
+    pollingInterval = setInterval(() => {
+        if (!document.hidden) {
+            fetchDashboardData();
+        }
+    }, 8000);
+
+    // Immediate sync on visibility change
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+            fetchDashboardData();
         }
     });
 });

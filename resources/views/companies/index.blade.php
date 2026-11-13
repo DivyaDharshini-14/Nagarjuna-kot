@@ -20,6 +20,7 @@
                         <th>Code</th>
                         <th>Email</th>
                         <th>Phone</th>
+                        <th>GST Number</th>
                         <th>Status</th>
                         <th></th>
                     </tr>
@@ -31,6 +32,7 @@
                             <td>{{ $company->code }}</td>
                             <td>{{ $company->email }}</td>
                             <td>{{ $company->phone }}</td>
+                            <td><span class="font-monospace small">{{ $company->gst_number ?? '—' }}</span></td>
                             <td>@include('partials.status', ['active' => $company->is_active])</td>
                             <td class="text-end text-nowrap">
                                 @if(auth()->user()->hasPermission('company.edit'))
@@ -40,7 +42,7 @@
                             </td>
                         </tr>
                     @empty
-                        <tr><td colspan="6" class="text-center text-muted py-4">No companies found.</td></tr>
+                        <tr><td colspan="7" class="text-center text-muted py-4">No companies found.</td></tr>
                     @endforelse
                 </tbody>
             </table>

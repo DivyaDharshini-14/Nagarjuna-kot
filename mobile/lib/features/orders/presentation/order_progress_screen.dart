@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../../app/app_theme.dart';
 import '../../../core/network/mobile_api_client.dart';
 import '../../../core/network/mobile_order_live_connection.dart';
+import '../../tables/domain/floor_table.dart';
 import '../data/mobile_order_repository.dart';
 import '../domain/order_status.dart';
 
@@ -17,6 +18,10 @@ class OrderProgressScreen extends StatefulWidget {
     required this.liveConnection,
     required this.onBack,
     required this.onOrderCompleted,
+    required this.onEditOrder,
+    required this.canAddItems,
+    required this.canEditOrders,
+    required this.canCancelOrders,
     required this.onSessionExpired,
   });
 
@@ -26,6 +31,10 @@ class OrderProgressScreen extends StatefulWidget {
   final MobileOrderLiveConnection liveConnection;
   final VoidCallback onBack;
   final VoidCallback onOrderCompleted;
+  final ValueChanged<RestaurantTable> onEditOrder;
+  final bool canAddItems;
+  final bool canEditOrders;
+  final bool canCancelOrders;
   final Future<void> Function() onSessionExpired;
 
   @override
@@ -46,6 +55,7 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
   bool _isModifying = false;
   bool _isInForeground = true;
   bool _liveConnected = false;
+  final Map<String, String> _pendingQuantityAdditionKeys = {};
 
   @override
   void initState() {
@@ -169,8 +179,12 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
       status == 'completed' || status == 'cancelled';
 
   bool _canCompleteOrder(OrderStatusSnapshot snapshot) {
+    if (!widget.canEditOrders) return false;
     final orderStatus = snapshot.orderStatus.trim().toLowerCase();
     if (orderStatus != 'ready' && orderStatus != 'served') return false;
+    if (snapshot.items.any((item) => item.pendingCancellationQuantity > 0)) {
+      return false;
+    }
     if (snapshot.tickets.isEmpty) return false;
     return snapshot.tickets.every((ticket) {
       final status = ticket.status.trim().toLowerCase();
@@ -186,7 +200,7 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
       builder: (context) => AlertDialog(
         title: const Text('Complete this order?'),
         content: Text(
-          'Confirm the guests have left and Table ${snapshot.tableName} is clear. '
+          'Confirm the guests have left and ${_tableLabel(snapshot.tableName)} is clear. '
           'The table will become available for a new order.',
         ),
         actions: [
@@ -231,15 +245,21 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          'Order completed. Table ${snapshot.tableName} is available.',
+          'Order completed. ${_tableLabel(snapshot.tableName)} is available.',
         ),
       ),
     );
     widget.onOrderCompleted();
   }
 
-  Future<void> _requestCancellation({OrderItemProgress? item}) async {
-    if (_isCancelling || _snapshot == null) return;
+  Future<void> _cancelOrder({OrderItemProgress? item}) async {
+    if (!widget.canCancelOrders ||
+        _isCancelling ||
+        _isModifying ||
+        _isCompleting ||
+        _snapshot == null) {
+      return;
+    }
     final cancellation = await showDialog<_CancellationDraft>(
       context: context,
       builder: (_) => _CancellationReasonDialog(
@@ -279,15 +299,133 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
       if (mounted) _showCompletionError(error.message);
     } catch (_) {
       if (mounted) {
-        _showCompletionError('Could not send the cancellation request. Retry.');
+        _showCompletionError('Could not cancel this order. Please try again.');
       }
     } finally {
       if (mounted) setState(() => _isCancelling = false);
     }
   }
 
+  Future<void> _adjustItemQuantity(OrderItemProgress selectedItem) async {
+    final snapshot = _snapshot;
+    if (snapshot == null ||
+        _isTerminal(snapshot.orderStatus) ||
+        _isModifying ||
+        _isCancelling ||
+        _isCompleting) {
+      return;
+    }
+    OrderItemProgress? foundItem;
+    for (final candidate in snapshot.items) {
+      if (candidate.id == selectedItem.id) {
+        foundItem = candidate;
+        break;
+      }
+    }
+    if (foundItem == null || foundItem.pendingCancellationQuantity > 0) return;
+    final item = foundItem;
+
+    final activeQuantity = (item.quantity - item.cancelledQuantity).clamp(
+      0,
+      item.quantity,
+    );
+    if (activeQuantity == 0) return;
+    final canIncrease =
+        widget.canAddItems &&
+        snapshot.tableId != null &&
+        item.menuItemId != null;
+    final canDecrease = widget.canCancelOrders && item.cancellableQuantity > 0;
+    if (!canIncrease && !canDecrease) return;
+
+    final adjustment = await showDialog<_QuantityAdjustmentDraft>(
+      context: context,
+      builder: (_) => _OrderQuantityAdjustmentDialog(
+        itemName: item.name,
+        activeQuantity: activeQuantity,
+        minimumQuantity: canDecrease
+            ? activeQuantity - item.cancellableQuantity
+            : activeQuantity,
+        maximumQuantity: activeQuantity + (canIncrease ? 99 : 0),
+      ),
+    );
+    if (adjustment == null || !mounted) return;
+
+    setState(() => _isModifying = true);
+    String successMessage;
+    try {
+      if (adjustment.targetQuantity > activeQuantity) {
+        final tableId = snapshot.tableId;
+        final menuItemId = item.menuItemId;
+        if (tableId == null || menuItemId == null) {
+          _showCompletionError(
+            'This dish cannot be added because its menu or table details are missing.',
+          );
+          return;
+        }
+        final operation =
+            '${snapshot.id}:${item.id}:$activeQuantity:${adjustment.targetQuantity}';
+        final idempotencyKey = _pendingQuantityAdditionKeys.putIfAbsent(
+          operation,
+          widget.repository.createIdempotencyKey,
+        );
+        await widget.repository.increaseOrderItemQuantity(
+          orderId: snapshot.id,
+          tableId: tableId,
+          menuItemId: menuItemId,
+          quantity: adjustment.targetQuantity - activeQuantity,
+          instructions: item.instructions,
+          idempotencyKey: idempotencyKey,
+        );
+        _pendingQuantityAdditionKeys.remove(operation);
+        successMessage =
+            '${adjustment.targetQuantity - activeQuantity} ${item.name} added to the order. New KOTs were sent to the kitchen.';
+      } else {
+        final quantityToCancel = activeQuantity - adjustment.targetQuantity;
+        successMessage = await widget.repository.requestCancellation(
+          orderId: snapshot.id,
+          reason: adjustment.reason!,
+          cancelAll: false,
+          items: [
+            {'order_item_id': item.id, 'quantity': quantityToCancel},
+          ],
+        );
+      }
+      await _refresh();
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(successMessage)));
+      }
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      if (error.requiresSignIn) {
+        await widget.onSessionExpired();
+      } else {
+        await _refresh(quiet: true);
+        if (mounted) _showCompletionError(error.message);
+      }
+    } on ApiTransportException catch (error) {
+      await _refresh(quiet: true);
+      if (mounted) _showCompletionError(error.message);
+    } catch (_) {
+      await _refresh(quiet: true);
+      if (mounted) {
+        _showCompletionError(
+          'Could not adjust this dish quantity. Refresh the order and retry.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isModifying = false);
+    }
+  }
+
   Future<void> _editItemInstructions(OrderItemProgress item) async {
-    if (_isModifying || !item.canModify) return;
+    if (!widget.canEditOrders ||
+        _isModifying ||
+        _isCancelling ||
+        _isCompleting ||
+        !item.canModify) {
+      return;
+    }
     final instructions = await showDialog<String?>(
       context: context,
       builder: (_) => _EditInstructionsDialog(
@@ -325,6 +463,91 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
       if (mounted) {
         _showCompletionError('Could not update this dish. Try again.');
       }
+    } finally {
+      if (mounted) setState(() => _isModifying = false);
+    }
+  }
+
+  Future<void> _openOrderEditor(OrderStatusSnapshot snapshot) async {
+    if (!widget.canAddItems &&
+        !widget.canEditOrders &&
+        !widget.canCancelOrders) {
+      return;
+    }
+    final action = await showModalBottomSheet<_EditOrderAction>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: AppColors.canvas,
+      builder: (_) => _EditOrderSheet(
+        snapshot: snapshot,
+        canAddItems: widget.canAddItems,
+        canEditInstructions: widget.canEditOrders,
+        canCancelItems: widget.canCancelOrders,
+      ),
+    );
+    if (action == null || !mounted) return;
+
+    switch (action.type) {
+      case _EditOrderActionType.addItems:
+        final tableId = snapshot.tableId;
+        if (tableId == null) {
+          _showCompletionError('This order is missing its table information.');
+          return;
+        }
+        widget.onEditOrder(
+          RestaurantTable(
+            id: tableId,
+            name: snapshot.tableName,
+            seatingCapacity: 0,
+            status: TableStatus.occupied,
+            activeOrderId: snapshot.id,
+            activeOrderNumber: snapshot.orderNumber,
+          ),
+        );
+      case _EditOrderActionType.editInstructions:
+        final item = action.item;
+        if (item != null) await _editItemInstructions(item);
+      case _EditOrderActionType.cancelItem:
+        final item = action.item;
+        if (item != null) await _cancelOrder(item: item);
+      case _EditOrderActionType.adjustQuantity:
+        final item = action.item;
+        if (item != null) await _adjustItemQuantity(item);
+    }
+  }
+
+  Future<void> _markItemServed(OrderItemProgress item) async {
+    if (!widget.canEditOrders ||
+        !item.canMarkServed ||
+        _isModifying ||
+        _isCancelling ||
+        _isCompleting) {
+      return;
+    }
+    setState(() => _isModifying = true);
+    try {
+      await widget.repository.markItemServed(
+        orderId: widget.orderId,
+        orderItemId: item.id,
+      );
+      await _refresh();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${item.name} marked as served.')),
+        );
+      }
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      if (error.requiresSignIn) {
+        await widget.onSessionExpired();
+      } else {
+        _showCompletionError(error.message);
+      }
+    } on ApiTransportException catch (error) {
+      if (mounted) _showCompletionError(error.message);
+    } catch (_) {
+      if (mounted) _showCompletionError('Could not mark this dish as served.');
     } finally {
       if (mounted) setState(() => _isModifying = false);
     }
@@ -374,19 +597,52 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
                 padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
                 children: [
                   _OrderHeader(snapshot: snapshot),
-                  if (snapshot.items.any(
-                    (item) => item.cancellableQuantity > 0,
-                  )) ...[
+                  if (!_isTerminal(snapshot.orderStatus) &&
+                      (widget.canAddItems ||
+                          widget.canEditOrders ||
+                          widget.canCancelOrders)) ...[
                     const SizedBox(height: 12),
                     OutlinedButton.icon(
-                      onPressed: _isCancelling
+                      onPressed: _isModifying || _isCancelling || _isCompleting
                           ? null
-                          : () => _requestCancellation(),
+                          : () => _openOrderEditor(snapshot),
+                      icon: const Icon(Icons.edit_rounded),
+                      label: const Text('Edit order'),
+                    ),
+                  ],
+                  if (widget.canCancelOrders &&
+                      snapshot.items.any(
+                        (item) => item.cancellableQuantity > 0,
+                      )) ...[
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: _isCancelling || _isModifying || _isCompleting
+                          ? null
+                          : () => _cancelOrder(),
                       icon: const Icon(Icons.cancel_outlined),
                       label: Text(
-                        _isCancelling
-                            ? 'Sending request…'
-                            : 'Request cancellation for order',
+                        _isCancelling ? 'Cancelling…' : 'Cancel order',
+                      ),
+                    ),
+                  ],
+                  if (snapshot.items.any(
+                    (item) => item.pendingCancellationQuantity > 0,
+                  )) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFF4DE),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: const Color(0xFFE8D4A8)),
+                      ),
+                      child: const Text(
+                        'This order cannot be completed while a cancellation is waiting for manager approval.',
+                        style: TextStyle(
+                          color: Color(0xFF76551C),
+                          fontSize: 12,
+                          height: 1.4,
+                        ),
                       ),
                     ),
                   ],
@@ -412,7 +668,8 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
                           ),
                           const SizedBox(height: 12),
                           FilledButton.icon(
-                            onPressed: _isCompleting
+                            onPressed:
+                                _isCompleting || _isModifying || _isCancelling
                                 ? null
                                 : () => _completeOrder(snapshot),
                             icon: _isCompleting
@@ -462,19 +719,16 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           _OrderItemCard(item: item),
-                          if (item.canModify)
+                          if (widget.canEditOrders && item.canMarkServed)
                             Align(
                               alignment: Alignment.centerRight,
                               child: TextButton.icon(
                                 onPressed: _isModifying
                                     ? null
-                                    : () => _editItemInstructions(item),
-                                icon: const Icon(
-                                  Icons.edit_note_rounded,
-                                  size: 17,
-                                ),
+                                    : () => _markItemServed(item),
+                                icon: const Icon(Icons.room_service_outlined),
                                 label: Text(
-                                  _isModifying ? 'Updating…' : 'Edit dish note',
+                                  _isModifying ? 'Updating…' : 'Mark served',
                                 ),
                               ),
                             ),
@@ -488,20 +742,6 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
                                   fontSize: 11,
                                   fontWeight: FontWeight.w600,
                                 ),
-                              ),
-                            ),
-                          if (item.cancellableQuantity > 0)
-                            Align(
-                              alignment: Alignment.centerRight,
-                              child: TextButton.icon(
-                                onPressed: _isCancelling
-                                    ? null
-                                    : () => _requestCancellation(item: item),
-                                icon: const Icon(
-                                  Icons.remove_circle_outline,
-                                  size: 17,
-                                ),
-                                label: const Text('Request item cancellation'),
                               ),
                             ),
                         ],
@@ -625,7 +865,7 @@ class _OrderHeader extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           Text(
-            'Table ${snapshot.tableName}',
+            _tableLabel(snapshot.tableName),
             style: const TextStyle(color: Color(0xFFD6D5CF), fontSize: 13),
           ),
         ],
@@ -719,18 +959,22 @@ class _OrderItemCard extends StatelessWidget {
 
   String _cancellationHistory(ItemCancellationProgress cancellation) {
     final lines = <String>[
-      '${cancellation.quantity}× cancellation ${cancellation.status.toLowerCase()} · ${cancellation.reason}',
+      '${cancellation.quantity}× cancellation ${_cancellationStatusLabel(cancellation.status)} · ${cancellation.reason}',
     ];
     final requestedBy = cancellation.requestedBy;
-    if (requestedBy != null) {
+    final decidedBy = cancellation.decidedBy;
+    final directlyApplied =
+        cancellation.status.toLowerCase() == 'approved' &&
+        requestedBy != null &&
+        requestedBy == decidedBy;
+    if (requestedBy != null && !directlyApplied) {
       lines.add(
         'Requested by $requestedBy${cancellation.requestedAt == null ? '' : ' · ${_formatDateTime(cancellation.requestedAt!)}'}',
       );
     }
-    final decidedBy = cancellation.decidedBy;
     if (decidedBy != null) {
       lines.add(
-        'Decided by $decidedBy${cancellation.decidedAt == null ? '' : ' · ${_formatDateTime(cancellation.decidedAt!)}'}',
+        '${directlyApplied ? 'Cancelled by' : 'Decided by'} $decidedBy${cancellation.decidedAt == null ? '' : ' · ${_formatDateTime(cancellation.decidedAt!)}'}',
       );
     }
     if (cancellation.stockReversedQuantity > 0) {
@@ -747,6 +991,14 @@ class _OrderItemCard extends StatelessWidget {
     if (decisionNote.isNotEmpty) lines.add('Decision: $decisionNote');
     return lines.join('\n');
   }
+
+  String _cancellationStatusLabel(String status) =>
+      switch (status.toLowerCase()) {
+        'approved' => 'completed',
+        'pending' => 'waiting for approval',
+        'rejected' => 'rejected',
+        _ => status.toLowerCase(),
+      };
 
   String _formatDateTime(DateTime value) =>
       '${value.day.toString().padLeft(2, '0')}/${value.month.toString().padLeft(2, '0')} ${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
@@ -915,6 +1167,377 @@ class _UnavailableState extends StatelessWidget {
   );
 }
 
+class _EditOrderSheet extends StatelessWidget {
+  const _EditOrderSheet({
+    required this.snapshot,
+    required this.canAddItems,
+    required this.canEditInstructions,
+    required this.canCancelItems,
+  });
+
+  final OrderStatusSnapshot snapshot;
+  final bool canAddItems;
+  final bool canEditInstructions;
+  final bool canCancelItems;
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+    top: false,
+    child: SizedBox(
+      height: MediaQuery.sizeOf(context).height * 0.86,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 38,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.line,
+                  borderRadius: BorderRadius.circular(3),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Edit order',
+                    style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  tooltip: 'Close editor',
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ],
+            ),
+            Text(
+              'Add dishes as new kitchen tickets, edit instructions before preparation, or reduce/cancel a dish with a required reason. Stock and preparation rules still apply, and changes are recorded.',
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: AppColors.mutedInk, height: 1.4),
+            ),
+            const SizedBox(height: 14),
+            if (canAddItems) ...[
+              FilledButton.icon(
+                onPressed: snapshot.tableId == null
+                    ? null
+                    : () => Navigator.of(context).pop(
+                        const _EditOrderAction(_EditOrderActionType.addItems),
+                      ),
+                icon: const Icon(Icons.add_shopping_cart_rounded),
+                label: const Text('Add items to this order'),
+              ),
+              if (snapshot.tableId == null) ...[
+                const SizedBox(height: 6),
+                const Text(
+                  'Items cannot be added because the order has no table assigned.',
+                  style: TextStyle(color: AppColors.mutedInk, fontSize: 11),
+                ),
+              ],
+            ],
+            const SizedBox(height: 18),
+            Text('DISHES', style: Theme.of(context).textTheme.labelMedium),
+            const SizedBox(height: 8),
+            Expanded(
+              child: snapshot.items.isEmpty
+                  ? const Center(child: Text('This order has no dishes.'))
+                  : ListView.separated(
+                      itemCount: snapshot.items.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 9),
+                      itemBuilder: (context, index) => _EditableOrderItem(
+                        item: snapshot.items[index],
+                        canEditInstructions: canEditInstructions,
+                        canCancel: canCancelItems,
+                        canAddItems: canAddItems && snapshot.tableId != null,
+                      ),
+                    ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _EditableOrderItem extends StatelessWidget {
+  const _EditableOrderItem({
+    required this.item,
+    required this.canEditInstructions,
+    required this.canCancel,
+    required this.canAddItems,
+  });
+
+  final OrderItemProgress item;
+  final bool canEditInstructions;
+  final bool canCancel;
+  final bool canAddItems;
+
+  @override
+  Widget build(BuildContext context) {
+    final activeQuantity = (item.quantity - item.cancelledQuantity).clamp(
+      0,
+      item.quantity,
+    );
+    final mayEditInstructions = canEditInstructions && item.canModify;
+    final mayCancel = canCancel && item.cancellableQuantity > 0;
+    final mayAdjustQuantity =
+        item.pendingCancellationQuantity == 0 &&
+        activeQuantity > 0 &&
+        ((canAddItems && item.menuItemId != null) || mayCancel);
+    final hasActions = mayEditInstructions || mayCancel || mayAdjustQuantity;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.line),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  item.name,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+              _StatusPill(status: item.status),
+            ],
+          ),
+          const SizedBox(height: 5),
+          Text(
+            '$activeQuantity active of ${item.quantity} ordered',
+            style: const TextStyle(color: AppColors.mutedInk, fontSize: 12),
+          ),
+          if (item.instructions?.trim().isNotEmpty == true) ...[
+            const SizedBox(height: 5),
+            Text(
+              item.instructions!,
+              style: const TextStyle(color: AppColors.mutedInk, fontSize: 12),
+            ),
+          ],
+          if (item.pendingCancellationQuantity > 0) ...[
+            const SizedBox(height: 7),
+            const Text(
+              'Cancellation waiting for approval',
+              style: TextStyle(
+                color: Color(0xFF8B641D),
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+          if (hasActions) ...[
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                if (mayEditInstructions)
+                  OutlinedButton.icon(
+                    onPressed: () => Navigator.of(context).pop(
+                      _EditOrderAction(
+                        _EditOrderActionType.editInstructions,
+                        item: item,
+                      ),
+                    ),
+                    icon: const Icon(Icons.edit_note_rounded, size: 18),
+                    label: const Text('Edit instructions'),
+                  ),
+                if (mayAdjustQuantity)
+                  OutlinedButton.icon(
+                    onPressed: () => Navigator.of(context).pop(
+                      _EditOrderAction(
+                        _EditOrderActionType.adjustQuantity,
+                        item: item,
+                      ),
+                    ),
+                    icon: const Icon(Icons.tune_rounded, size: 18),
+                    label: const Text('Adjust quantity'),
+                  ),
+                if (mayCancel)
+                  TextButton.icon(
+                    onPressed: () => Navigator.of(context).pop(
+                      _EditOrderAction(
+                        _EditOrderActionType.cancelItem,
+                        item: item,
+                      ),
+                    ),
+                    icon: const Icon(Icons.remove_circle_outline, size: 18),
+                    label: const Text('Cancel item'),
+                  ),
+              ],
+            ),
+          ] else if (activeQuantity > 0) ...[
+            const SizedBox(height: 7),
+            const Text(
+              'This dish can no longer be modified.',
+              style: TextStyle(color: AppColors.mutedInk, fontSize: 11),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+enum _EditOrderActionType {
+  addItems,
+  editInstructions,
+  cancelItem,
+  adjustQuantity,
+}
+
+class _EditOrderAction {
+  const _EditOrderAction(this.type, {this.item});
+
+  final _EditOrderActionType type;
+  final OrderItemProgress? item;
+}
+
+class _OrderQuantityAdjustmentDialog extends StatefulWidget {
+  const _OrderQuantityAdjustmentDialog({
+    required this.itemName,
+    required this.activeQuantity,
+    required this.minimumQuantity,
+    required this.maximumQuantity,
+  });
+
+  final String itemName;
+  final int activeQuantity;
+  final int minimumQuantity;
+  final int maximumQuantity;
+
+  @override
+  State<_OrderQuantityAdjustmentDialog> createState() =>
+      _OrderQuantityAdjustmentDialogState();
+}
+
+class _OrderQuantityAdjustmentDialogState
+    extends State<_OrderQuantityAdjustmentDialog> {
+  late int _targetQuantity = widget.activeQuantity;
+  final _reasonController = TextEditingController();
+
+  bool get _isReducing => _targetQuantity < widget.activeQuantity;
+  bool get _canSubmit =>
+      _targetQuantity != widget.activeQuantity &&
+      (!_isReducing || _reasonController.text.trim().length >= 3);
+
+  @override
+  void dispose() {
+    _reasonController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    scrollable: true,
+    title: Text('Adjust ${widget.itemName}'),
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Current active quantity: ${widget.activeQuantity}',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        const SizedBox(height: 12),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            IconButton.filledTonal(
+              tooltip: 'Reduce quantity',
+              onPressed: _targetQuantity <= widget.minimumQuantity
+                  ? null
+                  : () => setState(() => _targetQuantity--),
+              icon: const Icon(Icons.remove_rounded),
+            ),
+            const SizedBox(width: 18),
+            Semantics(
+              label: 'New active quantity $_targetQuantity',
+              child: Text(
+                '$_targetQuantity',
+                style: Theme.of(context).textTheme.headlineSmall
+                    ?.copyWith(fontWeight: FontWeight.w800),
+              ),
+            ),
+            const SizedBox(width: 18),
+            IconButton.filledTonal(
+              tooltip: 'Increase quantity',
+              onPressed: _targetQuantity >= widget.maximumQuantity
+                  ? null
+                  : () => setState(() => _targetQuantity++),
+              icon: const Icon(Icons.add_rounded),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (_isReducing) ...[
+          const Text(
+            'The reduction is submitted as a cancellation. A reason is required; approval and stock handling follow this branch’s policy and preparation status.',
+            style: TextStyle(fontSize: 12, height: 1.4),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _reasonController,
+            autofocus: true,
+            minLines: 2,
+            maxLines: 4,
+            maxLength: 500,
+            decoration: const InputDecoration(
+              labelText: 'Reason for quantity reduction',
+              hintText: 'Required for the cancellation history',
+            ),
+            onChanged: (_) => setState(() {}),
+          ),
+        ] else if (_targetQuantity > widget.activeQuantity) ...[
+          const Text(
+            'The extra quantity is sent as new kitchen work. The server checks current availability and stock and creates KOT tickets for the assigned kitchen(s); existing tickets stay unchanged.',
+            style: TextStyle(fontSize: 12, height: 1.4),
+          ),
+        ] else ...[
+          const Text(
+            'Choose a different active quantity. The order will not change until you confirm.',
+            style: TextStyle(fontSize: 12, height: 1.4),
+          ),
+        ],
+      ],
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.of(context).pop(),
+        child: const Text('Keep quantity'),
+      ),
+      FilledButton(
+        onPressed: _canSubmit
+            ? () => Navigator.of(context).pop(
+                _QuantityAdjustmentDraft(
+                  targetQuantity: _targetQuantity,
+                  reason: _isReducing ? _reasonController.text.trim() : null,
+                ),
+              )
+            : null,
+        child: const Text('Apply change'),
+      ),
+    ],
+  );
+}
+
+class _QuantityAdjustmentDraft {
+  const _QuantityAdjustmentDraft({required this.targetQuantity, this.reason});
+
+  final int targetQuantity;
+  final String? reason;
+}
+
 class _CancellationReasonDialog extends StatefulWidget {
   const _CancellationReasonDialog({required this.title, this.maxQuantity});
 
@@ -969,7 +1592,7 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog> {
           maxLength: 500,
           decoration: const InputDecoration(
             labelText: 'Cancellation reason',
-            hintText: 'Required for the kitchen and manager',
+            hintText: 'This reason will be sent to the kitchen and saved in the history.',
           ),
         ),
       ],
@@ -990,7 +1613,7 @@ class _CancellationReasonDialogState extends State<_CancellationReasonDialog> {
             ),
           );
         },
-        child: const Text('Send request'),
+        child: const Text('Confirm cancellation'),
       ),
     ],
   );
@@ -1001,6 +1624,11 @@ class _CancellationDraft {
 
   final String reason;
   final int? quantity;
+}
+
+String _tableLabel(String name) {
+  final value = name.trim();
+  return value.toLowerCase().startsWith('table ') ? value : 'Table $value';
 }
 
 class _EditInstructionsDialog extends StatefulWidget {

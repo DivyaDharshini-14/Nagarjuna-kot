@@ -19,6 +19,8 @@ class User extends Authenticatable
         'company_id',
         'branch_id',
         'name',
+        'employee_code',
+        'designation',
         'email',
         'phone',
         'password',

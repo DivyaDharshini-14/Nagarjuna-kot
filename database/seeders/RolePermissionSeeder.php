@@ -85,6 +85,8 @@ class RolePermissionSeeder extends Seeder
                 'menu-item.view',
                 'kitchen-mapping.view',
                 'user.view',
+                'order.view',
+                'order.approve',
             ])->pluck('id')->toArray(),
 
         ];

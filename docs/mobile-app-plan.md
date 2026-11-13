@@ -73,6 +73,13 @@ The user has also confirmed a separate kitchen mobile application as part of the
 - Installed the updated debug app on the connected Android emulator. The branded icon appeared in the app drawer, the saved session restored, and the assigned branch/floor/table data loaded from Laravel. Tracking an existing occupied table also loaded its order, dish, and KOT status from the new endpoint. This was read-only; no order was submitted.
 - Floor/table and order-progress screens have had an emulator visual review. Release signing and the production API host remain owner/environment inputs; sign-in/menu/cart visual review and the full waiter UAT checklist remain pending.
 
+## Existing order quantity adjustment
+
+- The waiter can choose **Edit order** and adjust an existing dish line's active quantity. Increasing submits the additional quantity through the existing idempotent add-items API; stock and availability are checked transactionally, and the kitchen receives new line/KOT work without changing previously submitted tickets.
+- Reducing submits the difference through the existing cancellation workflow. A reason remains mandatory; configured approval, cancellation history, preparation-aware stock reversal, and wastage recording remain enforced. The UI blocks changes to a line while a cancellation decision is pending.
+- This flow deliberately represents added quantity as new kitchen work instead of rewriting a ticket already received by a kitchen. A failed/uncertain increment reuses its idempotency key while the screen remains open, and order refresh reconciles the displayed lines with the server.
+- The waiter source has passed Dart static analysis and a fresh emulator debug APK build after this change. Transaction behavior still needs staging acceptance with real waiter and kitchen accounts.
+
 ## Delivery phases
 
 ### Phase 1 — Flutter foundation and sign-in experience
@@ -134,9 +141,11 @@ The mobile API base URL must point to the Laravel `/api/v1` root and is supplied
 
 ## Additional implemented workflows
 
-- Waiters can request item or full-order cancellation with a mandatory reason and select partial dish quantities. Authorized managers can review and approve/reject requests in either the waiter mobile app or web app; the mobile order history shows requester, decision-maker, decision note, timestamps, stock reversal, and wastage.
+- Waiters with `order.cancel` can cancel individual quantities or a full order with a mandatory reason. Cancellations apply immediately unless the branch requires manager approval; then an authorized user with `order.approve` can approve or reject them in the waiter mobile app or web app. The mobile order history shows the requester or direct canceller, decision-maker, decision note, timestamps, stock reversal, and wastage.
 - Branch managers can require a separate approver for every cancellation, including requests created by a user who has approval permission. The requester cannot approve their own request under that branch setting.
-- Waiters can update dish instructions while the KOT is still new or accepted. The update is sent to every linked KOT, and the kitchen display refreshes over Reverb or its polling fallback. Existing orders can still receive additional dishes through the separate additional-order flow.
+- Waiters can update dish instructions while the KOT is still new or accepted. The update is sent to every linked KOT, and the kitchen display refreshes over Reverb or its polling fallback. Waiters can add dishes from the order-progress screen or the occupied-table action; additions create new kitchen-wise KOTs without replacing existing tickets.
+- Waiters can mark a ready dish served only after every linked kitchen ticket is ready. That state is sent to the matching kitchen tickets, shown per dish in both mobile apps, and can be reviewed in the kitchen's completed-order view.
+- The kitchen mobile board has separate active, completed, and cancelled views. It returns the latest completed orders plus all tickets with cancelled quantities, remains limited to assigned kitchens, and keeps the existing live updates and polling refresh for the active queue.
 - Cancellation stock policy restores tracked portions only while the kitchen item is new or accepted. Preparation-started, ready, and served quantities are recorded as wastage with no stock return. The cancellation record retains both quantities for audit.
 - The stock ledger records opening balances, order deductions, cancellation reversals, wastage, damaged portions, manual corrections, and availability changes. Kitchen managers can perform stock and availability actions in the kitchen app.
 - Uncertain waiter submissions persist their draft and idempotency key in secure storage for recovery after app restart.
