@@ -50,7 +50,7 @@
                             name="date"
                             id="dashboard_date"
                             class="form-control border-start-0 ps-1"
-                            value="{{ $date }}"
+                            value="{{ $date ?? now()->toDateString() }}"
                             onchange="this.form.submit()"
                         >
                     </div>

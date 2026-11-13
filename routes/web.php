@@ -14,6 +14,7 @@ use App\Http\Controllers\KotController;
 use App\Http\Controllers\MenuItemController;
 use App\Http\Controllers\MenuTypeController;
 use App\Http\Controllers\OrderController;
+use App\Http\Controllers\ReportController;
 use App\Http\Controllers\RestaurantTableController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\UserController;
@@ -38,7 +39,6 @@ Route::middleware('guest')->group(function () {
 Route::middleware(['auth', 'account.active'])->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::post('/broadcasting/auth', [BroadcastController::class, 'authenticate'])->name('web.broadcasting.auth');
-    Route::view('/dashboard', 'dashboard')->name('dashboard');
     Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])->name('logout');
 
     Route::get('/companies', [CompanyController::class, 'index'])->name('companies.index')->middleware('permission:company.view');
@@ -139,6 +139,14 @@ Route::middleware(['auth', 'account.active'])->group(function () {
     Route::get('/cancellation-requests', [CancellationRequestController::class, 'index'])->name('cancellations.index')->middleware('permission:order.approve');
     Route::post('/cancellation-requests/{batch}/approve', [CancellationRequestController::class, 'approve'])->name('cancellations.approve')->middleware('permission:order.approve')->whereUuid('batch');
     Route::post('/cancellation-requests/{batch}/reject', [CancellationRequestController::class, 'reject'])->name('cancellations.reject')->middleware('permission:order.approve')->whereUuid('batch');
+
+    // Reports Module
+    Route::get('/reports/orders', [ReportController::class, 'orders'])->name('reports.orders')->middleware('permission:order.view');
+    Route::get('/reports/orders/export', [ReportController::class, 'exportOrders'])->name('reports.orders.export')->middleware('permission:order.view');
+    Route::get('/reports/menu-items', [ReportController::class, 'menuItems'])->name('reports.menu-items')->middleware('permission:order.view');
+    Route::get('/reports/menu-items/export', [ReportController::class, 'exportMenuItems'])->name('reports.menu-items.export')->middleware('permission:order.view');
+    Route::get('/reports/kots', [ReportController::class, 'kots'])->name('reports.kots')->middleware('permission:kot.view');
+    Route::get('/reports/kots/export', [ReportController::class, 'exportKots'])->name('reports.kots.export')->middleware('permission:kot.view');
 
     // Kitchen Order Tickets (KOT) Management
     Route::get('/kots', [KotController::class, 'index'])->name('kots.index')->middleware('permission:kot.view');
