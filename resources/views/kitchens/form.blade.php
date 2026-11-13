@@ -9,6 +9,10 @@
     <input class="form-control" id="code" name="code" value="{{ old('code', $kitchen?->code) }}" required>
 </div>
 <div class="mb-3">
+    <label class="form-label" for="kitchen_type">Kitchen type <span class="text-muted small">(optional)</span></label>
+    <input class="form-control" id="kitchen_type" name="kitchen_type" value="{{ old('kitchen_type', $kitchen?->kitchen_type) }}" placeholder="e.g. Main Kitchen, Biryani Kitchen, Bakery, Starters">
+</div>
+<div class="mb-3">
     <label class="form-label" for="description">Description</label>
     <textarea class="form-control" id="description" name="description" rows="3">{{ old('description', $kitchen?->description) }}</textarea>
 </div>

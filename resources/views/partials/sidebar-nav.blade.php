@@ -18,23 +18,44 @@
             </a>
         </li>
         @if(auth()->user()->hasPermission('menu-item.view'))
+            @php
+                $isStockActive = request()->routeIs('stock.*');
+                $stockCollapseId = 'stockSubmenu_' . ($navContext ?? 'desktop');
+            @endphp
+            {{-- Stock Management Expandable Parent Menu --}}
             <li class="nav-item">
-                <a class="nav-link {{ request()->routeIs('stock.index') || request()->routeIs('stock.stock-in') ? 'active' : '' }}" href="{{ route('stock.stock-in') }}">
-                    <i class="bi bi-box-arrow-in-down"></i>
-                    <span>Kitchen Stock In</span>
+                <a class="nav-link {{ $isStockActive ? 'active active-parent' : 'collapsed' }}"
+                   data-bs-toggle="collapse"
+                   href="#{{ $stockCollapseId }}"
+                   role="button"
+                   aria-expanded="{{ $isStockActive ? 'true' : 'false' }}"
+                   aria-controls="{{ $stockCollapseId }}">
+                    <i class="bi bi-boxes"></i>
+                    <span>Stock Management</span>
+                    <i class="bi bi-chevron-down ms-auto sidebar-chevron"></i>
                 </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link {{ request()->routeIs('stock.adjustments') ? 'active' : '' }}" href="{{ route('stock.adjustments') }}">
-                    <i class="bi bi-sliders"></i>
-                    <span>Stock Adjustment</span>
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link {{ request()->routeIs('stock.history') ? 'active' : '' }}" href="{{ route('stock.history') }}">
-                    <i class="bi bi-clock-history"></i>
-                    <span>Stock Transaction History</span>
-                </a>
+                <div class="collapse {{ $isStockActive ? 'show' : '' }}" id="{{ $stockCollapseId }}">
+                    <ul class="nav flex-column sidebar-submenu">
+                        <li class="nav-item">
+                            <a class="nav-link submenu-link {{ request()->routeIs('stock.index') || request()->routeIs('stock.stock-in') ? 'active' : '' }}" href="{{ route('stock.stock-in') }}">
+                                <i class="bi bi-box-arrow-in-down"></i>
+                                <span>Kitchen Stock</span>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link submenu-link {{ request()->routeIs('stock.adjustments') ? 'active' : '' }}" href="{{ route('stock.adjustments') }}">
+                                <i class="bi bi-sliders"></i>
+                                <span>Stock Adjustment</span>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link submenu-link {{ request()->routeIs('stock.history') ? 'active' : '' }}" href="{{ route('stock.history') }}">
+                                <i class="bi bi-clock-history"></i>
+                                <span>Stock Transaction History</span>
+                            </a>
+                        </li>
+                    </ul>
+                </div>
             </li>
         @endif
         <li class="nav-item">
@@ -48,35 +69,24 @@
                 $kitchenList = \App\Models\Kitchen::with('branch')->where('branch_id', auth()->user()->branch_id)->where('is_active', true)->get();
             @endphp
             @foreach($kitchenList as $k)
-               <li class="nav-item">
-    <a class="nav-link"
-       href="{{ ($k->branch && $k->branch->code
-            ? url('/' . $k->branch->code . '/' . $k->code)
-            : route('kots.display', $k)) }}"
-       target="_blank">
-
-        <i class="bi bi-tv"></i>
-        <span>{{ $k->name }} (TV)</span>
-    </a>
-</li>
+                <li class="nav-item">
+                    <a class="nav-link"
+                       href="{{ ($k->branch && $k->branch->code ? url('/' . $k->branch->code . '/' . $k->code) : route('kots.display', $k)) }}"
+                       target="_blank">
+                        <i class="bi bi-tv"></i>
+                        <span>{{ $k->name }} (TV)</span>
+                    </a>
+                </li>
             @endforeach
         @endif
     @else
         {{-- Live Operations for Waiter / Manager / Admin --}}
-        @if(auth()->user()->hasPermission('order.view') || auth()->user()->hasPermission('kot.view'))
-            @if(auth()->user()->hasPermission('order.view'))
-                <li class="nav-item">
-                    <a class="nav-link {{ request()->routeIs('orders.*') ? 'active' : '' }}" href="{{ route('orders.index') }}">
-                        <i class="bi bi-receipt"></i>
-                        <span>Orders</span>
-                    </a>
-                </li>
-            @endif
-
+        @if(auth()->user()->hasPermission('order.approve') || auth()->user()->hasPermission('kot.view') || auth()->user()->hasPermission('menu-item.view'))
             @if(auth()->user()->hasPermission('order.approve'))
                 <li class="nav-item">
                     <a class="nav-link {{ request()->routeIs('cancellations.*') ? 'active' : '' }}" href="{{ route('cancellations.index') }}">
-                        <i class="bi bi-exclamation-octagon"></i> Cancellation Requests
+                        <i class="bi bi-exclamation-octagon"></i>
+                        <span>Cancellation Requests</span>
                     </a>
                 </li>
             @endif
@@ -97,23 +107,44 @@
             @endif
 
             @if(auth()->user()->hasPermission('menu-item.view'))
+                @php
+                    $isStockActive = request()->routeIs('stock.*');
+                    $stockCollapseId = 'stockSubmenu_' . ($navContext ?? 'desktop');
+                @endphp
+                {{-- Stock Management Expandable Parent Menu --}}
                 <li class="nav-item">
-                    <a class="nav-link {{ request()->routeIs('stock.index') || request()->routeIs('stock.stock-in') ? 'active' : '' }}" href="{{ route('stock.stock-in') }}">
-                        <i class="bi bi-box-arrow-in-down"></i>
-                        <span>Kitchen Stock In</span>
+                    <a class="nav-link {{ $isStockActive ? 'active active-parent' : 'collapsed' }}"
+                       data-bs-toggle="collapse"
+                       href="#{{ $stockCollapseId }}"
+                       role="button"
+                       aria-expanded="{{ $isStockActive ? 'true' : 'false' }}"
+                       aria-controls="{{ $stockCollapseId }}">
+                        <i class="bi bi-boxes"></i>
+                        <span>Stock Management</span>
+                        <i class="bi bi-chevron-down ms-auto sidebar-chevron"></i>
                     </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link {{ request()->routeIs('stock.adjustments') ? 'active' : '' }}" href="{{ route('stock.adjustments') }}">
-                        <i class="bi bi-sliders"></i>
-                        <span>Stock Adjustment</span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link {{ request()->routeIs('stock.history') ? 'active' : '' }}" href="{{ route('stock.history') }}">
-                        <i class="bi bi-clock-history"></i>
-                        <span>Stock Transaction History</span>
-                    </a>
+                    <div class="collapse {{ $isStockActive ? 'show' : '' }}" id="{{ $stockCollapseId }}">
+                        <ul class="nav flex-column sidebar-submenu">
+                            <li class="nav-item">
+                                <a class="nav-link submenu-link {{ request()->routeIs('stock.index') || request()->routeIs('stock.stock-in') ? 'active' : '' }}" href="{{ route('stock.stock-in') }}">
+                                    <i class="bi bi-box-arrow-in-down"></i>
+                                    <span>Kitchen Stock</span>
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link submenu-link {{ request()->routeIs('stock.adjustments') ? 'active' : '' }}" href="{{ route('stock.adjustments') }}">
+                                    <i class="bi bi-sliders"></i>
+                                    <span>Stock Adjustment</span>
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link submenu-link {{ request()->routeIs('stock.history') ? 'active' : '' }}" href="{{ route('stock.history') }}">
+                                    <i class="bi bi-clock-history"></i>
+                                    <span>Stock Transaction History</span>
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
                 </li>
             @endif
         @endif

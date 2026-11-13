@@ -112,9 +112,11 @@ class UserController extends Controller
         ]);
 
         $user->roles()->sync($validated['roles']);
-        $user->kitchens()->sync($this->selectedRolesIncludeKitchenStaff($validated['roles'])
-            ? ($validated['kitchens'] ?? [])
-            : []);
+        if ($request->has('kitchens')) {
+            $user->kitchens()->sync($this->selectedRolesIncludeKitchenStaff($validated['roles'])
+                ? ($validated['kitchens'] ?? [])
+                : []);
+        }
 
         return redirect()->route('users.index')->with('success', 'User created successfully.');
     }
@@ -173,9 +175,11 @@ class UserController extends Controller
 
         $user->update($payload);
         $user->roles()->sync($validated['roles']);
-        $user->kitchens()->sync($this->selectedRolesIncludeKitchenStaff($validated['roles'])
-            ? ($validated['kitchens'] ?? [])
-            : []);
+        if ($request->has('kitchens')) {
+            $user->kitchens()->sync($this->selectedRolesIncludeKitchenStaff($validated['roles'])
+                ? ($validated['kitchens'] ?? [])
+                : []);
+        }
 
         return redirect()->route('users.index')->with('success', 'User updated successfully.');
     }

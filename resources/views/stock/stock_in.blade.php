@@ -40,18 +40,14 @@
             </div>
         </div>
 
-        {{-- Prodex Tabs Bar --}}
-        <div class="prodex-tabs d-flex align-items-center gap-4 px-4 border-bottom" style="border-color: #f1f5f9 !important;">
-            <span class="prodex-tab active">All</span>
-        </div>
-
+    
         {{-- Prodex Table --}}
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0 prodex-table" id="stockInTable">
                 <thead>
                     <tr>
-                        <th class="ps-4 py-3" style="width: 44px;">
-                            <input type="checkbox" class="form-check-input prodex-checkbox" id="checkAllDishes" onchange="toggleSelectAllDishes(this)" title="Select all dishes">
+                        <th class="ps-4 py-3 text-secondary text-uppercase fs-7" style="width: 70px;">
+                            S.No
                         </th>
                         <th class="py-3" style="width: 40%; min-width: 220px;">
                             <span class="d-inline-flex align-items-center gap-1">
@@ -77,7 +73,7 @@
                                 </svg>
                             </span>
                         </th>
-                        <th class="pe-4 py-3 text-end" style="width: 16%; min-width: 140px;">
+                        <th class="pe-4 py-3 text-end text-nowrap" style="width: 16%; min-width: 160px;">
                             Action
                         </th>
                     </tr>
@@ -92,9 +88,9 @@
                             $dishCode = $dish->code ?: sprintf('D%03d', $dish->id);
                         @endphp
                         <tr id="dish-row-{{ $dish->id }}" class="prodex-row" data-dish-id="{{ $dish->id }}" data-dish-name="{{ $dish->name }}">
-                            {{-- 1. Checkbox --}}
-                            <td class="ps-4 py-3.5">
-                                <input type="checkbox" class="form-check-input prodex-checkbox dish-row-checkbox" value="{{ $dish->id }}">
+                            {{-- 1. S.No --}}
+                            <td class="ps-4 py-3.5 text-muted fw-semibold" style="font-size: 0.88rem;">
+                                {{ $loop->iteration + ($items->currentPage() - 1) * $items->perPage() }}
                             </td>
 
                             {{-- 2. Dish Name (Avatar + Name) --}}
@@ -140,9 +136,9 @@
                                 @endif
                             </td>
 
-                            {{-- 6. Action (Pencil Edit Baseline + Black Pill Add Stock Button) --}}
-                            <td class="pe-4 py-3.5 text-end">
-                                <div class="d-inline-flex align-items-center justify-content-end gap-1.5">
+                            {{-- 6. Action (Refined Edit Icon Button + Medium Themed Add Stock Button) --}}
+                            <td class="pe-4 py-3 text-end text-nowrap">
+                                <div class="d-inline-flex align-items-center justify-content-end gap-2 text-nowrap ">
                                     @if($canManageStock)
                                         <button
                                             type="button"
@@ -194,75 +190,56 @@
 
 {{-- MODAL 1: SET OPENING STOCK (Section 7.1) --}}
 <div class="modal fade" id="openingStockModal" tabindex="-1" aria-labelledby="openingStockModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content border-0 shadow rounded-4">
-            <div class="modal-header border-0 pb-0 pt-4 px-4">
-                <div class="d-flex align-items-center gap-2">
-                    <span class="dashcart-icon-circle bg-purple-subtle text-purple" style="width: 38px; height: 38px; font-size: 1.1rem;">
-                        <i class="bi bi-sunrise"></i>
-                    </span>
-                    <div>
-                        <h5 class="modal-title fw-bold text-dark mb-0 fs-6" id="openingStockModalLabel">
-                            Set Opening Stock Baseline
-                        </h5>
-                        <span class="text-secondary small" style="font-size: 0.75rem;">Daily morning prep baseline entry (Section 7.1)</span>
-                    </div>
-                </div>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+    <div class="modal-dialog modal-dialog-centered ref-modal-dialog">
+        <div class="modal-content ref-modal-content">
+            {{-- Header: Title (Left) + Circular Close (Right) --}}
+            <div class="ref-modal-header mb-3">
+                <h5 class="ref-modal-title" id="openingStockModalLabel">Set Opening Stock Baseline</h5>
+                <button type="button" class="ref-modal-close-btn" data-bs-dismiss="modal" aria-label="Close">
+                    <i class="bi bi-x-lg"></i>
+                </button>
             </div>
 
             <form id="openingStockForm" onsubmit="handleOpeningStockSubmit(event)">
                 <input type="hidden" id="openingDishId" value="">
+                <input type="hidden" id="openingReasonInput" value="">
 
-                <div class="modal-body p-4">
-                    <div class="alert alert-light border small mb-3 p-2.5 rounded-3">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <span class="text-secondary">Prepared Dish:</span>
-                            <span class="fw-bold text-dark" id="openingDishName">—</span>
+                <div class="modal-body p-0">
+                    {{-- 2-Column Grid: Prepared Dish & Opening Stock Quantity Only --}}
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="ref-form-label">Prepared Dish</label>
+                            <div class="ref-form-control bg-light border-0 fw-bold text-dark text-truncate" id="openingDishName">—</div>
                         </div>
-                    </div>
 
-                    <div class="mb-3">
-                        <label class="form-label small fw-semibold text-dark mb-1">
-                            Opening Stock Quantity <span class="text-danger">*</span>
-                        </label>
-                        <div class="input-group">
-                            <input
-                                type="number"
-                                class="form-control fw-bold fs-5 text-center"
-                                id="openingQuantityInput"
-                                min="0"
-                                max="99999"
-                                placeholder="e.g. 20"
-                                required
-                            >
-                            <span class="input-group-text bg-light text-secondary">portions</span>
+                        <div class="col-md-6">
+                            <label class="ref-form-label">
+                                Opening Stock Quantity <span class="text-danger">*</span>
+                            </label>
+                            <div class="input-group">
+                                <input
+                                    type="number"
+                                    class="form-control ref-form-control fw-bold"
+                                    id="openingQuantityInput"
+                                    min="0"
+                                    max="99999"
+                                    placeholder="e.g. 20"
+                                    required
+                                    style="border-top-right-radius: 0 !important; border-bottom-right-radius: 0 !important;"
+                                >
+                                <span class="input-group-text bg-light text-secondary small px-3" style="border-radius: 0 10px 10px 0; border: 1px solid #e2e8f0; border-left: none;">portions</span>
+                            </div>
                         </div>
-                        <span class="text-secondary small mt-1 d-block" style="font-size: 0.72rem;">
-                            Sets the available baseline quantity before service starts.
-                        </span>
-                    </div>
-
-                    <div class="mb-2">
-                        <label class="form-label small fw-semibold text-dark mb-1">
-                            Shift / Prep Note (Optional)
-                        </label>
-                        <input
-                            type="text"
-                            class="form-control form-control-sm"
-                            id="openingReasonInput"
-                            placeholder="e.g. Morning preparation baseline"
-                            maxlength="250"
-                        >
                     </div>
                 </div>
 
-                <div class="modal-footer border-0 pt-0 pb-4 px-4 d-flex justify-content-between">
-                    <button type="button" class="btn btn-sm btn-light border px-3 rounded-pill" data-bs-dismiss="modal">
+                {{-- Footer: Cancel on right, Save Opening Stock beside it --}}
+                <div class="ref-modal-footer">
+                    <button type="button" class="ref-modal-cancel-btn" data-bs-dismiss="modal">
                         Cancel
                     </button>
-                    <button type="submit" class="btn btn-sm btn-purple px-4 rounded-pill fw-semibold shadow-sm text-white" id="saveOpeningBtn">
-                        <i class="bi bi-check2-circle me-1"></i>Save Opening Stock
+                    <button type="submit" class="ref-modal-submit-btn" id="saveOpeningBtn">
+                        Save Opening Stock
                     </button>
                 </div>
             </form>
@@ -272,75 +249,56 @@
 
 {{-- MODAL 2: STOCK ADDED POPUP (Section 7.1) --}}
 <div class="modal fade" id="stockInModal" tabindex="-1" aria-labelledby="stockInModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content border-0 shadow rounded-4">
-            <div class="modal-header border-0 pb-0 pt-4 px-4">
-                <div class="d-flex align-items-center gap-2">
-                    <span class="dashcart-icon-circle bg-emerald-subtle text-emerald" style="width: 38px; height: 38px; font-size: 1.1rem;">
-                        <i class="bi bi-box-arrow-in-down"></i>
-                    </span>
-                    <div>
-                        <h5 class="modal-title fw-bold text-dark mb-0 fs-6" id="stockInModalLabel">
-                            Add Prepared Dish Stock
-                        </h5>
-                        <span class="text-secondary small" style="font-size: 0.75rem;">Enter freshly prepared quantity (Section 7.1)</span>
-                    </div>
-                </div>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+    <div class="modal-dialog modal-dialog-centered ref-modal-dialog">
+        <div class="modal-content ref-modal-content">
+            {{-- Header: Title (Left) + Circular Close (Right) --}}
+            <div class="ref-modal-header mb-3">
+                <h5 class="ref-modal-title" id="stockInModalLabel">Add Prepared Dish Stock</h5>
+                <button type="button" class="ref-modal-close-btn" data-bs-dismiss="modal" aria-label="Close">
+                    <i class="bi bi-x-lg"></i>
+                </button>
             </div>
 
             <form id="stockInForm" onsubmit="handleStockInSubmit(event)">
                 <input type="hidden" id="stockInDishId" value="">
+                <input type="hidden" id="stockInReasonInput" value="">
 
-                <div class="modal-body p-4">
-                    <div class="alert alert-light border small mb-3 p-2.5 rounded-3">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <span class="text-secondary">Prepared Dish:</span>
-                            <span class="fw-bold text-dark" id="stockInDishName">—</span>
+                <div class="modal-body p-0">
+                    {{-- 2-Column Grid: Prepared Dish & Quantity to Add Only --}}
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="ref-form-label">Prepared Dish</label>
+                            <div class="ref-form-control bg-light border-0 fw-bold text-dark text-truncate" id="stockInDishName">—</div>
                         </div>
-                    </div>
 
-                    <div class="mb-3">
-                        <label class="form-label small fw-semibold text-dark mb-1">
-                            Quantity to Add <span class="text-danger">*</span>
-                        </label>
-                        <div class="input-group">
-                            <input
-                                type="number"
-                                class="form-control fw-bold fs-5 text-center"
-                                id="stockInQuantityInput"
-                                min="1"
-                                max="99999"
-                                placeholder="e.g. 30"
-                                required
-                            >
-                            <span class="input-group-text bg-light text-secondary">portions</span>
+                        <div class="col-md-6">
+                            <label class="ref-form-label">
+                                Quantity to Add <span class="text-danger">*</span>
+                            </label>
+                            <div class="input-group">
+                                <input
+                                    type="number"
+                                    class="form-control ref-form-control fw-bold"
+                                    id="stockInQuantityInput"
+                                    min="1"
+                                    max="99999"
+                                    placeholder="e.g. 30"
+                                    required
+                                    style="border-top-right-radius: 0 !important; border-bottom-right-radius: 0 !important;"
+                                >
+                                <span class="input-group-text bg-light text-secondary small px-3" style="border-radius: 0 10px 10px 0; border: 1px solid #e2e8f0; border-left: none;">portions</span>
+                            </div>
                         </div>
-                        <span class="text-secondary small mt-1 d-block" style="font-size: 0.72rem;">
-                            Enter the prepared dish quantity ready to be served.
-                        </span>
-                    </div>
-
-                    <div class="mb-2">
-                        <label class="form-label small fw-semibold text-dark mb-1">
-                            Batch Note (Optional)
-                        </label>
-                        <input
-                            type="text"
-                            class="form-control form-control-sm"
-                            id="stockInReasonInput"
-                            placeholder="e.g. Fresh lunch batch"
-                            maxlength="250"
-                        >
                     </div>
                 </div>
 
-                <div class="modal-footer border-0 pt-0 pb-4 px-4 d-flex justify-content-between">
-                    <button type="button" class="btn btn-sm btn-light border px-3 rounded-pill" data-bs-dismiss="modal">
+                {{-- Footer: Cancel on right, Add Stock beside it --}}
+                <div class="ref-modal-footer">
+                    <button type="button" class="ref-modal-cancel-btn" data-bs-dismiss="modal">
                         Cancel
                     </button>
-                    <button type="submit" class="btn btn-sm btn-dark px-4 rounded-pill fw-semibold shadow-sm text-white" id="saveStockInBtn">
-                        <i class="bi bi-plus-lg me-1"></i>Add Stock
+                    <button type="submit" class="ref-modal-submit-btn" id="saveStockInBtn">
+                        Add Stock
                     </button>
                 </div>
             </form>
@@ -530,7 +488,7 @@
     color: #b54708;
 }
 
-/* Prodex Action Buttons */
+/* Prodex Action Buttons (Medium Sized, Single Line, Balanced) */
 .prodex-icon-btn {
     width: 30px;
     height: 30px;
@@ -538,36 +496,45 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border: none;
-    background: transparent;
-    color: #667085;
+    border: 1px solid #e2e8f0;
+    background: #ffffff;
+    color: #475569;
     cursor: pointer;
     transition: all 0.15s ease;
-    font-size: 0.85rem;
+    font-size: 0.8rem;
+    flex-shrink: 0;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
 }
 
 .prodex-icon-btn:hover {
-    background-color: #f2f4f7;
-    color: #101828;
+    background-color: #fef2f2;
+    border-color: #fca5a5;
+    color: var(--theme-primary, #dc2626);
 }
 
 .prodex-btn-add-stock {
+    height: 30px;
     display: inline-flex;
     align-items: center;
-    padding: 4px 11px;
-    border-radius: 9999px;
-    font-size: 0.75rem;
-    font-weight: 500;
-    background-color: #101828;
+    justify-content: center;
+    gap: 4px;
+    padding: 0 12px;
+    border-radius: 6px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    white-space: nowrap;
+    background-color: var(--theme-primary, #dc2626);
     color: #ffffff;
-    border: none;
-    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
+    border: 1px solid var(--theme-primary, #dc2626);
+    box-shadow: 0 1px 2px rgba(220, 38, 38, 0.15);
     cursor: pointer;
     transition: all 0.15s ease;
+    flex-shrink: 0;
 }
 
 .prodex-btn-add-stock:hover {
-    background-color: #1e293b;
+    background-color: var(--theme-primary-hover, #b91c1c);
+    border-color: var(--theme-primary-hover, #b91c1c);
     color: #ffffff;
 }
 

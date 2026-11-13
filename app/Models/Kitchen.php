@@ -17,6 +17,7 @@ class Kitchen extends Model
         'branch_id',
         'name',
         'code',
+        'kitchen_type',
         'description',
         'is_active',
         'display_token_hash',
