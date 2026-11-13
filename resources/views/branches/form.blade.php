@@ -8,7 +8,7 @@
     <label class="form-label" for="code">Branch code</label>
     <input class="form-control" id="code" name="code" value="{{ old('code', $branch?->code) }}" required>
 </div>
-<div class="mb-3">
+<div class="mb-3 d-none">
     <label class="form-label" for="email">Email</label>
     <input class="form-control" id="email" type="email" name="email" value="{{ old('email', $branch?->email) }}">
 </div>
