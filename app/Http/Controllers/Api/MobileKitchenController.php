@@ -419,16 +419,19 @@ class MobileKitchenController extends Controller
 
     private function userPayload(User $user): array
     {
-        $user->loadMissing(['company:id,name,code', 'branch:id,company_id,name,code']);
+        $user->loadMissing(['company:id,name,code,gst_number', 'branch:id,company_id,name,code']);
 
         return [
             'id' => $user->id,
             'name' => $user->name,
+            'employee_code' => $user->employee_code,
+            'designation' => $user->designation,
             'email' => $user->email,
             'company' => [
                 'id' => $user->company->id,
                 'name' => $user->company->name,
                 'code' => $user->company->code,
+                'gst_number' => $user->company->gst_number,
             ],
             'branch' => [
                 'id' => $user->branch->id,

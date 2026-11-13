@@ -54,7 +54,7 @@ class UserController extends Controller
             });
         }
 
-        $this->applySearch($users, $request, ['name', 'email', 'phone']);
+        $this->applySearch($users, $request, ['name', 'email', 'phone', 'employee_code', 'designation']);
         $this->applyStatus($users, $request);
 
         $users = $users->latest()->paginate(10)->withQueryString();
@@ -101,6 +101,8 @@ class UserController extends Controller
 
         $user = User::create([
             'name' => $validated['name'],
+            'employee_code' => $validated['employee_code'] ?? null,
+            'designation' => $validated['designation'] ?? null,
             'email' => $validated['email'],
             'phone' => $validated['phone'] ?? null,
             'password' => $validated['password'],
@@ -156,6 +158,8 @@ class UserController extends Controller
 
         $payload = [
             'name' => $validated['name'],
+            'employee_code' => $validated['employee_code'] ?? null,
+            'designation' => $validated['designation'] ?? null,
             'email' => $validated['email'],
             'phone' => $validated['phone'] ?? null,
             'company_id' => $validated['company_id'] ?? null,
@@ -236,6 +240,13 @@ class UserController extends Controller
 
         return $request->validate([
             'name' => ['required', 'string', 'max:255'],
+            'employee_code' => [
+                'nullable',
+                'string',
+                'max:50',
+                $isCreate ? 'unique:users,employee_code' : Rule::unique('users', 'employee_code')->ignore($user?->id),
+            ],
+            'designation' => ['nullable', 'string', 'max:100'],
             'email' => [
                 'required',
                 'string',

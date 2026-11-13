@@ -16,7 +16,7 @@ class CompanyController extends Controller
     public function index(Request $request): View
     {
         $companies = $this->applyCompanyScope(Company::query(), 'id');
-        $this->applySearch($companies, $request, ['name', 'code', 'email', 'phone']);
+        $this->applySearch($companies, $request, ['name', 'code', 'email', 'phone', 'gst_number']);
         $this->applyStatus($companies, $request);
 
         $companies = $companies->latest()->paginate(10)->withQueryString();
@@ -82,7 +82,7 @@ class CompanyController extends Controller
 
     private function validateCompany(Request $request, ?Company $company = null): array
     {
-        return $request->validate([
+        $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'code' => [
                 'required',
@@ -93,8 +93,18 @@ class CompanyController extends Controller
             ],
             'email' => ['nullable', 'email', 'max:255'],
             'phone' => ['nullable', 'string', 'max:20'],
+            'gst_number' => ['nullable', 'string', 'max:20'],
             'address' => ['nullable', 'string'],
             'is_active' => ['required', 'boolean'],
         ]);
+
+        if (array_key_exists('gst_number', $validated)) {
+            $validated['gst_number'] = $validated['gst_number'] !== null ? strtoupper(trim((string) $validated['gst_number'])) : null;
+            if ($validated['gst_number'] === '') {
+                $validated['gst_number'] = null;
+            }
+        }
+
+        return $validated;
     }
 }

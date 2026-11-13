@@ -194,7 +194,65 @@
     </div>
 </div>
 
+{{-- 4. Set Opening Stock Modal (Requirement 7.1) --}}
+<div class="modal fade" id="openingStockModal" tabindex="-1" aria-labelledby="openingStockModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 18px;">
+            <form id="openingStockForm" method="POST" action="">
+                @csrf
+                <div class="modal-header border-bottom py-3 px-4" style="border-color: #f1f5f9 !important;">
+                    <div class="d-flex align-items-center gap-2.5">
+                        <div class="dashcart-icon-circle" style="background-color: #f3e8ff; color: #7c3aed;">
+                            <i class="bi bi-sunrise"></i>
+                        </div>
+                        <div>
+                            <h5 class="modal-title fw-bold text-dark mb-0" id="openingStockModalLabel" style="font-size: 1.05rem;">
+                                Set Opening Stock Baseline
+                            </h5>
+                            <span class="text-secondary small" id="openingDishName" style="font-size: 0.78rem;"></span>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold text-dark mb-1">Opening Stock Quantity <span class="text-danger">*</span></label>
+                        <div class="input-group input-group-sm">
+                            <input type="number" name="quantity" id="openingQuantityInput" class="form-control" min="0" max="99999" placeholder="e.g. 20" required>
+                            <span class="input-group-text bg-light text-secondary">portions</span>
+                        </div>
+                        <span class="text-secondary small mt-1 d-block" style="font-size: 0.75rem;">
+                            Sets the opening baseline portion count before service starts (Section 7.1).
+                        </span>
+                    </div>
+
+                    <div class="mb-1">
+                        <label class="form-label small fw-semibold text-dark mb-1">Reason / Note (Optional)</label>
+                        <input type="text" name="reason" id="openingReasonInput" class="form-control form-control-sm" placeholder="e.g. Morning kitchen baseline">
+                    </div>
+                </div>
+
+                <div class="modal-footer border-top py-2.5 px-4" style="border-color: #f1f5f9 !important; background-color: #fafaf9;">
+                    <button type="button" class="btn btn-sm btn-light border px-3 rounded-pill" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-sm text-white px-4 rounded-pill fw-semibold shadow-sm" style="background-color: #7c3aed; border-color: #7c3aed;">
+                        <i class="bi bi-check-circle me-1"></i>Save Baseline
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <script>
+window.openOpeningStockModal = function(id, name, currentOpening) {
+    const form = document.getElementById('openingStockForm');
+    form.action = `/stock/${id}/opening-stock`;
+    document.getElementById('openingDishName').textContent = name;
+    document.getElementById('openingQuantityInput').value = currentOpening !== null ? currentOpening : '';
+    new bootstrap.Modal(document.getElementById('openingStockModal')).show();
+};
+
 // Handle adjust type direction toggle
 function handleAdjustTypeChange(val) {
     const dirContainer = document.getElementById('adjustDirectionContainer');
