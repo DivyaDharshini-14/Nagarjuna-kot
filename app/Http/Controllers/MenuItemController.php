@@ -47,7 +47,15 @@ class MenuItemController extends Controller
             $validated['image'] = $request->file('image')->store('menu-items', 'public');
         }
 
-        if (! empty($validated['stock_tracking_enabled'])) {
+        if (! $request->has('prepared_stock_quantity')) {
+            $validated['prepared_stock_quantity'] = null;
+        }
+
+        if (! $request->has('availability')) {
+            $validated['availability'] = 'available';
+        }
+
+        if (! empty($validated['stock_tracking_enabled']) && $request->filled('stock_adjustment_reason')) {
             $request->validate(['stock_adjustment_reason' => ['required', 'string', 'min:3', 'max:500']]);
         }
         $createdItem = DB::transaction(function () use ($validated, $request): MenuItem {
@@ -63,7 +71,7 @@ class MenuItemController extends Controller
                     'quantity_delta' => $menuItem->prepared_stock_quantity,
                     'stock_before' => 0,
                     'stock_after' => $menuItem->prepared_stock_quantity,
-                    'reason' => trim($request->input('stock_adjustment_reason')),
+                    'reason' => trim($request->input('stock_adjustment_reason') ?? 'Initial menu item creation'),
                 ]);
             }
             return $menuItem;
@@ -112,18 +120,29 @@ class MenuItemController extends Controller
             unset($validated['image']);
         }
 
+        if (! $request->has('prepared_stock_quantity')) {
+            unset($validated['prepared_stock_quantity']);
+        }
+
+        if (! $request->has('availability')) {
+            unset($validated['availability']);
+        }
+
         $previousStock = $menuItem->prepared_stock_quantity;
         $previousTrackingEnabled = (bool) $menuItem->stock_tracking_enabled;
         $trackingEnabled = ! empty($validated['stock_tracking_enabled']);
         $previousAvailability = $menuItem->availability;
-        $availabilityChanged = $previousAvailability !== $validated['availability'];
+        $availabilityChanged = array_key_exists('availability', $validated) && $previousAvailability !== $validated['availability'];
         $stockChanged =
             $trackingEnabled
+            && array_key_exists('prepared_stock_quantity', $validated)
             && (! $previousTrackingEnabled || $previousStock === null || (int) $previousStock !== (int) ($validated['prepared_stock_quantity'] ?? 0));
-        if ($stockChanged || $availabilityChanged) {
+        if (($stockChanged || $availabilityChanged) && $request->filled('stock_adjustment_reason')) {
             $request->validate(['stock_adjustment_reason' => ['required', 'string', 'min:3', 'max:500']]);
         }
-        DB::transaction(function () use ($menuItem, $validated, $request, $previousStock, $previousTrackingEnabled, $stockChanged, $availabilityChanged, $previousAvailability): void {
+        $adjustmentReason = trim($request->input('stock_adjustment_reason') ?? 'Updated via menu item form');
+
+        DB::transaction(function () use ($menuItem, $validated, $request, $previousStock, $previousTrackingEnabled, $stockChanged, $availabilityChanged, $previousAvailability, $adjustmentReason): void {
             $menuItem->update($validated);
             if ($stockChanged && $menuItem->prepared_stock_quantity !== null) {
                 $isOpeningStock = ! $previousTrackingEnabled || $previousStock === null;
@@ -139,7 +158,7 @@ class MenuItemController extends Controller
                     'quantity_delta' => $after - $before,
                     'stock_before' => $before,
                     'stock_after' => $after,
-                    'reason' => trim($request->input('stock_adjustment_reason')),
+                    'reason' => $adjustmentReason,
                 ]);
             }
             if ($availabilityChanged) {
@@ -154,7 +173,7 @@ class MenuItemController extends Controller
                     'quantity_delta' => 0,
                     'stock_before' => $stock,
                     'stock_after' => $stock,
-                    'reason' => trim($request->input('stock_adjustment_reason')).' ('.$previousAvailability.' → '.$menuItem->availability.')',
+                    'reason' => $adjustmentReason.' ('.$previousAvailability.' → '.$menuItem->availability.')',
                 ]);
             }
         });
@@ -273,8 +292,8 @@ class MenuItemController extends Controller
             'preparation_instructions' => ['nullable', 'string'],
             'display_order' => ['required', 'integer', 'min:0', 'max:9999'],
             'stock_tracking_enabled' => ['required', 'boolean'],
-            'prepared_stock_quantity' => ['required_if:stock_tracking_enabled,1', 'nullable', 'integer', 'min:0', 'max:999999'],
-            'availability' => ['required', Rule::in(array_keys($this->availabilities()))],
+            'prepared_stock_quantity' => ['nullable', 'integer', 'min:0', 'max:999999'],
+            'availability' => ['nullable', Rule::in(array_keys($this->availabilities()))],
             'is_active' => ['required', 'boolean'],
         ], [
             'menu_type_id.exists' => 'The selected menu type is invalid or inactive for this company.',
