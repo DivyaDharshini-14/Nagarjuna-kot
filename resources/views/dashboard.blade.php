@@ -37,6 +37,26 @@
         </div>
     </div>
 
+    {{-- Filter Bar (Exact Match: Date, Company, Branch, Kitchen, Orange Refresh Button) --}}
+    <div class="filter-bar-card mb-4">
+        <form method="GET" action="{{ route('dashboard') }}" id="dashboardFilters">
+            <div class="row g-2 align-items-center">
+                {{-- Date Input / Selector --}}
+                <div class="col-12 col-sm-6 col-lg-3">
+                    <div class="input-group input-group-clean">
+                        <span class="input-group-text bg-white border-end-0 text-muted ps-3">
+                            <i class="bi bi-calendar3 text-dark"></i>
+                        </span>
+                        <input
+                            type="date"
+                            name="date"
+                            id="dashboard_date"
+                            class="form-control border-start-0 ps-1"
+                            value="{{ $date ?? now()->toDateString() }}"
+                            onchange="this.form.submit()"
+                        >
+                    </div>
+                </div>
     {{-- Hidden form for background real-time sync (No UI filter controls) --}}
     <form id="dashboardFilters" method="GET" action="{{ route('dashboard') }}" class="d-none">
         <input type="hidden" name="format" value="json">
