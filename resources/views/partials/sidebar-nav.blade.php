@@ -149,6 +149,33 @@
             @endforeach
         @endif
 
+        {{-- Reports Section (Positioned directly below Masters module as requested) --}}
+        @if(auth()->user()->hasPermission('order.view') || auth()->user()->hasPermission('kot.view') || auth()->user()->isAdmin())
+            <li class="sidebar-heading mt-3">Reports</li>
+            @if(auth()->user()->hasPermission('order.view') || auth()->user()->isAdmin())
+                <li class="nav-item">
+                    <a class="nav-link {{ request()->routeIs('reports.orders*') ? 'active' : '' }}" href="{{ route('reports.orders') }}">
+                        <i class="bi bi-file-earmark-bar-graph"></i>
+                        <span>Order Report</span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link {{ request()->routeIs('reports.menu-items*') ? 'active' : '' }}" href="{{ route('reports.menu-items') }}">
+                        <i class="bi bi-card-checklist"></i>
+                        <span>Menu Items Report</span>
+                    </a>
+                </li>
+            @endif
+            @if(auth()->user()->hasPermission('kot.view') || auth()->user()->isAdmin())
+                <li class="nav-item">
+                    <a class="nav-link {{ request()->routeIs('reports.kots*') ? 'active' : '' }}" href="{{ route('reports.kots') }}">
+                        <i class="bi bi-receipt-cutoff"></i>
+                        <span>KOT Report</span>
+                    </a>
+                </li>
+            @endif
+        @endif
+
         {{-- Users & Access Section (Matching Reference: Users & Access) --}}
         @if(auth()->user()->isAdmin())
             <li class="sidebar-heading mt-3">Users &amp; Access</li>
