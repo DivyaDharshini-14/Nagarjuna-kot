@@ -12,7 +12,7 @@
 
     <form method="GET" class="row g-2 mb-3">
         <div class="col-md-3">
-            <input type="search" name="search" value="{{ request('search') }}" class="form-control" placeholder="Search name, email, phone">
+            <input type="search" name="search" value="{{ request('search') }}" class="form-control" placeholder="Search name, code, designation, email...">
         </div>
         <div class="col-md-2">
             <select name="role" class="form-select">
@@ -40,7 +40,9 @@
             <table class="table table-striped table-hover mb-0 align-middle">
                 <thead class="table-light">
                     <tr>
-                        <th>Name</th>
+                        <th>User</th>
+                        <th>Emp Code</th>
+                        <th>Designation</th>
                         <th>Email & Phone</th>
                         <th>Company / Branch</th>
                         <th>Roles</th>
@@ -56,6 +58,16 @@
                                 @if($user->id === auth()->id())
                                     <span class="badge bg-info text-dark ms-1">You</span>
                                 @endif
+                            </td>
+                            <td>
+                                @if($user->employee_code)
+                                    <span class="badge bg-light text-dark border font-monospace">{{ $user->employee_code }}</span>
+                                @else
+                                    <span class="text-muted">—</span>
+                                @endif
+                            </td>
+                            <td>
+                                <span>{{ $user->designation ?? '—' }}</span>
                             </td>
                             <td>
                                 <div>{{ $user->email }}</div>
@@ -88,7 +100,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="6" class="text-center text-muted py-4">No users found.</td>
+                            <td colspan="8" class="text-center text-muted py-4">No users found.</td>
                         </tr>
                     @endforelse
                 </tbody>

@@ -88,7 +88,7 @@ class MobileAuthController extends Controller
     private function userPayload(User $user): array
     {
         $user->loadMissing([
-            'company:id,name,code',
+            'company:id,name,code,gst_number',
             'branch:id,company_id,name,code',
         ]);
 
@@ -113,6 +113,8 @@ class MobileAuthController extends Controller
         return [
             'id' => $user->id,
             'name' => $user->name,
+            'employee_code' => $user->employee_code,
+            'designation' => $user->designation,
             'email' => $user->email,
             'phone' => $user->phone,
             'roles' => $roles,
@@ -121,6 +123,7 @@ class MobileAuthController extends Controller
                 'id' => $user->company->id,
                 'name' => $user->company->name,
                 'code' => $user->company->code,
+                'gst_number' => $user->company->gst_number,
             ] : null,
             'branch' => $user->branch ? [
                 'id' => $user->branch->id,

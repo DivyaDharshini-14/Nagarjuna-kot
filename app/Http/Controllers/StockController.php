@@ -208,85 +208,12 @@ class StockController extends Controller
 
     public function index(Request $request): View
     {
-        return $this->overview($request);
+        return $this->stockInView($request);
     }
 
     public function overview(Request $request): View
     {
-        $ctx = $this->resolveStockContext($request);
-        $query = $this->buildMenuItemBaseQuery($ctx);
-
-        // Filters specific to Overview
-        $selectedAvailability = $request->input('availability');
-        $selectedStockStatus = $request->input('stock_status');
-
-        if ($selectedAvailability && in_array($selectedAvailability, ['available', 'temporarily_unavailable', 'sold_out'], true)) {
-            $query->where('availability', $selectedAvailability);
-        }
-
-        if ($selectedStockStatus) {
-            switch ($selectedStockStatus) {
-                case 'in_stock':
-                    $query->where('stock_tracking_enabled', true)->where('prepared_stock_quantity', '>', 5);
-                    break;
-                case 'low_stock':
-                    $query->where('stock_tracking_enabled', true)
-                        ->where('prepared_stock_quantity', '<=', 5)
-                        ->where('prepared_stock_quantity', '>', 0);
-                    break;
-                case 'out_of_stock':
-                    $query->where('stock_tracking_enabled', true)
-                        ->where(function ($q) {
-                            $q->whereNull('prepared_stock_quantity')->orWhere('prepared_stock_quantity', '<=', 0);
-                        });
-                    break;
-                case 'tracked':
-                    $query->where('stock_tracking_enabled', true);
-                    break;
-                case 'untracked':
-                    $query->where('stock_tracking_enabled', false);
-                    break;
-            }
-        }
-
-        $summary = $this->computeStockSummary($this->buildMenuItemBaseQuery($ctx));
-        $items = $query->orderBy('name')->paginate(15)->withQueryString();
-        $itemIds = $items->pluck('id')->all();
-
-        // 1. Fetch Today's Stock Added (Stock In) for each dish
-        $todayStockIn = StockTransaction::query()
-            ->whereDate('created_at', Carbon::today())
-            ->where('transaction_type', 'stock_in')
-            ->whereIn('menu_item_id', $itemIds)
-            ->groupBy('menu_item_id')
-            ->selectRaw('menu_item_id, SUM(quantity) as total_added')
-            ->pluck('total_added', 'menu_item_id');
-
-        // 2. Fetch Opening Stock for each dish
-        $todayOpeningStock = StockTransaction::query()
-            ->whereDate('created_at', Carbon::today())
-            ->where('transaction_type', 'opening_stock')
-            ->whereIn('menu_item_id', $itemIds)
-            ->pluck('quantity', 'menu_item_id');
-
-        $latestHistoricalOpening = StockTransaction::query()
-            ->where('transaction_type', 'opening_stock')
-            ->whereIn('menu_item_id', $itemIds)
-            ->latest('id')
-            ->get()
-            ->unique('menu_item_id')
-            ->pluck('quantity', 'menu_item_id');
-
-        return view('stock.overview', array_merge($ctx, [
-            'items' => $items,
-            'todayStockIn' => $todayStockIn,
-            'todayOpeningStock' => $todayOpeningStock,
-            'latestHistoricalOpening' => $latestHistoricalOpening,
-            'summary' => $summary,
-            'selectedAvailability' => $selectedAvailability,
-            'selectedStockStatus' => $selectedStockStatus,
-            'activeSubmodule' => 'overview',
-        ]));
+        return $this->stockInView($request);
     }
 
     // =========================================================================
@@ -897,6 +824,13 @@ class StockController extends Controller
         abort_unless($user->hasPermission('menu-item.stock-adjustment'), 403, 'You do not have permission to adjust stock.');
         $this->authorizeMenuItemAccess($user, $menuItem);
 
+        if ($request->input('type') === 'reduce_stock') {
+            $request->merge([
+                'type' => 'manual_adjustment',
+                'direction' => 'decrease',
+            ]);
+        }
+
         $validated = $request->validate([
             'type' => ['required', 'string', 'in:stock_in,wastage,damaged,manual_adjustment'],
             'quantity' => ['required', 'integer', 'min:1', 'max:999999'],
@@ -906,7 +840,7 @@ class StockController extends Controller
 
         $updatedItem = DB::transaction(function () use ($menuItem, $user, $validated) {
             $locked = MenuItem::query()->whereKey($menuItem->id)->lockForUpdate()->firstOrFail();
-            abort_unless($locked->stock_tracking_enabled, 422, 'Prepared stock tracking must be enabled for this dish first.');
+            $locked->stock_tracking_enabled = true;
 
             $wasConfigured = $locked->prepared_stock_quantity !== null;
             $before = (int) ($locked->prepared_stock_quantity ?? 0);

@@ -27,6 +27,7 @@ class UserSeeder extends Seeder
                 'address' => 'Residency Road, Bangalore',
                 'phone' => '080-25555555',
                 'email' => 'contact@nagarjuna.com',
+                'gst_number' => '29AAAAA0000A1Z5',
                 'is_active' => true,
             ]
         );
@@ -53,6 +54,8 @@ class UserSeeder extends Seeder
             ['email' => 'nagarjuna.admin@gmail.com'],
             [
                 'name' => 'System Admin',
+                'employee_code' => 'EMP-001',
+                'designation' => 'System Administrator',
                 'password' => Hash::make('password123'),
                 'phone' => '9876543210',
                 'company_id' => null,
@@ -72,6 +75,8 @@ class UserSeeder extends Seeder
             ['email' => 'admin@nagarjuna.com'],
             [
                 'name' => 'System Admin',
+                'employee_code' => 'EMP-001W',
+                'designation' => 'System Administrator',
                 'password' => Hash::make('password123'),
                 'phone' => '9876543210',
                 'company_id' => null,
@@ -88,6 +93,8 @@ class UserSeeder extends Seeder
             ['email' => 'nagarjuna.manager@gmail.com'],
             [
                 'name' => 'Branch Manager',
+                'employee_code' => 'EMP-002',
+                'designation' => 'Restaurant Branch Manager',
                 'password' => Hash::make('password123'),
                 'phone' => '9876543211',
                 'company_id' => $company->id,
@@ -103,6 +110,8 @@ class UserSeeder extends Seeder
             ['email' => 'manager@nagarjuna.com'],
             [
                 'name' => 'Branch Manager',
+                'employee_code' => 'EMP-002W',
+                'designation' => 'Restaurant Branch Manager',
                 'password' => Hash::make('password123'),
                 'phone' => '9876543211',
                 'company_id' => $company->id,
@@ -119,6 +128,8 @@ class UserSeeder extends Seeder
             ['email' => 'nagarjuna.waiter@gmail.com'],
             [
                 'name' => 'Ramesh Waiter',
+                'employee_code' => 'EMP-003',
+                'designation' => 'Senior Captain / Waiter',
                 'password' => Hash::make('password123'),
                 'phone' => '9876543212',
                 'company_id' => $company->id,
@@ -134,6 +145,8 @@ class UserSeeder extends Seeder
             ['email' => 'waiter@nagarjuna.com'],
             [
                 'name' => 'Ramesh Waiter',
+                'employee_code' => 'EMP-003W',
+                'designation' => 'Senior Captain / Waiter',
                 'password' => Hash::make('password123'),
                 'phone' => '9876543212',
                 'company_id' => $company->id,
@@ -151,6 +164,8 @@ class UserSeeder extends Seeder
             ['email' => 'nagarjuna.kitchen@gmail.com'],
             [
                 'name' => 'Biryani Chef Suresh',
+                'employee_code' => 'EMP-004',
+                'designation' => 'Executive Kitchen Chef',
                 'password' => Hash::make('password123'),
                 'phone' => '9876543213',
                 'company_id' => $company->id,
@@ -166,6 +181,8 @@ class UserSeeder extends Seeder
             ['email' => 'kitchen@nagarjuna.com'],
             [
                 'name' => 'Kitchen Staff Indiranagar',
+                'employee_code' => 'EMP-004W',
+                'designation' => 'Kitchen Staff / Cook',
                 'password' => Hash::make('password123'),
                 'phone' => '9876543213',
                 'company_id' => $company->id,

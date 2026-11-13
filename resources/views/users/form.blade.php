@@ -13,6 +13,23 @@
     @enderror
 </div>
 
+<div class="row g-3 mb-3">
+    <div class="col-md-6">
+        <label class="form-label" for="employee_code">Employee Code</label>
+        <input class="form-control font-monospace @error('employee_code') is-invalid @enderror" id="employee_code" name="employee_code" value="{{ old('employee_code', $user?->employee_code) }}" placeholder="e.g. EMP-101">
+        @error('employee_code')
+            <div class="invalid-feedback">{{ $message }}</div>
+        @enderror
+    </div>
+    <div class="col-md-6">
+        <label class="form-label" for="designation">Designation</label>
+        <input class="form-control @error('designation') is-invalid @enderror" id="designation" name="designation" value="{{ old('designation', $user?->designation) }}" placeholder="e.g. Head Chef / Captain / Waiter">
+        @error('designation')
+            <div class="invalid-feedback">{{ $message }}</div>
+        @enderror
+    </div>
+</div>
+
 <div class="mb-3">
     <label class="form-label" for="email">Email Address <span class="text-danger">*</span></label>
     <input class="form-control @error('email') is-invalid @enderror" id="email" type="email" name="email" value="{{ old('email', $user?->email) }}" required>

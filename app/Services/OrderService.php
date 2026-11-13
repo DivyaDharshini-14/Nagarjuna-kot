@@ -16,6 +16,7 @@ use App\Models\OrderItem;
 use App\Models\RestaurantTable;
 use App\Models\StockTransaction;
 use App\Models\User;
+use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -450,7 +451,7 @@ class OrderService
         $tickets = collect();
 
         foreach ($itemsByKitchen as $kitchenId => $items) {
-            $kotNumber = $this->generateKotNumber((int) $kitchenId);
+            $kotNumber = $this->generateKotNumber((int) $kitchenId, (int) $order->branch_id);
 
             $ticket = KotTicket::create([
                 'kot_number' => $kotNumber,
@@ -1114,34 +1115,49 @@ class OrderService
         return $candidate;
     }
 
-    protected function generateKotNumber(int $kitchenId): string
+    protected function generateKotNumber(int $kitchenId, ?int $branchId = null): string
     {
-        $prefix = sprintf('K%d-', $kitchenId);
+        $today = Carbon::today();
 
-        $latestTicket = KotTicket::withTrashed()
-            ->where('kitchen_id', $kitchenId)
-            ->where('kot_number', 'like', $prefix.'%')
-            ->orderByDesc('id')
-            ->first();
+        $query = KotTicket::withTrashed()
+            ->whereDate('created_at', $today)
+            ->where('kot_number', 'like', 'KOT-%');
 
-        $nextNumber = 1;
-        if ($latestTicket && preg_match('/^K\d+-(\d+)$/', $latestTicket->kot_number, $matches)) {
-            $nextNumber = ((int) $matches[1]) + 1;
-        } else {
-            $count = KotTicket::withTrashed()
-                ->where('kitchen_id', $kitchenId)
-                ->where('kot_number', 'like', $prefix.'%')
-                ->count();
-            $nextNumber = max($nextNumber, $count + 1);
+        if ($branchId) {
+            $query->where('branch_id', $branchId);
         }
 
-        do {
-            $candidate = sprintf('%s%04d', $prefix, $nextNumber);
-            $exists = KotTicket::withTrashed()->where('kot_number', $candidate)->exists();
-            if ($exists) {
-                $nextNumber++;
+        $todayTickets = $query->get(['kot_number']);
+
+        $maxNumber = 0;
+        foreach ($todayTickets as $ticket) {
+            if (preg_match('/^KOT-(\d+)$/', (string) $ticket->kot_number, $matches)) {
+                $num = (int) $matches[1];
+                if ($num > $maxNumber) {
+                    $maxNumber = $num;
+                }
             }
-        } while ($exists);
+        }
+
+        $nextNumber = $maxNumber + 1;
+
+        do {
+            $candidate = sprintf('KOT-%d', $nextNumber);
+
+            $collisionQuery = KotTicket::withTrashed()
+                ->whereDate('created_at', $today)
+                ->where('kot_number', $candidate);
+
+            if ($branchId) {
+                $collisionQuery->where('branch_id', $branchId);
+            }
+
+            if ($collisionQuery->exists()) {
+                $nextNumber++;
+            } else {
+                break;
+            }
+        } while (true);
 
         return $candidate;
     }

@@ -15,6 +15,7 @@ class Company extends Model
         'code',
         'email',
         'phone',
+        'gst_number',
         'address',
         'is_active',
     ];
