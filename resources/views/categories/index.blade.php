@@ -10,6 +10,12 @@
         'createLabel' => 'Add category'
     ])
 
+    @php
+        $canEdit = auth()->user()->hasPermission('category.edit');
+        $canDelete = auth()->user()->hasPermission('category.delete');
+        $canAction = $canEdit || $canDelete;
+    @endphp
+
     <div class="card tabletop-card border-0 shadow-sm mb-4">
         <div class="table-responsive">
             <table class="table tabletop-table align-middle mb-0">
@@ -19,7 +25,9 @@
                         <th>CODE</th>
                         <th>ORDER</th>
                         <th class="text-center">STATUS</th>
-                        <th class="text-end pe-4" style="width: 80px;">ACTIONS</th>
+                        @if($canAction)
+                            <th class="text-end pe-4" style="width: 80px;">ACTIONS</th>
+                        @endif
                     </tr>
                 </thead>
                 <tbody>
@@ -33,46 +41,48 @@
                             <td class="text-center">
                                 @include('partials.status', ['active' => $category->is_active])
                             </td>
-                            <td class="text-end pe-4">
-                                <div class="dropdown">
-                                    <button
-                                        type="button"
-                                        class="action-dots-btn"
-                                        data-bs-toggle="dropdown"
-                                        aria-expanded="false"
-                                        data-bs-popper-config='{"strategy":"fixed"}'
-                                        title="Actions"
-                                    >
-                                        <i class="bi bi-three-dots-vertical"></i>
-                                    </button>
-                                    <ul class="dropdown-menu dropdown-menu-end action-dropdown-menu">
-                                        @if(auth()->user()->hasPermission('category.edit'))
-                                            <li>
-                                                <a class="dropdown-item" href="{{ route('categories.edit', $category) }}">
-                                                    <i class="bi bi-pencil text-muted"></i>
-                                                    <span>Edit</span>
-                                                </a>
-                                            </li>
-                                        @endif
-                                        @if(auth()->user()->hasPermission('category.delete'))
-                                            <li>
-                                                <form method="POST" action="{{ route('categories.destroy', $category) }}" class="m-0" onsubmit="return confirm('Delete this category?')">
-                                                    @csrf
-                                                    @method('DELETE')
-                                                    <button type="submit" class="dropdown-item text-danger">
-                                                        <i class="bi bi-trash text-danger"></i>
-                                                        <span>Delete</span>
-                                                    </button>
-                                                </form>
-                                            </li>
-                                        @endif
-                                    </ul>
-                                </div>
-                            </td>
+                            @if($canAction)
+                                <td class="text-end pe-4">
+                                    <div class="dropdown">
+                                        <button
+                                            type="button"
+                                            class="action-dots-btn"
+                                            data-bs-toggle="dropdown"
+                                            aria-expanded="false"
+                                            data-bs-popper-config='{"strategy":"fixed"}'
+                                            title="Actions"
+                                        >
+                                            <i class="bi bi-three-dots-vertical"></i>
+                                        </button>
+                                        <ul class="dropdown-menu dropdown-menu-end action-dropdown-menu">
+                                            @if($canEdit)
+                                                <li>
+                                                    <a class="dropdown-item" href="{{ route('categories.edit', $category) }}">
+                                                        <i class="bi bi-pencil text-muted"></i>
+                                                        <span>Edit</span>
+                                                    </a>
+                                                </li>
+                                            @endif
+                                            @if($canDelete)
+                                                <li>
+                                                    <form method="POST" action="{{ route('categories.destroy', $category) }}" class="m-0" onsubmit="return confirm('Delete this category?')">
+                                                        @csrf
+                                                        @method('DELETE')
+                                                        <button type="submit" class="dropdown-item text-danger">
+                                                            <i class="bi bi-trash text-danger"></i>
+                                                            <span>Delete</span>
+                                                        </button>
+                                                    </form>
+                                                </li>
+                                            @endif
+                                        </ul>
+                                    </div>
+                                </td>
+                            @endif
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="5" class="text-center text-muted py-5">
+                            <td colspan="{{ $canAction ? 5 : 4 }}" class="text-center text-muted py-5">
                                 <i class="bi bi-stack fs-2 d-block mb-2 text-secondary opacity-50"></i>
                                 No categories found.
                             </td>

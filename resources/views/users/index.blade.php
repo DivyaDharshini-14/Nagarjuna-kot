@@ -24,6 +24,12 @@
             @endif
         </div>
 
+        @php
+            $canEdit = auth()->user()->hasPermission('user.edit');
+            $canDelete = auth()->user()->hasPermission('user.delete');
+            $canAction = $canEdit || $canDelete;
+        @endphp
+
         {{-- Table Container --}}
         <div class="table-responsive">
             <table class="table tabletop-table align-middle mb-0">
@@ -38,7 +44,9 @@
                         <th>BRANCH</th>
                         <th>ROLE</th>
                         <th class="text-center">STATUS</th>
-                        <th class="text-end pe-4" style="width: 80px;">ACTIONS</th>
+                        @if($canAction)
+                            <th class="text-end pe-4" style="width: 80px;">ACTIONS</th>
+                        @endif
                     </tr>
                 </thead>
                 <tbody>
@@ -101,46 +109,48 @@
                             </td>
 
                             {{-- 10. Actions (⋮ Dropdown) --}}
-                            <td class="text-end pe-4">
-                                <div class="dropdown">
-                                    <button
-                                        type="button"
-                                        class="action-dots-btn"
-                                        data-bs-toggle="dropdown"
-                                        aria-expanded="false"
-                                        data-bs-popper-config='{"strategy":"fixed"}'
-                                        title="Actions"
-                                    >
-                                        <i class="bi bi-three-dots-vertical"></i>
-                                    </button>
-                                    <ul class="dropdown-menu dropdown-menu-end action-dropdown-menu">
-                                        @if(auth()->user()->hasPermission('user.edit'))
-                                            <li>
-                                                <a class="dropdown-item" href="{{ route('users.edit', $user) }}">
-                                                    <i class="bi bi-pencil text-muted"></i>
-                                                    <span>Edit</span>
-                                                </a>
-                                            </li>
-                                        @endif
-                                        @if($user->id !== auth()->id() && auth()->user()->hasPermission('user.delete'))
-                                            <li>
-                                                <form method="POST" action="{{ route('users.destroy', $user) }}" class="m-0" onsubmit="return confirm('Are you sure you want to delete this user?')">
-                                                    @csrf
-                                                    @method('DELETE')
-                                                    <button type="submit" class="dropdown-item text-danger">
-                                                        <i class="bi bi-trash text-danger"></i>
-                                                        <span>Delete</span>
-                                                    </button>
-                                                </form>
-                                            </li>
-                                        @endif
-                                    </ul>
-                                </div>
-                            </td>
+                            @if($canAction)
+                                <td class="text-end pe-4">
+                                    <div class="dropdown">
+                                        <button
+                                            type="button"
+                                            class="action-dots-btn"
+                                            data-bs-toggle="dropdown"
+                                            aria-expanded="false"
+                                            data-bs-popper-config='{"strategy":"fixed"}'
+                                            title="Actions"
+                                        >
+                                            <i class="bi bi-three-dots-vertical"></i>
+                                        </button>
+                                        <ul class="dropdown-menu dropdown-menu-end action-dropdown-menu">
+                                            @if($canEdit)
+                                                <li>
+                                                    <a class="dropdown-item" href="{{ route('users.edit', $user) }}">
+                                                        <i class="bi bi-pencil text-muted"></i>
+                                                        <span>Edit</span>
+                                                    </a>
+                                                </li>
+                                            @endif
+                                            @if($user->id !== auth()->id() && $canDelete)
+                                                <li>
+                                                    <form method="POST" action="{{ route('users.destroy', $user) }}" class="m-0" onsubmit="return confirm('Are you sure you want to delete this user?')">
+                                                        @csrf
+                                                        @method('DELETE')
+                                                        <button type="submit" class="dropdown-item text-danger">
+                                                            <i class="bi bi-trash text-danger"></i>
+                                                            <span>Delete</span>
+                                                        </button>
+                                                    </form>
+                                                </li>
+                                            @endif
+                                        </ul>
+                                    </div>
+                                </td>
+                            @endif
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="10" class="text-center text-muted py-5">
+                            <td colspan="{{ $canAction ? 10 : 9 }}" class="text-center text-muted py-5">
                                 <i class="bi bi-people fs-2 d-block mb-2 text-secondary opacity-50"></i>
                                 No users found.
                             </td>

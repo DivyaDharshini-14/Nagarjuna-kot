@@ -26,10 +26,23 @@ class ReportController extends Controller
     use ManagesTenantAccess;
 
     /**
+     * Authorize that only administrators and managers can access reporting analytics.
+     */
+    protected function authorizeReportAccess(): void
+    {
+        $user = auth()->user();
+        if (! $user || $user->isWaiter() || $user->isKitchenStaff() || (! $user->isAdmin() && ! $user->isManager())) {
+            abort(403, 'Unauthorized. Staff members cannot access reports.');
+        }
+    }
+
+    /**
      * Display the Order Report with analytical filters, KPI summary, and export options.
      */
     public function orders(Request $request): View
     {
+        $this->authorizeReportAccess();
+
         $query = $this->buildFilteredOrderQuery($request);
 
         // Summary metrics across all matching records (before pagination)
@@ -87,6 +100,8 @@ class ReportController extends Controller
      */
     public function exportOrders(Request $request): StreamedResponse
     {
+        $this->authorizeReportAccess();
+
         $query = $this->buildFilteredOrderQuery($request)
             ->with([
                 'company:id,name',
@@ -170,6 +185,8 @@ class ReportController extends Controller
      */
     public function kots(Request $request): View
     {
+        $this->authorizeReportAccess();
+
         $query = $this->buildFilteredKotQuery($request);
 
         // Summary metrics across all matching records (before pagination)
@@ -228,6 +245,8 @@ class ReportController extends Controller
      */
     public function exportKots(Request $request): StreamedResponse
     {
+        $this->authorizeReportAccess();
+
         $query = $this->buildFilteredKotQuery($request)
             ->with([
                 'company:id,name',
@@ -313,6 +332,8 @@ class ReportController extends Controller
      */
     public function menuItems(Request $request): View
     {
+        $this->authorizeReportAccess();
+
         $query = $this->buildFilteredMenuItemQuery($request);
 
         // Calculate KPI summary metrics across all matching menu items
@@ -370,6 +391,8 @@ class ReportController extends Controller
      */
     public function exportMenuItems(Request $request): StreamedResponse
     {
+        $this->authorizeReportAccess();
+
         $query = $this->buildFilteredMenuItemQuery($request);
         $filename = 'menu-items-report-' . now()->format('Y-m-d-His') . '.csv';
 
