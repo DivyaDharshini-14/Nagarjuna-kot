@@ -8,60 +8,6 @@
         </a>
     </li>
 
-    @if(auth()->user()->hasPermission('report.view'))
-        @php
-            $isReportsActive = request()->routeIs('reports.*');
-            $reportsCollapseId = 'reportsSubmenu_' . ($navContext ?? 'desktop');
-            $canViewReportAnalytics = !auth()->user()->isWaiter()
-                && !auth()->user()->isKitchenStaff()
-                && (auth()->user()->isAdmin() || auth()->user()->isManager());
-        @endphp
-        <li class="nav-item">
-            <a class="nav-link {{ $isReportsActive ? 'active active-parent' : 'collapsed' }}"
-               data-bs-toggle="collapse"
-               href="#{{ $reportsCollapseId }}"
-               role="button"
-               aria-expanded="{{ $isReportsActive ? 'true' : 'false' }}"
-               aria-controls="{{ $reportsCollapseId }}">
-                <i class="bi bi-bar-chart-line"></i>
-                <span>Reports</span>
-                <i class="bi bi-chevron-down ms-auto sidebar-chevron"></i>
-            </a>
-            <div class="collapse {{ $isReportsActive ? 'show' : '' }}" id="{{ $reportsCollapseId }}">
-                <ul class="nav flex-column sidebar-submenu">
-                    <li class="nav-item">
-                        <a class="nav-link submenu-link {{ request()->routeIs('reports.index') ? 'active' : '' }}" href="{{ route('reports.index') }}">
-                            <i class="bi bi-clipboard-data"></i>
-                            <span>Operational Reports</span>
-                        </a>
-                    </li>
-                    @if($canViewReportAnalytics && auth()->user()->hasPermission('order.view'))
-                        <li class="nav-item">
-                            <a class="nav-link submenu-link {{ request()->routeIs('reports.orders*') ? 'active' : '' }}" href="{{ route('reports.orders') }}">
-                                <i class="bi bi-file-earmark-bar-graph"></i>
-                                <span>Order Report</span>
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link submenu-link {{ request()->routeIs('reports.menu-items*') ? 'active' : '' }}" href="{{ route('reports.menu-items') }}">
-                                <i class="bi bi-card-checklist"></i>
-                                <span>Menu Items Report</span>
-                            </a>
-                        </li>
-                    @endif
-                    @if($canViewReportAnalytics && auth()->user()->hasPermission('kot.view'))
-                        <li class="nav-item">
-                            <a class="nav-link submenu-link {{ request()->routeIs('reports.kots*') ? 'active' : '' }}" href="{{ route('reports.kots') }}">
-                                <i class="bi bi-receipt-cutoff"></i>
-                                <span>KOT Report</span>
-                            </a>
-                        </li>
-                    @endif
-                </ul>
-            </div>
-        </li>
-    @endif
-
     {{-- Kitchen Staff Specific Operations --}}
     @if(auth()->user()->isKitchenStaff())
         <li class="sidebar-heading mt-3">Kitchen Operations</li>
@@ -120,10 +66,7 @@
         </li>
         @if(auth()->user()->branch_id)
             @php
-                $kitchenList = auth()->user()->kitchens()->with('branch')
-                    ->where('kitchens.company_id', auth()->user()->company_id)
-                    ->where('kitchens.branch_id', auth()->user()->branch_id)
-                    ->where('kitchens.is_active', true)->get();
+                $kitchenList = \App\Models\Kitchen::with('branch')->where('branch_id', auth()->user()->branch_id)->where('is_active', true)->get();
             @endphp
             @foreach($kitchenList as $k)
                 <li class="nav-item">
@@ -254,6 +197,52 @@
             </li>
         @endif
 
+        {{-- Reports Section Expandable Parent Menu (Restricted from Waiter & Kitchen Staff) --}}
+        @if(!auth()->user()->isWaiter() && !auth()->user()->isKitchenStaff() && (auth()->user()->isAdmin() || auth()->user()->isManager()))
+            @php
+                $isReportsActive = request()->routeIs('reports.*');
+                $reportsCollapseId = 'reportsSubmenu_' . ($navContext ?? 'desktop');
+            @endphp
+            <li class="nav-item">
+                <a class="nav-link {{ $isReportsActive ? 'active active-parent' : 'collapsed' }}"
+                   data-bs-toggle="collapse"
+                   href="#{{ $reportsCollapseId }}"
+                   role="button"
+                   aria-expanded="{{ $isReportsActive ? 'true' : 'false' }}"
+                   aria-controls="{{ $reportsCollapseId }}">
+                    <i class="bi bi-bar-chart-line"></i>
+                    <span>Reports</span>
+                    <i class="bi bi-chevron-down ms-auto sidebar-chevron"></i>
+                </a>
+                <div class="collapse {{ $isReportsActive ? 'show' : '' }}" id="{{ $reportsCollapseId }}">
+                    <ul class="nav flex-column sidebar-submenu">
+                        @if(auth()->user()->hasPermission('order.view') || auth()->user()->isAdmin())
+                            <li class="nav-item">
+                                <a class="nav-link submenu-link {{ request()->routeIs('reports.orders*') ? 'active' : '' }}" href="{{ route('reports.orders') }}">
+                                    <i class="bi bi-file-earmark-bar-graph"></i>
+                                    <span>Order Report</span>
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link submenu-link {{ request()->routeIs('reports.menu-items*') ? 'active' : '' }}" href="{{ route('reports.menu-items') }}">
+                                    <i class="bi bi-card-checklist"></i>
+                                    <span>Menu Items Report</span>
+                                </a>
+                            </li>
+                        @endif
+                        @if(auth()->user()->hasPermission('kot.view') || auth()->user()->isAdmin())
+                            <li class="nav-item">
+                                <a class="nav-link submenu-link {{ request()->routeIs('reports.kots*') ? 'active' : '' }}" href="{{ route('reports.kots') }}">
+                                    <i class="bi bi-receipt-cutoff"></i>
+                                    <span>KOT Report</span>
+                                </a>
+                            </li>
+                        @endif
+                    </ul>
+                </div>
+            </li>
+        @endif
+
         {{-- Users & Access Section Expandable Parent Menu --}}
         @if(auth()->user()->isAdmin())
             @php
@@ -300,8 +289,5 @@
                 </a>
             </li>
         @endif
-    @endif
-    @if(auth()->user()->hasPermission('settings.view'))
-        <li class="nav-item"><a class="nav-link {{ request()->routeIs('settings.*') ? 'active' : '' }}" href="{{ route('settings.index') }}"><i class="bi bi-gear"></i><span>Branch settings</span></a></li>
     @endif
 </ul>

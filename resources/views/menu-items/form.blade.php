@@ -1,7 +1,4 @@
 @csrf
-@if($menuItem?->exists)
-    <input type="hidden" name="stock_snapshot" value="{{ old('stock_snapshot', json_encode(['quantity' => $menuItem->prepared_stock_quantity, 'tracked' => (bool) $menuItem->stock_tracking_enabled, 'availability' => $menuItem->availability])) }}">
-@endif
 @include('partials.company-branch-fields')
 <div class="row">
     <div class="col-md-6 mb-3">
@@ -88,14 +85,6 @@
     @enderror
 </div>
 @include('partials.checkbox', ['name' => 'stock_tracking_enabled', 'label' => 'Track prepared dish stock', 'checked' => $menuItem?->stock_tracking_enabled ?? false])
-<div class="mb-3">
-    <label class="form-label" for="stock_adjustment_reason">Stock tracking change reason</label>
-    <input class="form-control @error('stock_adjustment_reason') is-invalid @enderror" id="stock_adjustment_reason" name="stock_adjustment_reason" value="{{ old('stock_adjustment_reason') }}" maxlength="500" aria-describedby="stock-tracking-help">
-    <div class="form-text" id="stock-tracking-help">Required when enabling or disabling stock tracking. Manage opening stock, portion quantities and availability from Stock management.</div>
-    @error('stock_adjustment_reason')<div class="invalid-feedback">{{ $message }}</div>@enderror
-    @error('stock_snapshot')<div class="text-danger small mt-1">{{ $message }}</div>@enderror
-    @error('prepared_stock_quantity')<div class="text-danger small mt-1">{{ $message }}</div>@enderror
-</div>
 @include('partials.checkbox', ['name' => 'is_active', 'label' => 'Active', 'checked' => $menuItem?->is_active ?? true])
 <div class="d-flex gap-2">
     <button class="btn btn-primary">Save</button>

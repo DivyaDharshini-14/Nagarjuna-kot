@@ -8,8 +8,8 @@ use App\Models\Kitchen;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Support\Str;
 use Illuminate\View\View;
 
 class KitchenController extends Controller
@@ -121,12 +121,6 @@ class KitchenController extends Controller
 
     private function validateKitchen(Request $request, ?Kitchen $kitchen = null): array
     {
-        // Older installations store this column as NOT NULL with a General default.
-        // Keep the optional form compatible with both kitchen-type migrations.
-        if (($kitchen === null || $request->exists('kitchen_type')) && ! $request->filled('kitchen_type')) {
-            $request->merge(['kitchen_type' => 'General']);
-        }
-
         return $request->validate([
             'company_id' => [
                 'required',
@@ -149,7 +143,7 @@ class KitchenController extends Controller
                 'regex:/^[A-Za-z0-9_-]+$/',
                 Rule::unique('kitchens', 'code')->where('branch_id', $request->input('branch_id'))->ignore($kitchen?->id),
             ],
-            'kitchen_type' => ['sometimes', 'required', 'string', 'max:100'],
+            'kitchen_type' => ['nullable', 'string', 'max:100'],
             'description' => ['nullable', 'string'],
             'is_active' => ['required', 'boolean'],
         ]);

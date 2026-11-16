@@ -1,19 +1,44 @@
-# Nagarjuna project context
+```markdown
+# Nagarjuna KOT – Context
 
-Laravel 12 / PHP 8.2 / MySQL / Eloquent / Blade with Android Flutter waiter and kitchen clients. The browser KDS remains a separate required surface. Billing integration is excluded from the current remediation.
+Laravel 12 / PHP 8.2 / MySQL / Eloquent / Blade / Bootstrap 5.3.
 
-## Development rules
-
-- Inspect and reuse existing architecture and services; keep operational rules in Laravel.
-- Preserve permissions and enforce company/branch/station access server-side.
-- Validate related IDs and preserve dependency-protected soft deletes.
+## Rules
+- Inspect and reuse existing code; don't duplicate or rewrite completed work.
+- Preserve architecture, business logic and existing permissions.
+- Use controller validation for simple CRUD; avoid unnecessary Services/Form Requests.
+- Enforce permissions and company/branch scope server-side.
+- Super Admin: all companies; Company Admin: own company; branch users: assigned branch.
+- Validate related IDs to prevent cross-company/branch links.
+- Use soft deletes and protect records with dependencies.
 - Do not run destructive migrations or delete data without approval.
-- Do not write or run automated tests. The project owner tests manually. Use relevant static analysis, build checks and a documented acceptance walkthrough.
+- Do not write or run automated tests. I will test manually.
 
-## Current implementation
+## Masters
+1. Company
+2. Branch (company)
+3. Kitchen (branch)
+4. Floor (branch)
+5. Table (branch + floor)
+6. Category
+7. Menu Type
+8. Menu Item (category + menu type, price, image, availability)
+9. Kitchen Mapping (menu item ↔ kitchen, same branch)
 
-Masters, staff/roles, order/KOT workflows, stock ledger, controlled cancellation and live status are implemented. The November 2026 remediation adds multi-station routing, terminal cancellation states, atomic numbering, persistent quantity-addition recovery, live cart reconciliation, paginated kitchen history/sound, scoped TV endpoints, reports/settings and audit/status history. Kitchen type, GST number, employee code and designation are stored in masters.
+## Logic
+- Dropdowns: Company → Branch; Branch → Floor/Kitchen; Floor → Table.
+- Enforce same-company/branch relationships.
+- Each master: CRUD, validation, search, pagination, status where applicable, permissions and safe deletion.
+- Reuse existing permission conventions.
 
-Read [API.md](API.md), [DATABASE.md](DATABASE.md) and [OPERATIONS.md](OPERATIONS.md) before changing contracts, transaction locking, numbering or deployment behavior. The [requirements audit](mobile-requirements-audit-2026-11-13.md) preserves the original findings with a current remediation status at the beginning.
+## Order
+Company → Branch → Kitchen → Floor → Table → Category → Menu Type → Menu Item → Kitchen Mapping.
 
-Production readiness is established by the target environment and manual acceptance, not by historical planning statements. Keep deployment prerequisites and verification results explicit.
+## Progress
+- Completed web masters: Company, Branch, Kitchen, Floor, Table, Category, Menu Type, Menu Item, and Kitchen Mapping.
+- Each master has scoped CRUD, search, pagination, status, permission checks, relationship validation, and dependency-protected soft deletes.
+- Super Admin sees every company. Company Admin is limited to the assigned company. Other branch users are limited to the assigned branch.
+- Pending: manual testing, then user management and the order/KOT modules when instructed.
+
+```
+
