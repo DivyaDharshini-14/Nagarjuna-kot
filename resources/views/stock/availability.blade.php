@@ -174,8 +174,8 @@
                 <div class="col-12 col-sm-6 col-md-3 col-xl-2">
                     <select name="stock_status" class="form-select form-select-sm" onchange="this.form.submit()">
                         <option value="">All Stock Levels</option>
-                        <option value="in_stock" @selected(($selectedStockStatus ?? '') === 'in_stock')>In Stock (> 5)</option>
-                        <option value="low_stock" @selected(($selectedStockStatus ?? '') === 'low_stock')>Low Stock (1-5)</option>
+                        <option value="in_stock" @selected(($selectedStockStatus ?? '') === 'in_stock')>In Stock</option>
+                        <option value="low_stock" @selected(($selectedStockStatus ?? '') === 'low_stock')>Low Stock</option>
                         <option value="out_of_stock" @selected(($selectedStockStatus ?? '') === 'out_of_stock')>Zero Stock (0)</option>
                         <option value="untracked" @selected(($selectedStockStatus ?? '') === 'untracked')>Untracked</option>
                     </select>
@@ -234,7 +234,7 @@
                             $isTracked = (bool) $dish->stock_tracking_enabled;
                             $stockQty = $dish->prepared_stock_quantity;
                             $hasStock = $stockQty !== null;
-                            $isLow = $isTracked && $hasStock && $stockQty <= 5 && $stockQty > 0;
+                            $isLow = $isTracked && $hasStock && $stockQty <= ($stockThresholds[$dish->branch_id] ?? 5) && $stockQty > 0;
                             $isOut = $isTracked && $hasStock && $stockQty <= 0;
                             $avail = $dish->availability;
                             $kitchensList = $dish->kitchenMenuItems->pluck('kitchen.name')->filter()->unique();

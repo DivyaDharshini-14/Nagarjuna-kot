@@ -1,59 +1,38 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Nagarjuna Restaurant KOT Management
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Laravel 12 / PHP 8.2 / MySQL backend, Flutter waiter/captain app, Flutter kitchen app and browser Kitchen Display System. The system manages tenant-scoped tables, prepared dishes, kitchen routing, stock, cancellations and live preparation status. Billing software integration, invoices and payments are excluded from this work.
 
-## About Laravel
+## Project layout
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+| Location | Purpose |
+|---|---|
+| `app/`, `routes/`, `database/`, `resources/` | Laravel management, API, business rules, schema and browser KDS |
+| `mobile/` | Waiter/captain Android Flutter app |
+| `kitchen_mobile/` | Kitchen staff Android Flutter app |
+| `public/js/kds-screen.js` | Friendly browser KDS live client |
+| `docs/` | Requirements audit, API contract, data model and operations |
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## Development setup
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+Use the repository's Composer and Flutter lockfiles. On a fresh installation, install Composer dependencies, copy `.env.example` to `.env`, configure the database and generate an application key. Never replace the encryption key of an existing database. Apply pending migrations without resetting restaurant data. Seed only the reviewed environment-appropriate roles/permissions, then create an administrator with `php artisan auth:create-admin`.
 
-## Learning Laravel
+Run Laravel with `php artisan serve --host=0.0.0.0 --port=8000`. Live updates also need a configured Reverb service and `php artisan queue:work`. From either Flutter app, launch with `flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000/api/v1`; see each app README for full Reverb and release defines. A physical phone uses the development computer's reachable LAN host.
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+Create active company/branch/floor/table/menu/kitchen records, map every dish to its stations and assign kitchen accounts explicitly. Enable stock tracking and enter prepared portions before ordering tracked dishes. Apply code and schema together: the remediation adds sequences, settings, audits, status history and kitchen classification.
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+## Behavior
 
-## Laravel Sponsors
+A dish can require several stations. Each receives the full customer quantity, while stock is deducted once. The customer item waits for all stations to become ready. Additional portions create new KOT work; cancellations reach all stations and restore stock only when no station started preparation. The mobile submission key protects retries, including saved uncertain quantity additions after restart.
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+Both browser display paths and mobile APIs enforce company/branch/station permissions. Management includes filtered reports and CSV exports, branch settings and critical-operation histories. `php artisan database:backup` writes a private checksummed backup; scheduled/off-host backups and recovery exercises require deployment configuration.
 
-### Premium Partners
+## Documentation
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+- [API contract](docs/API.md)
+- [Database and transaction design](docs/DATABASE.md)
+- [Operator workflows deployment backup and manual acceptance](docs/OPERATIONS.md)
+- [Requirements audit and current remediation status](docs/mobile-requirements-audit-2026-11-13.md)
+- [Waiter setup](mobile/README.md) and [kitchen setup](kitchen_mobile/README.md)
+- [Authentication and authorization](docs/WEB_AUTHENTICATION_AND_AUTHORIZATION.md)
 
-## Contributing
-
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
-
-## Code of Conduct
-
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
-
-## Security Vulnerabilities
-
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
-
-## License
-
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+The workspace guidance uses manual operational testing. Static analysis, PHP/Blade/JavaScript validation and Android builds do not replace staging/device acceptance. Production credentials, TLS hosting, signed release ownership, push delivery, backup restoration and UAT must be verified in the intended environment.

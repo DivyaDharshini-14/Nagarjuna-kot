@@ -2,23 +2,26 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\MenuAvailabilityChanged;
 use App\Http\Controllers\Concerns\ManagesTenantAccess;
+use App\Http\Controllers\Concerns\ScopesKitchenOperations;
 use App\Models\Branch;
 use App\Models\Kitchen;
-use App\Models\KitchenMenuItem;
 use App\Models\KotItem;
 use App\Models\KotTicket;
 use App\Models\MenuItem;
+use App\Models\StockTransaction;
 use App\Services\OrderService;
-use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 
 class KdsController extends Controller
 {
-    use ManagesTenantAccess;
+    use ManagesTenantAccess, ScopesKitchenOperations;
 
     public function __construct(
         protected OrderService $orderService
@@ -30,8 +33,7 @@ class KdsController extends Controller
      */
     public function index(Request $request): View
     {
-        $query = Kitchen::query()->where('is_active', true);
-        $this->applyBranchScope($query);
+        $query = $this->accessibleKitchens();
 
         $kitchens = $query->with(['branch', 'company'])
             ->withCount([
@@ -55,11 +57,10 @@ class KdsController extends Controller
 
         $kitchen->loadMissing('branch');
         if ($kitchen->branch && $kitchen->branch->code && $kitchen->code) {
-            return redirect()->to('/' . $kitchen->branch->code . '/' . $kitchen->code);
+            return redirect()->to('/'.$kitchen->branch->code.'/'.$kitchen->code);
         }
 
-        $allKitchens = Kitchen::query()->where('is_active', true)->with('branch');
-        $this->applyBranchScope($allKitchens);
+        $allKitchens = $this->accessibleKitchens()->with('branch');
         $allKitchens = $allKitchens->orderBy('name')->get();
 
         return view('kds.screen', compact('kitchen', 'allKitchens'));
@@ -70,11 +71,11 @@ class KdsController extends Controller
      */
     public function screenAll(): View
     {
-        $allKitchens = Kitchen::query()->where('is_active', true)->with('branch');
-        $this->applyBranchScope($allKitchens);
+        $allKitchens = $this->accessibleKitchens()->with('branch');
         $allKitchens = $allKitchens->orderBy('name')->get();
 
         $kitchen = null;
+
         return view('kds.screen', compact('kitchen', 'allKitchens'));
     }
 
@@ -84,36 +85,39 @@ class KdsController extends Controller
      */
     public function screenByCode(string $branchCode, string $kitchenCode): View
     {
-        $branchQuery = Branch::whereRaw('LOWER(code) = ?', [strtolower($branchCode)])
-            ->orWhereRaw('LOWER(name) = ?', [strtolower($branchCode)])
-            ->orWhere('id', is_numeric($branchCode) ? (int) $branchCode : 0);
-
-        if (preg_match('/^branch[-_]?(\d+)$/i', $branchCode, $m)) {
-            $branchQuery->orWhere('id', (int) $m[1]);
-        }
-
+        $branchQuery = Branch::query()->where('is_active', true)->where(function ($query) use ($branchCode) {
+            $query->whereRaw('LOWER(code) = ?', [strtolower($branchCode)])
+                ->orWhereRaw('LOWER(name) = ?', [strtolower($branchCode)])
+                ->orWhere('id', is_numeric($branchCode) ? (int) $branchCode : 0);
+            if (preg_match('/^branch[-_]?(\d+)$/i', $branchCode, $match)) {
+                $query->orWhere('id', (int) $match[1]);
+            }
+        });
+        $this->applyBranchScope($branchQuery, 'company_id', 'id');
         $branch = $branchQuery->firstOrFail();
         $this->authorizeBranch($branch);
 
         if (strtolower($kitchenCode) === 'all') {
             $kitchen = null;
-            $allKitchens = Kitchen::where('branch_id', $branch->id)->where('is_active', true)->with('branch')->orderBy('name')->get();
-            return view('kds.screen', compact('kitchen', 'allKitchens'));
+            $allKitchens = $this->accessibleKitchens()->where('branch_id', $branch->id)->with('branch')->orderBy('name')->get();
+            $branchId = (int) $branch->id;
+
+            return view('kds.screen', compact('kitchen', 'allKitchens', 'branchId'));
         }
 
-        $kitchen = Kitchen::where('branch_id', $branch->id)
+        $kitchen = $this->accessibleKitchens()->where('branch_id', $branch->id)
             ->where(function ($q) use ($kitchenCode) {
                 $cleanCode = strtolower(trim($kitchenCode));
                 $q->whereRaw('LOWER(code) = ?', [$cleanCode])
-                  ->orWhereRaw('LOWER(name) = ?', [$cleanCode])
-                  ->orWhereRaw('REPLACE(LOWER(name), "i", "") = REPLACE(?, "i", "")', [$cleanCode])
-                  ->orWhereRaw('REPLACE(LOWER(name), "e", "") = REPLACE(?, "e", "")', [$cleanCode]);
+                    ->orWhereRaw('LOWER(name) = ?', [$cleanCode])
+                    ->orWhereRaw('REPLACE(LOWER(name), "i", "") = REPLACE(?, "i", "")', [$cleanCode])
+                    ->orWhereRaw('REPLACE(LOWER(name), "e", "") = REPLACE(?, "e", "")', [$cleanCode]);
             })
             ->firstOrFail();
 
         $this->authorizeKitchenAccess($kitchen);
 
-        $allKitchens = Kitchen::where('branch_id', $branch->id)->where('is_active', true)->with('branch')->orderBy('name')->get();
+        $allKitchens = $this->accessibleKitchens()->where('branch_id', $branch->id)->with('branch')->orderBy('name')->get();
 
         return view('kds.screen', compact('kitchen', 'allKitchens'));
     }
@@ -121,20 +125,26 @@ class KdsController extends Controller
     /**
      * Real-time JSON data feed for the KDS screen.
      * Filters by kitchen if specified, or returns all active tickets for master screen.
-     * - Accepted / New -> "New Orders" column
+     * - Accepted -> "New Orders" column (unaccepted tickets stay in the staff acceptance queue)
      * - Preparing -> "Preparing Orders" column
      * - Ready -> "Ready Orders" column
      * - Served -> Excluded completely (Do not show served order!)
      */
     public function feed(Request $request, ?Kitchen $kitchen = null): JsonResponse
     {
+        $request->validate([
+            'kitchen_id' => ['nullable', 'integer', 'min:1'],
+            'branch_id' => ['nullable', 'integer', 'min:1'],
+            'history' => ['nullable', 'in:cancelled,completed'],
+            'history_page' => ['nullable', 'integer', 'min:1'],
+        ]);
         $kitchenId = null;
         if ($kitchen && $kitchen->id) {
             $this->authorizeKitchenAccess($kitchen);
             $kitchenId = $kitchen->id;
-        } elseif ($request->filled('kitchen_id') && $request->kitchen_id !== 'all') {
+        } elseif ($request->filled('kitchen_id')) {
             $requestedId = (int) $request->kitchen_id;
-            $k = Kitchen::find($requestedId);
+            $k = Kitchen::findOrFail($requestedId);
             if ($k) {
                 $this->authorizeKitchenAccess($k);
                 $kitchen = $k;
@@ -142,9 +152,8 @@ class KdsController extends Controller
             }
         }
 
-        // Active tickets query for KDS: accepted, preparing, ready
-        $query = KotTicket::query()
-            ->whereIn('ticket_status', ['accepted', 'preparing', 'ready'])
+        // Keep the scoped base query shared with completed/cancelled history.
+        $query = $this->scopeKitchenTickets(KotTicket::query())
             ->with([
                 'kitchen',
                 'order.table',
@@ -155,29 +164,45 @@ class KdsController extends Controller
 
         if ($kitchenId) {
             $query->where('kitchen_id', $kitchenId);
-        } else {
-            $this->applyBranchScope($query);
+        }
+        if ($request->filled('branch_id')) {
+            $query->where('branch_id', (int) $request->branch_id);
         }
 
-        $tickets = $query->get();
+        $tickets = (clone $query)->whereIn('ticket_status', ['accepted', 'preparing', 'ready'])
+            ->whereHas('order', fn ($order) => $order->whereNotIn('status', ['completed', 'cancelled']))->get();
+        $historyType = $request->input('history', 'cancelled');
+        $historyQuery = (clone $query)->reorder();
+        if ($historyType === 'completed') {
+            $historyQuery->where(fn ($history) => $history->where('ticket_status', 'served')
+                ->orWhereHas('order', fn ($order) => $order->where('status', 'completed')));
+        } else {
+            $historyQuery->where(fn ($history) => $history->where('ticket_status', 'cancelled')
+                ->orWhereHas('items', fn ($items) => $items->where('cancelled_quantity', '>', 0)));
+        }
+        $history = $historyQuery->latest('updated_at')->latest('id')->paginate(24, ['*'], 'history_page');
+        $cancellationUpdates = (clone $query)->where('updated_at', '>=', now()->subMinutes(15))
+            ->whereHas('items', fn ($items) => $items->where('cancelled_quantity', '>', 0))
+            ->reorder()->latest('updated_at')->limit(100)->get();
 
         $now = now();
 
         $formatTicket = function (KotTicket $t) use ($now) {
-            $receivedAt = $t->order?->created_at ?? $t->created_at ?? $now;
+            $receivedAt = $t->created_at ?? $now;
+            $startTime = $t->accepted_at;
+            if ($startTime === null && in_array($t->ticket_status, ['accepted', 'preparing'], true)) {
+                $startTime = $t->updated_at ?? $t->created_at ?? $now;
+            }
 
-            // Requirement: "that duration should start from the second the kitchen staff accepted that order!!"
-            $startTime = $t->accepted_at ?? ($t->ticket_status === 'accepted' || $t->ticket_status === 'preparing' ? $t->updated_at ?? $t->created_at : null);
-
-            if ($t->ticket_status === 'ready') {
-                $elapsedSeconds = $t->duration_seconds ?? ($t->ready_at && $startTime ? abs((int) $t->ready_at->diffInSeconds($startTime)) : ($startTime ? abs((int) $t->updated_at->diffInSeconds($startTime)) : 0));
+            if (in_array($t->ticket_status, ['ready', 'served', 'cancelled'], true)) {
+                $endTime = $t->ready_at ?? $t->updated_at ?? $now;
+                $elapsedSeconds = $t->duration_seconds ?? ($startTime ? max(0, (int) $startTime->diffInSeconds($endTime, false)) : 0);
                 $isRunning = false;
-            } elseif ($t->ticket_status === 'accepted' || $t->ticket_status === 'preparing') {
+            } elseif (in_array($t->ticket_status, ['accepted', 'preparing'], true)) {
                 // Accepted by kitchen staff: live duration ticks from accepted_at
-                $elapsedSeconds = $startTime ? max(0, abs((int) $now->diffInSeconds($startTime))) : 0;
+                $elapsedSeconds = $startTime ? max(0, (int) $startTime->diffInSeconds($now, false)) : 0;
                 $isRunning = true;
             } else {
-                // Not yet accepted by kitchen staff: duration timer has not started
                 $elapsedSeconds = 0;
                 $isRunning = false;
             }
@@ -191,7 +216,7 @@ class KdsController extends Controller
 
             // Table resolution: do not show soft-deleted tables
             $table = $t->order?->table;
-            $tableName = ($table && !$table->trashed()) ? $table->name : 'Takeaway';
+            $tableName = ($table && ! $table->trashed()) ? $table->name : 'Takeaway';
 
             return [
                 'id' => $t->id,
@@ -218,7 +243,9 @@ class KdsController extends Controller
                     'id' => $item->id,
                     'dish_name' => $item->menuItem?->name ?? 'Dish',
                     'dish_code' => $item->menuItem?->code,
-                    'quantity' => (int) $item->quantity,
+                    'quantity' => max(0, (int) $item->quantity - (int) $item->cancelled_quantity),
+                    'original_quantity' => (int) $item->quantity,
+                    'cancelled_quantity' => (int) $item->cancelled_quantity,
                     'special_instructions' => $item->special_instructions,
                     'item_status' => $item->item_status,
                 ])->values()->all(),
@@ -258,6 +285,9 @@ class KdsController extends Controller
             'new_tickets' => $newTickets,
             'preparing_tickets' => $preparingTickets,
             'ready_tickets' => $readyTickets,
+            'history_tickets' => $history->getCollection()->map($formatTicket)->values(),
+            'history_meta' => ['page' => $history->currentPage(), 'last_page' => $history->lastPage(), 'total' => $history->total(), 'type' => $historyType],
+            'cancellation_updates' => $cancellationUpdates->map($formatTicket)->values(),
         ]);
     }
 
@@ -269,7 +299,7 @@ class KdsController extends Controller
         $this->authorizeKotAccess($kot);
 
         $validated = $request->validate([
-            'status' => ['required', 'string', 'in:new,accepted,preparing,ready,served,cancelled'],
+            'status' => ['required', 'string', 'in:accepted,preparing,ready,served'],
         ]);
 
         $this->orderService->updateKotTicketStatus($kot, $validated['status']);
@@ -292,7 +322,7 @@ class KdsController extends Controller
         $this->authorizeKotAccess($ticket);
 
         $validated = $request->validate([
-            'status' => ['required', 'string', 'in:new,accepted,preparing,ready,served,cancelled'],
+            'status' => ['required', 'string', 'in:accepted,preparing,ready,served'],
         ]);
 
         $this->orderService->updateKotItemStatus($item, $validated['status']);
@@ -311,7 +341,7 @@ class KdsController extends Controller
      */
     public function menuDishes(?Kitchen $kitchen = null): JsonResponse
     {
-        $query = MenuItem::query()->where('is_active', true);
+        $query = $this->accessibleMenuItems();
 
         if ($kitchen && $kitchen->id) {
             $this->authorizeKitchenAccess($kitchen);
@@ -330,7 +360,7 @@ class KdsController extends Controller
                 'code' => $item->code,
                 'category_name' => $item->category?->name ?? 'General',
                 'menu_type' => $item->menuType?->name ?? 'Food',
-                'is_available' => strtolower((string) ($item->availability ?? 'available')) !== 'sold_out',
+                'is_available' => ($item->availability ?? 'available') === 'available',
                 'availability' => $item->availability ?? 'available',
                 'prepared_stock_quantity' => $item->prepared_stock_quantity ?? 0,
             ]);
@@ -348,24 +378,9 @@ class KdsController extends Controller
     {
         if ($kitchen && $kitchen->id) {
             $this->authorizeKitchenAccess($kitchen);
-            abort_unless((int) $menuItem->branch_id === (int) $kitchen->branch_id, 403);
         }
 
-        $validated = $request->validate([
-            'availability' => ['required', 'string', 'in:available,sold_out,temporarily_unavailable'],
-        ]);
-
-        $menuItem->update([
-            'availability' => $validated['availability'],
-        ]);
-
-        return response()->json([
-            'success' => true,
-            'message' => "Dish {$menuItem->name} updated to {$validated['availability']}.",
-            'menu_item_id' => $menuItem->id,
-            'availability' => $menuItem->availability,
-            'is_available' => $validated['availability'] !== 'sold_out',
-        ]);
+        return $this->changeAvailability($request, $menuItem, $kitchen);
     }
 
     /**
@@ -373,46 +388,57 @@ class KdsController extends Controller
      */
     public function toggleDishAvailabilityDirect(Request $request, MenuItem $menuItem): JsonResponse
     {
+        return $this->changeAvailability($request, $menuItem);
+    }
+
+    private function accessibleMenuItems(?Kitchen $kitchen = null): Builder
+    {
+        $query = MenuItem::query()->where('is_active', true);
+        $this->applyBranchScope($query);
+
+        return $query->whereHas('kitchenMenuItems', function ($mapping) use ($kitchen) {
+            $mapping->where('is_active', true)
+                ->whereIn('kitchen_id', $this->accessibleKitchens()->select('kitchens.id'))
+                ->whereColumn('kitchen_menu_items.company_id', 'menu_items.company_id')
+                ->whereColumn('kitchen_menu_items.branch_id', 'menu_items.branch_id');
+            if ($kitchen?->id) {
+                $mapping->where('kitchen_id', $kitchen->id);
+            }
+        });
+    }
+
+    private function changeAvailability(Request $request, MenuItem $menuItem, ?Kitchen $kitchen = null): JsonResponse
+    {
+        abort_unless($this->actor()->hasPermission('menu-item.stock-adjustment'), 403);
         $validated = $request->validate([
             'availability' => ['required', 'string', 'in:available,sold_out,temporarily_unavailable'],
+            'reason' => ['required', 'string', 'min:3', 'max:500'],
         ]);
+        $updated = DB::transaction(function () use ($menuItem, $kitchen, $validated) {
+            $locked = $this->accessibleMenuItems($kitchen)->whereKey($menuItem->id)->lockForUpdate()->firstOrFail();
+            if ($locked->availability !== $validated['availability']) {
+                $stock = (int) ($locked->prepared_stock_quantity ?? 0);
+                StockTransaction::create([
+                    'company_id' => $locked->company_id, 'branch_id' => $locked->branch_id,
+                    'menu_item_id' => $locked->id, 'user_id' => $this->actor()->id,
+                    'transaction_type' => 'availability_change', 'quantity' => 0, 'quantity_delta' => 0,
+                    'stock_before' => $stock, 'stock_after' => $stock,
+                    'reason' => trim($validated['reason']).' ('.$locked->availability.' -> '.$validated['availability'].')',
+                ]);
+                $locked->update(['availability' => $validated['availability']]);
+                event(new MenuAvailabilityChanged((int) $locked->branch_id, (int) $locked->id,
+                    $locked->availability, $locked->prepared_stock_quantity));
+            }
 
-        $menuItem->update([
-            'availability' => $validated['availability'],
-        ]);
+            return $locked;
+        });
 
         return response()->json([
             'success' => true,
-            'message' => "Dish {$menuItem->name} updated to {$validated['availability']}.",
-            'menu_item_id' => $menuItem->id,
-            'availability' => $menuItem->availability,
-            'is_available' => $validated['availability'] !== 'sold_out',
+            'message' => "Dish {$updated->name} updated to {$updated->availability}.",
+            'menu_item_id' => $updated->id,
+            'availability' => $updated->availability,
+            'is_available' => $updated->availability === 'available',
         ]);
-    }
-
-    protected function authorizeKitchenAccess(Kitchen $kitchen): void
-    {
-        if ($this->isSuperAdmin()) {
-            return;
-        }
-
-        abort_unless((int) $kitchen->company_id === (int) $this->actor()->company_id, 403);
-
-        if ($this->locksBranch()) {
-            abort_unless((int) $kitchen->branch_id === (int) $this->actor()->branch_id, 403);
-        }
-    }
-
-    protected function authorizeKotAccess(KotTicket $kot): void
-    {
-        if ($this->isSuperAdmin()) {
-            return;
-        }
-
-        abort_unless((int) $kot->company_id === (int) $this->actor()->company_id, 403);
-
-        if ($this->locksBranch()) {
-            abort_unless((int) $kot->branch_id === (int) $this->actor()->branch_id, 403);
-        }
     }
 }

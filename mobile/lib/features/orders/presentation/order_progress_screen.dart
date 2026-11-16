@@ -7,6 +7,7 @@ import '../../../core/network/mobile_api_client.dart';
 import '../../../core/network/mobile_order_live_connection.dart';
 import '../../tables/domain/floor_table.dart';
 import '../data/mobile_order_repository.dart';
+import '../data/pending_order_draft_store.dart';
 import '../domain/order_status.dart';
 
 class OrderProgressScreen extends StatefulWidget {
@@ -15,6 +16,9 @@ class OrderProgressScreen extends StatefulWidget {
     required this.orderId,
     required this.orderNumber,
     required this.repository,
+    required this.pendingDraftStore,
+    required this.userId,
+    required this.onRecoverPendingOrder,
     required this.liveConnection,
     required this.onBack,
     required this.onOrderCompleted,
@@ -28,6 +32,9 @@ class OrderProgressScreen extends StatefulWidget {
   final int orderId;
   final String orderNumber;
   final MobileOrderRepository repository;
+  final PendingOrderDraftStore pendingDraftStore;
+  final int userId;
+  final ValueChanged<int> onRecoverPendingOrder;
   final MobileOrderLiveConnection liveConnection;
   final VoidCallback onBack;
   final VoidCallback onOrderCompleted;
@@ -55,13 +62,21 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
   bool _isModifying = false;
   bool _isInForeground = true;
   bool _liveConnected = false;
-  final Map<String, String> _pendingQuantityAdditionKeys = {};
+  PendingQuantityAddition? _pendingAddition;
+  bool _restoringAddition = true;
+  String? _additionRestoreError;
+
+  bool get _hasUnresolvedAddition =>
+      _restoringAddition ||
+      _pendingAddition != null ||
+      _additionRestoreError != null;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _refresh();
+    unawaited(_restoreQuantityAddition());
     _connectLive();
     _pollTimer = Timer.periodic(_refreshInterval, (_) {
       if (_isInForeground && !_isTerminal(_snapshot?.orderStatus)) {
@@ -179,7 +194,7 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
       status == 'completed' || status == 'cancelled';
 
   bool _canCompleteOrder(OrderStatusSnapshot snapshot) {
-    if (!widget.canEditOrders) return false;
+    if (!widget.canEditOrders || _hasUnresolvedAddition) return false;
     final orderStatus = snapshot.orderStatus.trim().toLowerCase();
     if (orderStatus != 'ready' && orderStatus != 'served') return false;
     if (snapshot.items.any((item) => item.pendingCancellationQuantity > 0)) {
@@ -254,6 +269,7 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
 
   Future<void> _cancelOrder({OrderItemProgress? item}) async {
     if (!widget.canCancelOrders ||
+        _hasUnresolvedAddition ||
         _isCancelling ||
         _isModifying ||
         _isCompleting ||
@@ -309,6 +325,7 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
   Future<void> _adjustItemQuantity(OrderItemProgress selectedItem) async {
     final snapshot = _snapshot;
     if (snapshot == null ||
+        _hasUnresolvedAddition ||
         _isTerminal(snapshot.orderStatus) ||
         _isModifying ||
         _isCancelling ||
@@ -342,54 +359,54 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
       builder: (_) => _OrderQuantityAdjustmentDialog(
         itemName: item.name,
         activeQuantity: activeQuantity,
-        minimumQuantity: canDecrease
-            ? activeQuantity - item.cancellableQuantity
-            : activeQuantity,
-        maximumQuantity: activeQuantity + (canIncrease ? 99 : 0),
+        canAdd: canIncrease,
+        maximumReduction: canDecrease ? item.cancellableQuantity : 0,
       ),
     );
     if (adjustment == null || !mounted) return;
 
-    setState(() => _isModifying = true);
-    String successMessage;
-    try {
-      if (adjustment.targetQuantity > activeQuantity) {
-        final tableId = snapshot.tableId;
-        final menuItemId = item.menuItemId;
-        if (tableId == null || menuItemId == null) {
+    if (adjustment.isAddition) {
+      final addition = PendingQuantityAddition(
+        orderId: snapshot.id,
+        tableId: snapshot.tableId!,
+        menuItemId: item.menuItemId!,
+        quantity: adjustment.quantity,
+        instructions: item.instructions,
+        idempotencyKey: widget.repository.createIdempotencyKey(),
+        dishName: item.name,
+      );
+      setState(() => _isModifying = true);
+      try {
+        await widget.pendingDraftStore.writeQuantityAddition(
+          widget.userId,
+          addition,
+        );
+        if (!mounted) return;
+        setState(() => _pendingAddition = addition);
+      } catch (_) {
+        if (mounted) {
           _showCompletionError(
-            'This dish cannot be added because its menu or table details are missing.',
+            'Could not save the dish addition. No new request was sent.',
           );
-          return;
         }
-        final operation =
-            '${snapshot.id}:${item.id}:$activeQuantity:${adjustment.targetQuantity}';
-        final idempotencyKey = _pendingQuantityAdditionKeys.putIfAbsent(
-          operation,
-          widget.repository.createIdempotencyKey,
-        );
-        await widget.repository.increaseOrderItemQuantity(
-          orderId: snapshot.id,
-          tableId: tableId,
-          menuItemId: menuItemId,
-          quantity: adjustment.targetQuantity - activeQuantity,
-          instructions: item.instructions,
-          idempotencyKey: idempotencyKey,
-        );
-        _pendingQuantityAdditionKeys.remove(operation);
-        successMessage =
-            '${adjustment.targetQuantity - activeQuantity} ${item.name} added to the order. New KOTs were sent to the kitchen.';
-      } else {
-        final quantityToCancel = activeQuantity - adjustment.targetQuantity;
-        successMessage = await widget.repository.requestCancellation(
-          orderId: snapshot.id,
-          reason: adjustment.reason!,
-          cancelAll: false,
-          items: [
-            {'order_item_id': item.id, 'quantity': quantityToCancel},
-          ],
-        );
+        return;
+      } finally {
+        if (mounted) setState(() => _isModifying = false);
       }
+      await _sendPendingAddition();
+      return;
+    }
+
+    setState(() => _isModifying = true);
+    try {
+      final successMessage = await widget.repository.requestCancellation(
+        orderId: snapshot.id,
+        reason: adjustment.reason!,
+        cancelAll: false,
+        items: [
+          {'order_item_id': item.id, 'quantity': adjustment.quantity},
+        ],
+      );
       await _refresh();
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -418,8 +435,101 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
     }
   }
 
+  Future<void> _restoreQuantityAddition() async {
+    if (_isModifying) return;
+    if (mounted) {
+      setState(() {
+        _restoringAddition = true;
+        _additionRestoreError = null;
+      });
+    }
+    try {
+      final addition = await widget.pendingDraftStore.readQuantityAddition(
+        widget.userId,
+      );
+      if (!mounted) return;
+      setState(() {
+        _pendingAddition = addition;
+        _restoringAddition = false;
+      });
+      if (addition?.orderId == widget.orderId) await _sendPendingAddition();
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _restoringAddition = false;
+          _additionRestoreError = 'Could not read the saved dish addition. Retry before changing this order.';
+        });
+      }
+    }
+  }
+
+  Future<void> _sendPendingAddition() async {
+    final addition = _pendingAddition;
+    if (addition == null ||
+        _isModifying ||
+        addition.orderId != widget.orderId) {
+      return;
+    }
+    setState(() => _isModifying = true);
+    try {
+      await widget.repository.increaseOrderItemQuantity(
+        orderId: addition.orderId,
+        tableId: addition.tableId,
+        menuItemId: addition.menuItemId,
+        quantity: addition.quantity,
+        instructions: addition.instructions,
+        idempotencyKey: addition.idempotencyKey,
+      );
+      await widget.pendingDraftStore.clearQuantityAddition(
+        widget.userId,
+        addition.idempotencyKey,
+      );
+      if (!mounted) return;
+      setState(() => _pendingAddition = null);
+      await _refresh(quiet: true);
+      if (mounted) {
+        _showCompletionError(
+          '${addition.quantity} extra ${addition.dishName} portion(s) confirmed.',
+        );
+      }
+    } on ApiException catch (error) {
+      // An authentication failure can be retried by this same staff account.
+      // Server failures and transport failures leave the saved request untouched.
+      if (error.requiresSignIn) {
+        if (mounted) await widget.onSessionExpired();
+        return;
+      }
+      if (error.statusCode < 500 &&
+          error.statusCode != 408 &&
+          error.statusCode != 409 &&
+          error.statusCode != 429) {
+        await widget.pendingDraftStore.clearQuantityAddition(
+          widget.userId,
+          addition.idempotencyKey,
+        );
+        if (mounted) setState(() => _pendingAddition = null);
+      }
+      if (mounted) _showCompletionError(error.message);
+    } on ApiTransportException catch (error) {
+      if (mounted) {
+        _showCompletionError(
+          '${error.message} Check the saved addition to confirm its result.',
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        _showCompletionError(
+          'The dish addition is unconfirmed. Check the saved addition to safely retry.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isModifying = false);
+    }
+  }
+
   Future<void> _editItemInstructions(OrderItemProgress item) async {
     if (!widget.canEditOrders ||
+        _hasUnresolvedAddition ||
         _isModifying ||
         _isCancelling ||
         _isCompleting ||
@@ -469,6 +579,7 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
   }
 
   Future<void> _openOrderEditor(OrderStatusSnapshot snapshot) async {
+    if (_hasUnresolvedAddition) return;
     if (!widget.canAddItems &&
         !widget.canEditOrders &&
         !widget.canCancelOrders) {
@@ -519,6 +630,7 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
 
   Future<void> _markItemServed(OrderItemProgress item) async {
     if (!widget.canEditOrders ||
+        _hasUnresolvedAddition ||
         !item.canMarkServed ||
         _isModifying ||
         _isCancelling ||
@@ -597,13 +709,49 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
                 padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
                 children: [
                   _OrderHeader(snapshot: snapshot),
+                  if (_hasUnresolvedAddition) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      _additionRestoreError ??
+                          (_restoringAddition
+                              ? 'Checking saved dish additions…'
+                              : '${_pendingAddition!.quantity} extra ${_pendingAddition!.dishName} portion(s) are unconfirmed. Confirm the saved request before changing this order.'),
+                    ),
+                    if (!_restoringAddition)
+                      TextButton.icon(
+                        onPressed: _isModifying
+                            ? null
+                            : () {
+                                final addition = _pendingAddition;
+                                if (addition == null) {
+                                  unawaited(_restoreQuantityAddition());
+                                } else if (addition.orderId != widget.orderId) {
+                                  widget.onRecoverPendingOrder(
+                                    addition.orderId,
+                                  );
+                                } else {
+                                  unawaited(_sendPendingAddition());
+                                }
+                              },
+                        icon: const Icon(Icons.sync_rounded),
+                        label: Text(
+                          _isModifying
+                              ? 'Confirming addition…'
+                              : 'Check saved addition',
+                        ),
+                      ),
+                  ],
                   if (!_isTerminal(snapshot.orderStatus) &&
                       (widget.canAddItems ||
                           widget.canEditOrders ||
                           widget.canCancelOrders)) ...[
                     const SizedBox(height: 12),
                     OutlinedButton.icon(
-                      onPressed: _isModifying || _isCancelling || _isCompleting
+                      onPressed:
+                          _hasUnresolvedAddition ||
+                              _isModifying ||
+                              _isCancelling ||
+                              _isCompleting
                           ? null
                           : () => _openOrderEditor(snapshot),
                       icon: const Icon(Icons.edit_rounded),
@@ -616,7 +764,11 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
                       )) ...[
                     const SizedBox(height: 12),
                     OutlinedButton.icon(
-                      onPressed: _isCancelling || _isModifying || _isCompleting
+                      onPressed:
+                          _hasUnresolvedAddition ||
+                              _isCancelling ||
+                              _isModifying ||
+                              _isCompleting
                           ? null
                           : () => _cancelOrder(),
                       icon: const Icon(Icons.cancel_outlined),
@@ -723,7 +875,8 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
                             Align(
                               alignment: Alignment.centerRight,
                               child: TextButton.icon(
-                                onPressed: _isModifying
+                                onPressed:
+                                    _hasUnresolvedAddition || _isModifying
                                     ? null
                                     : () => _markItemServed(item),
                                 icon: const Icon(Icons.room_service_outlined),
@@ -1407,14 +1560,14 @@ class _OrderQuantityAdjustmentDialog extends StatefulWidget {
   const _OrderQuantityAdjustmentDialog({
     required this.itemName,
     required this.activeQuantity,
-    required this.minimumQuantity,
-    required this.maximumQuantity,
+    required this.canAdd,
+    required this.maximumReduction,
   });
 
   final String itemName;
   final int activeQuantity;
-  final int minimumQuantity;
-  final int maximumQuantity;
+  final bool canAdd;
+  final int maximumReduction;
 
   @override
   State<_OrderQuantityAdjustmentDialog> createState() =>
@@ -1423,13 +1576,14 @@ class _OrderQuantityAdjustmentDialog extends StatefulWidget {
 
 class _OrderQuantityAdjustmentDialogState
     extends State<_OrderQuantityAdjustmentDialog> {
-  late int _targetQuantity = widget.activeQuantity;
+  late bool _isAdding = widget.canAdd;
+  int _quantity = 1;
   final _reasonController = TextEditingController();
 
-  bool get _isReducing => _targetQuantity < widget.activeQuantity;
   bool get _canSubmit =>
-      _targetQuantity != widget.activeQuantity &&
-      (!_isReducing || _reasonController.text.trim().length >= 3);
+      _quantity > 0 && (_isAdding || _reasonController.text.trim().length >= 3);
+
+  int get _maximumQuantity => _isAdding ? 99 : widget.maximumReduction;
 
   @override
   void dispose() {
@@ -1446,41 +1600,65 @@ class _OrderQuantityAdjustmentDialogState
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          'Current active quantity: ${widget.activeQuantity}',
+          'This existing line has ${widget.activeQuantity} active portion(s).',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         const SizedBox(height: 12),
+        if (widget.canAdd && widget.maximumReduction > 0) ...[
+          SegmentedButton<bool>(
+            segments: const [
+              ButtonSegment(value: true, label: Text('Add extra')),
+              ButtonSegment(value: false, label: Text('Reduce line')),
+            ],
+            selected: {_isAdding},
+            onSelectionChanged: (selection) => setState(() {
+              _isAdding = selection.single;
+              _quantity = 1;
+            }),
+          ),
+          const SizedBox(height: 12),
+        ],
+        Text(
+          _isAdding
+              ? 'Extra portions to add'
+              : 'Portions to cancel from this line',
+        ),
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             IconButton.filledTonal(
-              tooltip: 'Reduce quantity',
-              onPressed: _targetQuantity <= widget.minimumQuantity
+              tooltip: 'One fewer portion',
+              onPressed: _quantity <= 1
                   ? null
-                  : () => setState(() => _targetQuantity--),
+                  : () => setState(() => _quantity--),
               icon: const Icon(Icons.remove_rounded),
             ),
             const SizedBox(width: 18),
             Semantics(
-              label: 'New active quantity $_targetQuantity',
+              label:
+                  '$_quantity ${_isAdding ? 'extra portions to add' : 'portions to cancel'}',
               child: Text(
-                '$_targetQuantity',
+                '$_quantity',
                 style: Theme.of(context).textTheme.headlineSmall
                     ?.copyWith(fontWeight: FontWeight.w800),
               ),
             ),
             const SizedBox(width: 18),
             IconButton.filledTonal(
-              tooltip: 'Increase quantity',
-              onPressed: _targetQuantity >= widget.maximumQuantity
+              tooltip: 'One more portion',
+              onPressed: _quantity >= _maximumQuantity
                   ? null
-                  : () => setState(() => _targetQuantity++),
+                  : () => setState(() => _quantity++),
               icon: const Icon(Icons.add_rounded),
             ),
           ],
         ),
         const SizedBox(height: 8),
-        if (_isReducing) ...[
+        if (!_isAdding) ...[
+          Text(
+            'This line will have ${widget.activeQuantity - _quantity} active portion(s) after cancellation approval, if required.',
+          ),
+          const SizedBox(height: 8),
           const Text(
             'The reduction is submitted as a cancellation. A reason is required; approval and stock handling follow this branch’s policy and preparation status.',
             style: TextStyle(fontSize: 12, height: 1.4),
@@ -1498,14 +1676,9 @@ class _OrderQuantityAdjustmentDialogState
             ),
             onChanged: (_) => setState(() {}),
           ),
-        ] else if (_targetQuantity > widget.activeQuantity) ...[
-          const Text(
-            'The extra quantity is sent as new kitchen work. The server checks current availability and stock and creates KOT tickets for the assigned kitchen(s); existing tickets stay unchanged.',
-            style: TextStyle(fontSize: 12, height: 1.4),
-          ),
         ] else ...[
           const Text(
-            'Choose a different active quantity. The order will not change until you confirm.',
+            'These extra portions appear as a new order line and new kitchen tickets. The existing line stays as shown above. Current availability and stock are checked before adding.',
             style: TextStyle(fontSize: 12, height: 1.4),
           ),
         ],
@@ -1514,27 +1687,35 @@ class _OrderQuantityAdjustmentDialogState
     actions: [
       TextButton(
         onPressed: () => Navigator.of(context).pop(),
-        child: const Text('Keep quantity'),
+        child: const Text('Keep order'),
       ),
       FilledButton(
         onPressed: _canSubmit
             ? () => Navigator.of(context).pop(
                 _QuantityAdjustmentDraft(
-                  targetQuantity: _targetQuantity,
-                  reason: _isReducing ? _reasonController.text.trim() : null,
+                  isAddition: _isAdding,
+                  quantity: _quantity,
+                  reason: _isAdding ? null : _reasonController.text.trim(),
                 ),
               )
             : null,
-        child: const Text('Apply change'),
+        child: Text(
+          _isAdding ? 'Add $_quantity extra' : 'Cancel $_quantity portion(s)',
+        ),
       ),
     ],
   );
 }
 
 class _QuantityAdjustmentDraft {
-  const _QuantityAdjustmentDraft({required this.targetQuantity, this.reason});
+  const _QuantityAdjustmentDraft({
+    required this.isAddition,
+    required this.quantity,
+    this.reason,
+  });
 
-  final int targetQuantity;
+  final bool isAddition;
+  final int quantity;
   final String? reason;
 }
 

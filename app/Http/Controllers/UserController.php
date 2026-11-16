@@ -8,11 +8,11 @@ use App\Models\Company;
 use App\Models\Kitchen;
 use App\Models\Role;
 use App\Models\User;
+use App\Observers\OperationalAuditObserver;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
@@ -111,12 +111,9 @@ class UserController extends Controller
             'is_active' => $request->boolean('is_active', true),
         ]);
 
-        $user->roles()->sync($validated['roles']);
-        if ($request->has('kitchens')) {
-            $user->kitchens()->sync($this->selectedRolesIncludeKitchenStaff($validated['roles'])
-                ? ($validated['kitchens'] ?? [])
-                : []);
-        }
+        $roleChanges = $user->roles()->sync($validated['roles']);
+        $kitchenChanges = $this->syncKitchenAssignments($request, $user, $validated);
+        app(OperationalAuditObserver::class)->relationshipsChanged($user, ['roles' => $roleChanges, 'kitchens' => $kitchenChanges]);
 
         return redirect()->route('users.index')->with('success', 'User created successfully.');
     }
@@ -174,12 +171,9 @@ class UserController extends Controller
         }
 
         $user->update($payload);
-        $user->roles()->sync($validated['roles']);
-        if ($request->has('kitchens')) {
-            $user->kitchens()->sync($this->selectedRolesIncludeKitchenStaff($validated['roles'])
-                ? ($validated['kitchens'] ?? [])
-                : []);
-        }
+        $roleChanges = $user->roles()->sync($validated['roles']);
+        $kitchenChanges = $this->syncKitchenAssignments($request, $user, $validated);
+        app(OperationalAuditObserver::class)->relationshipsChanged($user, ['roles' => $roleChanges, 'kitchens' => $kitchenChanges]);
 
         return redirect()->route('users.index')->with('success', 'User updated successfully.');
     }
@@ -264,6 +258,7 @@ class UserController extends Controller
             'branch_id' => [$this->locksBranch() ? 'required' : 'nullable', 'exists:branches,id'],
             'roles' => ['required', 'array', 'min:1'],
             'roles.*' => ['exists:roles,id'],
+            'kitchen_assignments_present' => ['sometimes', 'boolean'],
             'kitchens' => ['nullable', 'array'],
             'kitchens.*' => [
                 'integer',
@@ -302,5 +297,27 @@ class UserController extends Controller
             ->whereIn('slug', ['kitchen-staff', 'kitchen-manager'])
             ->exists();
     }
-}
 
+    private function syncKitchenAssignments(Request $request, User $user, array $validated): array
+    {
+        if (! $this->selectedRolesIncludeKitchenStaff($validated['roles'])) {
+            return $user->kitchens()->sync([]);
+        }
+
+        // An empty multi-select has no kitchens key; the form marker makes that
+        // an explicit clear while requests without assignment controls preserve it.
+        if ($request->boolean('kitchen_assignments_present') || $request->has('kitchens')) {
+            return $user->kitchens()->sync($validated['kitchens'] ?? []);
+        }
+
+        // Recheck preserved stations against the updated tenant and active state.
+        $kitchenIds = $user->kitchens()
+            ->where('kitchens.company_id', $user->company_id)
+            ->where('kitchens.branch_id', $user->branch_id)
+            ->where('kitchens.is_active', true)
+            ->pluck('kitchens.id')
+            ->all();
+
+        return $user->kitchens()->sync($kitchenIds);
+    }
+}

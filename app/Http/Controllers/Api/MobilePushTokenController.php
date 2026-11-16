@@ -13,25 +13,29 @@ class MobilePushTokenController extends Controller
 {
     public function storeWaiter(Request $request): JsonResponse
     {
-        abort_unless($request->user()->isWaiter(), 403);
+        abort_unless($request->user()->hasPermission('order.view'), 403);
+
         return $this->store($request, 'waiter');
     }
 
     public function destroyWaiter(Request $request): JsonResponse
     {
-        abort_unless($request->user()->isWaiter(), 403);
+        abort_unless($request->user()->hasPermission('order.view'), 403);
+
         return $this->destroy($request, 'waiter');
     }
 
     public function storeKitchen(Request $request): JsonResponse
     {
         abort_unless($request->user()->isKitchenStaff(), 403);
+
         return $this->store($request, 'kitchen');
     }
 
     public function destroyKitchen(Request $request): JsonResponse
     {
         abort_unless($request->user()->isKitchenStaff(), 403);
+
         return $this->destroy($request, 'kitchen');
     }
 

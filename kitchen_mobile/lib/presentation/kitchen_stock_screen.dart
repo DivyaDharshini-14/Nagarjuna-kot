@@ -4,6 +4,7 @@ import '../app/kitchen_theme.dart';
 import '../core/api_client.dart';
 import '../data/kitchen_repository.dart';
 import '../domain/kitchen_models.dart';
+import 'kitchen_page_controls.dart';
 
 class KitchenStockScreen extends StatefulWidget {
   const KitchenStockScreen({
@@ -26,6 +27,9 @@ class _KitchenStockScreenState extends State<KitchenStockScreen> {
   bool _loading = true;
   String? _error;
   final Set<int> _busyItems = {};
+  int _page = 1;
+  int _lastPage = 1;
+  int _total = 0;
 
   @override
   void initState() {
@@ -33,16 +37,20 @@ class _KitchenStockScreenState extends State<KitchenStockScreen> {
     _load();
   }
 
-  Future<void> _load() async {
+  Future<void> _load({int? page}) async {
     setState(() {
       _loading = true;
       _error = null;
+      _page = page ?? _page;
     });
     try {
-      final items = await widget.repository.getStockItems();
+      final page = await widget.repository.getStockPage(page: _page);
       if (!mounted) return;
       setState(() {
-        _items = items;
+        _items = page.items;
+        _page = page.currentPage;
+        _lastPage = page.lastPage;
+        _total = page.total;
         _loading = false;
       });
     } on KitchenApiException catch (error) {
@@ -75,7 +83,7 @@ class _KitchenStockScreenState extends State<KitchenStockScreen> {
             allowDirection: type == 'manual_adjustment',
           ),
         );
-    if (result == null) return;
+    if (result == null || !mounted) return;
 
     setState(() => _busyItems.add(item.id));
     try {
@@ -123,53 +131,11 @@ class _KitchenStockScreenState extends State<KitchenStockScreen> {
   }
 
   Future<void> _showHistory(KitchenStockItem item) async {
-    try {
-      final entries = await widget.repository.getStockTransactions(item.id);
-      if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text('${item.name} stock history'),
-          content: SizedBox(
-            width: 520,
-            height: 420,
-            child: entries.isEmpty
-                ? const Center(child: Text('No stock movements recorded.'))
-                : ListView.separated(
-                    itemCount: entries.length,
-                    separatorBuilder: (_, _) => const Divider(height: 1),
-                    itemBuilder: (context, index) {
-                      final entry = entries[index];
-                      final delta = entry.quantityDelta;
-                      return ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(
-                          '${entry.type.replaceAll('_', ' ')} · ${delta > 0 ? '+' : ''}$delta',
-                        ),
-                        subtitle: Text(
-                          '${entry.reason}\n${entry.user} · ${entry.createdAt ?? ''}',
-                        ),
-                        isThreeLine: true,
-                        trailing: Text(
-                          '${entry.stockBefore} → ${entry.stockAfter}',
-                        ),
-                      );
-                    },
-                  ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Close'),
-            ),
-          ],
-        ),
-      );
-    } on KitchenApiException catch (error) {
-      _message(error.message);
-    } on KitchenApiTransportException catch (error) {
-      _message(error.message);
-    }
+    await showDialog<void>(
+      context: context,
+      builder: (_) =>
+          _StockHistoryDialog(repository: widget.repository, item: item),
+    );
   }
 
   void _replaceItem(KitchenStockItem updated) {
@@ -190,12 +156,28 @@ class _KitchenStockScreenState extends State<KitchenStockScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
+    bottomNavigationBar: _lastPage > 1
+        ? SafeArea(
+            child: KitchenPageControls(
+              currentPage: _page,
+              lastPage: _lastPage,
+              total: _total,
+              loading: _loading || _busyItems.isNotEmpty,
+              onPageChanged: (page) => _load(page: page),
+            ),
+          )
+        : null,
     appBar: AppBar(
       leading: IconButton(
         onPressed: widget.onBack,
         icon: const Icon(Icons.arrow_back_rounded),
       ),
-      title: const Text('Prepared stock'),
+      toolbarHeight: 36 + MediaQuery.textScalerOf(context).scale(20),
+      title: const Text(
+        'Prepared stock',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
       actions: [
         IconButton(
           onPressed: _loading ? null : _load,
@@ -207,38 +189,45 @@ class _KitchenStockScreenState extends State<KitchenStockScreen> {
     body: _loading
         ? const Center(child: CircularProgressIndicator())
         : _error != null
-        ? Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(_error!, textAlign: TextAlign.center),
-                  const SizedBox(height: 12),
-                  FilledButton(onPressed: _load, child: const Text('Retry')),
-                ],
+        ? SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(_error!, textAlign: TextAlign.center),
+                    const SizedBox(height: 12),
+                    FilledButton(onPressed: _load, child: const Text('Retry')),
+                  ],
+                ),
               ),
             ),
           )
-        : RefreshIndicator(
-            onRefresh: _load,
-            child: _items.isEmpty
-                ? ListView(
-                    children: const [
-                      SizedBox(height: 150),
-                      Center(
-                        child: Text(
-                          'No active dishes are mapped to your assigned kitchens.',
+        : SafeArea(
+            top: false,
+            child: RefreshIndicator(
+              onRefresh: _load,
+              child: _items.isEmpty
+                  ? ListView(
+                      children: const [
+                        SizedBox(height: 150),
+                        Padding(
+                          padding: EdgeInsets.all(24),
+                          child: Text(
+                            'No active dishes are mapped to your assigned kitchens.',
+                            textAlign: TextAlign.center,
+                          ),
                         ),
-                      ),
-                    ],
-                  )
-                : ListView.separated(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _items.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 10),
-                    itemBuilder: (context, index) => _itemCard(_items[index]),
-                  ),
+                      ],
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: _items.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 10),
+                      itemBuilder: (context, index) => _itemCard(_items[index]),
+                    ),
+            ),
           ),
   );
 
@@ -250,83 +239,113 @@ class _KitchenStockScreenState extends State<KitchenStockScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final details = Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.name,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                      ),
+                    ),
+                    Text(
+                      item.kitchens.join(', '),
+                      style: const TextStyle(
+                        color: KitchenColors.muted,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                );
+                final quantity = Text.rich(
+                  TextSpan(
                     children: [
-                      Text(
-                        item.name,
+                      TextSpan(
+                        text: item.quantity?.toString() ?? '—',
                         style: const TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 16,
+                          fontSize: 23,
+                          fontWeight: FontWeight.w900,
+                          color: KitchenColors.green,
                         ),
                       ),
-                      Text(
-                        item.kitchens.join(', '),
-                        style: const TextStyle(
+                      const TextSpan(
+                        text: ' portions',
+                        style: TextStyle(
+                          fontSize: 10,
                           color: KitchenColors.muted,
-                          fontSize: 11,
                         ),
                       ),
                     ],
                   ),
-                ),
-                Text(
-                  item.quantity?.toString() ?? '—',
-                  style: const TextStyle(
-                    fontSize: 23,
-                    fontWeight: FontWeight.w900,
-                    color: KitchenColors.green,
-                  ),
-                ),
-                const SizedBox(width: 5),
-                const Text(
-                  'portions',
-                  style: TextStyle(fontSize: 10, color: KitchenColors.muted),
-                ),
-              ],
+                );
+                // Stack metadata when text or portion counts need more room.
+                if (constraints.maxWidth < 320 ||
+                    MediaQuery.textScalerOf(context).scale(14) > 18 ||
+                    (item.quantity?.toString().length ?? 1) > 5) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [details, const SizedBox(height: 8), quantity],
+                  );
+                }
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(flex: 2, child: details),
+                    const SizedBox(width: 12),
+                    Flexible(child: quantity),
+                  ],
+                );
+              },
             ),
             const SizedBox(height: 8),
             Row(
               children: [
-                const Text(
-                  'Availability',
-                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
-                ),
-                const SizedBox(width: 12),
                 Expanded(
-                  child: DropdownButtonFormField<String>(
-                    initialValue: item.availability,
+                  child: InputDecorator(
+                    isEmpty: false,
                     decoration: const InputDecoration(
+                      labelText: 'Availability',
+                      floatingLabelBehavior: FloatingLabelBehavior.always,
                       isDense: true,
                       contentPadding: EdgeInsets.symmetric(
                         horizontal: 10,
                         vertical: 8,
                       ),
                     ),
-                    items: const [
-                      DropdownMenuItem(
-                        value: 'available',
-                        child: Text('Available'),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: item.availability,
+                        isExpanded: true,
+                        isDense: false,
+                        itemHeight: null,
+                        borderRadius: BorderRadius.circular(14),
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'available',
+                            child: Text('Available'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'temporarily_unavailable',
+                            child: Text('Temporarily unavailable'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'sold_out',
+                            child: Text('Sold out'),
+                          ),
+                        ],
+                        onChanged: widget.canManageStock && !busy
+                            ? (value) {
+                                if (value != null &&
+                                    value != item.availability) {
+                                  _setAvailability(item, value);
+                                }
+                              }
+                            : null,
                       ),
-                      DropdownMenuItem(
-                        value: 'temporarily_unavailable',
-                        child: Text('Temporarily unavailable'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'sold_out',
-                        child: Text('Sold out'),
-                      ),
-                    ],
-                    onChanged: widget.canManageStock && !busy
-                        ? (value) {
-                            if (value != null && value != item.availability) {
-                              _setAvailability(item, value);
-                            }
-                          }
-                        : null,
+                    ),
                   ),
                 ),
                 IconButton(
@@ -390,6 +409,175 @@ class _KitchenStockScreenState extends State<KitchenStockScreen> {
   };
 }
 
+class _StockHistoryDialog extends StatefulWidget {
+  const _StockHistoryDialog({required this.repository, required this.item});
+
+  final KitchenRepository repository;
+  final KitchenStockItem item;
+
+  @override
+  State<_StockHistoryDialog> createState() => _StockHistoryDialogState();
+}
+
+class _StockHistoryDialogState extends State<_StockHistoryDialog> {
+  KitchenPage<KitchenStockTransaction>? _entries;
+  bool _loading = true;
+  String? _error;
+  int _requestedPage = 1;
+
+  @override
+  void initState() {
+    super.initState();
+    _load(1);
+  }
+
+  Future<void> _load(int page) async {
+    setState(() {
+      _loading = true;
+      _error = null;
+      _requestedPage = page;
+    });
+    try {
+      final entries = await widget.repository.getStockTransactionPage(
+        widget.item.id,
+        page: page,
+      );
+      if (mounted) setState(() => _entries = entries);
+    } on KitchenApiException catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    } on KitchenApiTransportException catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _error = 'Could not load stock history. Retry when connected.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final entries = _entries;
+    return _StockDialog(
+      title: Text('${widget.item.name} stock history'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _loading
+              ? const Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              : _error != null
+              ? Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(_error!, textAlign: TextAlign.center),
+                    TextButton(
+                      onPressed: () => _load(_requestedPage),
+                      child: const Text('Retry'),
+                    ),
+                  ],
+                )
+              : entries == null || entries.items.isEmpty
+              ? const Center(child: Text('No stock movements recorded.'))
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (final entry in entries.items) ...[
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '${entry.type.replaceAll('_', ' ')} · ${entry.quantityDelta > 0 ? '+' : ''}${entry.quantityDelta}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            Text(
+                              '${entry.stockBefore} → ${entry.stockAfter} portions',
+                            ),
+                            const SizedBox(height: 4),
+                            Text(entry.reason),
+                            Text('${entry.user} · ${entry.createdAt ?? ''}'),
+                          ],
+                        ),
+                      ),
+                      const Divider(height: 1),
+                    ],
+                  ],
+                ),
+          if (entries != null && entries.lastPage > 1)
+            KitchenPageControls(
+              currentPage: entries.currentPage,
+              lastPage: entries.lastPage,
+              total: entries.total,
+              loading: _loading,
+              onPageChanged: _load,
+            ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Close'),
+        ),
+      ],
+    );
+  }
+}
+
+/// The keyboard can leave very little vertical space in landscape. Keeping
+/// title, fields, counters and actions in one scroll view lets them all grow.
+class _StockDialog extends StatelessWidget {
+  const _StockDialog({
+    required this.title,
+    required this.content,
+    required this.actions,
+  });
+
+  final Widget title;
+  final Widget content;
+  final List<Widget> actions;
+
+  @override
+  Widget build(BuildContext context) => Dialog(
+    insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 560),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            DefaultTextStyle.merge(
+              style: Theme.of(context).textTheme.headlineSmall,
+              child: title,
+            ),
+            const SizedBox(height: 24),
+            content,
+            const SizedBox(height: 24),
+            OverflowBar(
+              alignment: MainAxisAlignment.end,
+              overflowAlignment: OverflowBarAlignment.end,
+              spacing: 8,
+              overflowSpacing: 8,
+              children: actions,
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
 class _StockAdjustmentDialog extends StatefulWidget {
   const _StockAdjustmentDialog({
     required this.title,
@@ -404,6 +592,7 @@ class _StockAdjustmentDialog extends StatefulWidget {
 }
 
 class _StockAdjustmentDialogState extends State<_StockAdjustmentDialog> {
+  final _formKey = GlobalKey<FormState>();
   final _quantityController = TextEditingController();
   final _reasonController = TextEditingController();
   String _direction = 'increase';
@@ -416,38 +605,64 @@ class _StockAdjustmentDialogState extends State<_StockAdjustmentDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => _StockDialog(
     title: Text(widget.title),
-    content: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        TextField(
-          controller: _quantityController,
-          keyboardType: TextInputType.number,
-          decoration: const InputDecoration(labelText: 'Portion quantity'),
-        ),
-        if (widget.allowDirection)
-          DropdownButtonFormField<String>(
-            initialValue: _direction,
-            decoration: const InputDecoration(labelText: 'Correction'),
-            items: const [
-              DropdownMenuItem(value: 'increase', child: Text('Add portions')),
-              DropdownMenuItem(
-                value: 'decrease',
-                child: Text('Remove portions'),
-              ),
-            ],
-            onChanged: (value) =>
-                setState(() => _direction = value ?? 'increase'),
+    content: Form(
+      key: _formKey,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextFormField(
+            controller: _quantityController,
+            keyboardType: TextInputType.number,
+            textInputAction: TextInputAction.next,
+            decoration: const InputDecoration(
+              labelText: 'Portion quantity',
+              errorMaxLines: 3,
+            ),
+            validator: (value) {
+              final quantity = int.tryParse(value?.trim() ?? '');
+              return quantity == null || quantity < 1
+                  ? 'Enter a whole number of at least 1.'
+                  : null;
+            },
           ),
-        TextField(
-          controller: _reasonController,
-          minLines: 2,
-          maxLines: 3,
-          maxLength: 500,
-          decoration: const InputDecoration(labelText: 'Reason (required)'),
-        ),
-      ],
+          const SizedBox(height: 16),
+          if (widget.allowDirection) ...[
+            DropdownButtonFormField<String>(
+              initialValue: _direction,
+              isExpanded: true,
+              isDense: false,
+              itemHeight: null,
+              decoration: const InputDecoration(labelText: 'Correction'),
+              items: const [
+                DropdownMenuItem(
+                  value: 'increase',
+                  child: Text('Add portions'),
+                ),
+                DropdownMenuItem(
+                  value: 'decrease',
+                  child: Text('Remove portions'),
+                ),
+              ],
+              onChanged: (value) =>
+                  setState(() => _direction = value ?? 'increase'),
+            ),
+            const SizedBox(height: 16),
+          ],
+          TextFormField(
+            controller: _reasonController,
+            minLines: 2,
+            maxLines: 3,
+            maxLength: 500,
+            decoration: const InputDecoration(
+              labelText: 'Reason (required)',
+              errorMaxLines: 3,
+            ),
+            validator: _validateReason,
+          ),
+        ],
+      ),
     ),
     actions: [
       TextButton(
@@ -456,9 +671,9 @@ class _StockAdjustmentDialogState extends State<_StockAdjustmentDialog> {
       ),
       FilledButton(
         onPressed: () {
-          final quantity = int.tryParse(_quantityController.text.trim());
+          if (!_formKey.currentState!.validate()) return;
+          final quantity = int.parse(_quantityController.text.trim());
           final reason = _reasonController.text.trim();
-          if (quantity == null || quantity < 1 || reason.length < 3) return;
           Navigator.of(context)
               .pop((quantity: quantity, reason: reason, direction: _direction));
         },
@@ -477,6 +692,7 @@ class _AvailabilityReasonDialog extends StatefulWidget {
 }
 
 class _AvailabilityReasonDialogState extends State<_AvailabilityReasonDialog> {
+  final _formKey = GlobalKey<FormState>();
   final _reasonController = TextEditingController();
 
   @override
@@ -486,15 +702,22 @@ class _AvailabilityReasonDialogState extends State<_AvailabilityReasonDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => _StockDialog(
     title: const Text('Why is availability changing?'),
-    content: TextField(
-      controller: _reasonController,
-      autofocus: true,
-      minLines: 2,
-      maxLines: 4,
-      maxLength: 500,
-      decoration: const InputDecoration(labelText: 'Reason (required)'),
+    content: Form(
+      key: _formKey,
+      child: TextFormField(
+        controller: _reasonController,
+        autofocus: true,
+        minLines: 2,
+        maxLines: 4,
+        maxLength: 500,
+        decoration: const InputDecoration(
+          labelText: 'Reason (required)',
+          errorMaxLines: 3,
+        ),
+        validator: _validateReason,
+      ),
     ),
     actions: [
       TextButton(
@@ -503,11 +726,16 @@ class _AvailabilityReasonDialogState extends State<_AvailabilityReasonDialog> {
       ),
       FilledButton(
         onPressed: () {
+          if (!_formKey.currentState!.validate()) return;
           final reason = _reasonController.text.trim();
-          if (reason.length >= 3) Navigator.of(context).pop(reason);
+          Navigator.of(context).pop(reason);
         },
         child: const Text('Save change'),
       ),
     ],
   );
 }
+
+String? _validateReason(String? value) => (value?.trim().length ?? 0) < 3
+    ? 'Enter a reason with at least 3 characters.'
+    : null;

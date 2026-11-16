@@ -9,11 +9,13 @@ use App\Models\KotTicket;
 use App\Models\MenuItem;
 use App\Models\StockTransaction;
 use App\Models\User;
+use App\Services\BranchSettings;
 use App\Services\OrderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 
 class MobileKitchenController extends Controller
@@ -88,13 +90,15 @@ class MobileKitchenController extends Controller
         $user = $request->user();
         $kitchens = $this->assignedKitchens($user);
         $view = $this->requestedTicketView($request);
-        $tickets = $this->ticketsForKitchens($user, $kitchens->modelKeys(), $view);
+        $tickets = $this->ticketsForKitchens($request, $user, $kitchens->modelKeys(), $view);
 
         return response()->json([
             'data' => [
                 'kitchens' => $kitchens->map(fn (Kitchen $kitchen) => $this->kitchenPayload($kitchen))->values(),
-                'tickets' => $tickets,
+                'tickets' => $tickets instanceof LengthAwarePaginator ? $tickets->items() : $tickets,
+                'pagination' => $tickets instanceof LengthAwarePaginator ? $this->paginationPayload($tickets) : null,
                 'view' => $view,
+                'sound_allowed' => (bool) app(BranchSettings::class)->forBranch((int) $user->branch_id)['sound_enabled'],
                 'refreshed_at' => now()->toIso8601String(),
             ],
         ]);
@@ -104,7 +108,7 @@ class MobileKitchenController extends Controller
     {
         $this->authorizeKitchen($request->user(), $kitchen);
         $view = $this->requestedTicketView($request);
-        $tickets = $this->ticketsForKitchens($request->user(), [$kitchen->id], $view);
+        $tickets = $this->ticketsForKitchens($request, $request->user(), [$kitchen->id], $view);
 
         return response()->json([
             'data' => [
@@ -113,8 +117,10 @@ class MobileKitchenController extends Controller
                     'name' => $kitchen->name,
                     'code' => $kitchen->code,
                 ],
-                'tickets' => $tickets,
+                'tickets' => $tickets instanceof LengthAwarePaginator ? $tickets->items() : $tickets,
+                'pagination' => $tickets instanceof LengthAwarePaginator ? $this->paginationPayload($tickets) : null,
                 'view' => $view,
+                'sound_allowed' => (bool) app(BranchSettings::class)->forBranch((int) $request->user()->branch_id)['sound_enabled'],
                 'refreshed_at' => now()->toIso8601String(),
             ],
         ]);
@@ -147,7 +153,7 @@ class MobileKitchenController extends Controller
         return $view;
     }
 
-    private function ticketsForKitchens(User $user, array $kitchenIds, string $view)
+    private function ticketsForKitchens(Request $request, User $user, array $kitchenIds, string $view)
     {
         $query = KotTicket::query()
             ->where('company_id', $user->company_id)
@@ -164,27 +170,52 @@ class MobileKitchenController extends Controller
         if ($view === 'active') {
             $query->whereHas('order', fn ($order) => $order->where('status', '<>', 'completed'))
                 ->where(function ($tickets) {
-                $tickets->whereIn('ticket_status', ['new', 'accepted', 'preparing', 'ready'])
-                    ->orWhere(fn ($cancelled) => $cancelled
-                        ->where('ticket_status', 'cancelled')
-                        ->where('updated_at', '>=', now()->subMinutes(15)));
+                    $tickets->whereIn('ticket_status', ['new', 'accepted', 'preparing', 'ready'])
+                        ->orWhere(fn ($cancelled) => $cancelled
+                            ->where('ticket_status', 'cancelled')
+                            ->where('updated_at', '>=', now()->subMinutes(15)));
                 })
-                ->orderBy('created_at');
+                ->orderBy('created_at')->orderBy('id');
         } elseif ($view === 'completed') {
             $query->where(fn ($tickets) => $tickets
                 ->where('ticket_status', 'served')
                 ->orWhereHas('order', fn ($order) => $order->where('status', 'completed')))
-                ->orderByDesc('updated_at')
-                ->limit(100);
+                ->orderByDesc('updated_at')->orderByDesc('id');
         } else {
             $query->where(fn ($tickets) => $tickets
                 ->where('ticket_status', 'cancelled')
                 ->orWhereHas('items', fn ($items) => $items->where('cancelled_quantity', '>', 0)))
-                ->orderByDesc('updated_at')
-                ->limit(100);
+                ->orderByDesc('updated_at')->orderByDesc('id');
         }
 
-        return $query->get();
+        if ($view === 'active') {
+            return $query->get();
+        }
+
+        $pagination = $this->paginationInput($request);
+
+        return $query->paginate($pagination['per_page'], ['*'], 'page', $pagination['page']);
+    }
+
+    private function paginationInput(Request $request): array
+    {
+        $validated = $request->validate([
+            'page' => ['sometimes', 'integer', 'min:1'],
+            'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
+        ]);
+
+        return ['page' => (int) ($validated['page'] ?? 1), 'per_page' => (int) ($validated['per_page'] ?? 50)];
+    }
+
+    private function paginationPayload(LengthAwarePaginator $page): array
+    {
+        return [
+            'current_page' => $page->currentPage(),
+            'last_page' => $page->lastPage(),
+            'per_page' => $page->perPage(),
+            'total' => $page->total(),
+            'has_more' => $page->hasMorePages(),
+        ];
     }
 
     public function updateTicketStatus(Request $request, KotTicket $ticket): JsonResponse
@@ -203,23 +234,7 @@ class MobileKitchenController extends Controller
             'status' => ['required', 'string', 'in:accepted,preparing,ready'],
         ]);
 
-        $current = $ticket->ticket_status;
-        $next = $validated['status'];
-        $allowedTransitions = [
-            'new' => ['accepted'],
-            'accepted' => ['preparing'],
-            'preparing' => ['ready'],
-        ];
-
-        if ($current !== $next && ! in_array($next, $allowedTransitions[$current] ?? [], true)) {
-            return response()->json([
-                'message' => 'This ticket has changed. Refresh the kitchen board before updating it.',
-            ], 409);
-        }
-
-        $updated = $current === $next
-            ? $ticket->fresh(['order.table', 'items.menuItem.menuType'])
-            : $this->orderService->updateKotTicketStatus($ticket, $next);
+        $updated = $this->orderService->updateKotTicketStatus($ticket, $validated['status']);
 
         return response()->json([
             'message' => 'KOT ticket updated.',
@@ -231,7 +246,8 @@ class MobileKitchenController extends Controller
     {
         $user = $request->user();
         $kitchenIds = $this->assignedKitchens($user)->modelKeys();
-        $items = MenuItem::query()
+        $pagination = $this->paginationInput($request);
+        $page = MenuItem::query()
             ->where('company_id', $user->company_id)
             ->where('branch_id', $user->branch_id)
             ->where('is_active', true)
@@ -242,11 +258,15 @@ class MobileKitchenController extends Controller
                 ->whereIn('kitchen_id', $kitchenIds)
                 ->where('is_active', true)
                 ->with('kitchen:id,name')])
-            ->orderBy('name')
-            ->get()
-            ->map(fn (MenuItem $item) => $this->stockPayload($item));
+            ->orderBy('name')->orderBy('id')
+            ->paginate($pagination['per_page'], ['*'], 'page', $pagination['page']);
+        $items = $page->getCollection()->map(fn (MenuItem $item) => $this->stockPayload($item));
 
-        return response()->json(['data' => ['items' => $items, 'can_manage_stock' => $user->hasPermission('menu-item.stock-adjustment')]]);
+        return response()->json(['data' => [
+            'items' => $items,
+            'pagination' => $this->paginationPayload($page),
+            'can_manage_stock' => $user->hasPermission('menu-item.stock-adjustment'),
+        ]]);
     }
 
     public function adjustStock(Request $request, MenuItem $menuItem): JsonResponse
@@ -262,7 +282,7 @@ class MobileKitchenController extends Controller
             'reason' => ['required', 'string', 'min:3', 'max:500'],
         ]);
 
-        $updated = \Illuminate\Support\Facades\DB::transaction(function () use ($menuItem, $user, $validated) {
+        $updated = DB::transaction(function () use ($menuItem, $user, $validated) {
             $locked = MenuItem::query()->whereKey($menuItem->id)->lockForUpdate()->firstOrFail();
             abort_unless($locked->stock_tracking_enabled, 422, 'Prepared stock tracking must be enabled in menu management first.');
             $wasConfigured = $locked->prepared_stock_quantity !== null;
@@ -304,14 +324,15 @@ class MobileKitchenController extends Controller
     {
         $user = $request->user();
         $this->authorizeMenuItem($user, $menuItem);
-        $transactions = StockTransaction::query()
+        $pagination = $this->paginationInput($request);
+        $page = StockTransaction::query()
             ->where('company_id', $user->company_id)
             ->where('branch_id', $user->branch_id)
             ->where('menu_item_id', $menuItem->id)
             ->with('user:id,name')
-            ->latest()
-            ->limit(50)
-            ->get()
+            ->latest()->orderByDesc('id')
+            ->paginate($pagination['per_page'], ['*'], 'page', $pagination['page']);
+        $transactions = $page->getCollection()
             ->map(fn (StockTransaction $transaction) => [
                 'id' => $transaction->id,
                 'type' => $transaction->transaction_type,
@@ -324,7 +345,7 @@ class MobileKitchenController extends Controller
                 'created_at' => $transaction->created_at?->toIso8601String(),
             ]);
 
-        return response()->json(['data' => ['transactions' => $transactions]]);
+        return response()->json(['data' => ['transactions' => $transactions, 'pagination' => $this->paginationPayload($page)]]);
     }
 
     public function setAvailability(Request $request, MenuItem $menuItem): JsonResponse
@@ -338,7 +359,9 @@ class MobileKitchenController extends Controller
         ]);
         $updated = DB::transaction(function () use ($menuItem, $user, $validated) {
             $locked = MenuItem::query()->whereKey($menuItem->id)->lockForUpdate()->firstOrFail();
-            if ($locked->availability === $validated['availability']) return $locked;
+            if ($locked->availability === $validated['availability']) {
+                return $locked;
+            }
             $stock = (int) ($locked->prepared_stock_quantity ?? 0);
             StockTransaction::create([
                 'company_id' => $locked->company_id,
@@ -353,6 +376,7 @@ class MobileKitchenController extends Controller
                 'reason' => trim($validated['reason']).' ('.$locked->availability.' → '.$validated['availability'].')',
             ]);
             $locked->update(['availability' => $validated['availability']]);
+
             return $locked;
         });
         event(new MenuAvailabilityChanged(
@@ -438,6 +462,8 @@ class MobileKitchenController extends Controller
                 'name' => $user->branch->name,
                 'code' => $user->branch->code,
             ],
+            'can_view_stock' => $user->hasPermission('menu-item.view'),
+            'sound_allowed' => (bool) app(BranchSettings::class)->forBranch((int) $user->branch_id)['sound_enabled'],
             'can_manage_stock' => $user->hasPermission('menu-item.stock-adjustment'),
         ];
     }

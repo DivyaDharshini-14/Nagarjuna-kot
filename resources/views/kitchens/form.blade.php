@@ -10,7 +10,8 @@
 </div>
 <div class="mb-3">
     <label class="form-label" for="kitchen_type">Kitchen type <span class="text-muted small">(optional)</span></label>
-    <input class="form-control" id="kitchen_type" name="kitchen_type" value="{{ old('kitchen_type', $kitchen?->kitchen_type) }}" placeholder="e.g. Main Kitchen, Biryani Kitchen, Bakery, Starters">
+    <input class="form-control" id="kitchen_type" name="kitchen_type" maxlength="100" value="{{ old('kitchen_type', $kitchen?->kitchen_type ?? 'General') }}" placeholder="e.g. Main Kitchen, Biryani Kitchen, Bakery, Starters">
+    <div class="form-text">Leave blank to use General.</div>
 </div>
 <div class="mb-3">
     <label class="form-label" for="description">Description</label>

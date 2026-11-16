@@ -34,9 +34,9 @@
             <span class="text-secondary small ms-2">Live Kitchen Display</span>
         </div>
         <div class="d-flex align-items-center gap-3">
-            <span class="badge bg-danger fs-6">{{ $tickets->where('ticket_status', 'new')->count() }} New</span>
-            <span class="badge bg-warning text-dark fs-6">{{ $tickets->where('ticket_status', 'preparing')->count() }} Preparing</span>
-            <span class="badge bg-success fs-6">{{ $tickets->where('ticket_status', 'ready')->count() }} Ready</span>
+            <span id="count-new" class="badge bg-danger fs-6">{{ $tickets->whereIn('ticket_status', ['new', 'accepted'])->count() }} New</span>
+            <span id="count-preparing" class="badge bg-warning text-dark fs-6">{{ $tickets->where('ticket_status', 'preparing')->count() }} Preparing</span>
+            <span id="count-ready" class="badge bg-success fs-6">{{ $tickets->where('ticket_status', 'ready')->count() }} Ready</span>
             <span id="connection-status" class="badge bg-warning text-dark">Connecting…</span>
             <button id="sound-toggle" type="button" class="btn btn-outline-light btn-sm">Enable sound</button>
             @unless($displayToken)
@@ -46,72 +46,39 @@
     </header>
 
     <main class="container-fluid py-4">
+        @if($errors->any())
+            <div class="alert alert-warning">{{ $errors->first() }}</div>
+        @endif
         <div class="row g-3">
-            @forelse($tickets as $ticket)
-                <div class="col-md-6 col-lg-4 col-xl-3">
-                    <div class="kot-card status-{{ $ticket->ticket_status }} p-3" data-created-at="{{ $ticket->created_at->timestamp }}">
-                        <div class="d-flex justify-content-between align-items-start border-bottom border-secondary pb-2 mb-2">
-                            <div>
-                                <h4 class="mb-0 fw-bold text-white">{{ $ticket->kot_number }}</h4>
-                                <span class="text-secondary small">Order: {{ $ticket->order?->order_number }}</span>
-                                <span class="badge bg-info text-dark fs-6 mt-1">Table: {{ $ticket->order?->table?->name }}</span>
-                            </div>
-                            <div class="text-end">
-                                <span class="badge {{ $ticket->ticket_status === 'new' ? 'bg-danger' : ($ticket->ticket_status === 'preparing' ? 'bg-warning text-dark' : 'bg-success') }} fs-6 text-capitalize">
-                                    {{ $ticket->ticket_status }}
-                                </span>
-                                <div class="text-secondary small mt-1">{{ $ticket->created_at->format('H:i:s') }}</div>
-                                <div class="text-warning small mt-1">Waiting <span class="waiting-duration">—</span></div>
-                            </div>
-                        </div>
-
-                        <ul class="list-unstyled mb-3">
-                            @foreach($ticket->items as $dish)
-                                @php($remainingQuantity = max(0, $dish->quantity - $dish->cancelled_quantity))
-                                <li class="d-flex justify-content-between align-items-start py-2 border-bottom border-dark">
-                                    <div>
-                                        <div class="fs-5 fw-bold {{ $remainingQuantity === 0 ? 'text-secondary text-decoration-line-through' : 'text-light' }}">{{ $dish->menuItem?->name }}</div>
-                                        @if($dish->special_instructions)
-                                            <div class="badge bg-danger text-wrap text-start mt-1">Note: {{ $dish->special_instructions }}</div>
-                                        @endif
-                                        @if($dish->cancelled_quantity > 0)
-                                            <div class="badge bg-secondary mt-1">Cancelled: {{ $dish->cancelled_quantity }}</div>
-                                        @endif
-                                    </div>
-                                    <span class="badge bg-light text-dark fs-4 ms-2 px-3 py-1">{{ $remainingQuantity }}</span>
-                                </li>
-                            @endforeach
-                        </ul>
-
-                        <div class="d-grid gap-2">
-                            <form method="POST" action="{{ $displayToken ? route('kds.registered-status', [$displayToken, $ticket]) : route('kots.update-status', $ticket) }}">
-                                @csrf
-                                @method('PATCH')
-                                @if($ticket->ticket_status === 'new')
-                                    <input type="hidden" name="status" value="accepted">
-                                    <button class="btn btn-info w-100 fw-bold py-2 fs-6">ACCEPT TICKET</button>
-                                @elseif($ticket->ticket_status === 'accepted')
-                                    <input type="hidden" name="status" value="preparing">
-                                    <button class="btn btn-warning w-100 fw-bold py-2 fs-6">START PREPARING</button>
-                                @elseif($ticket->ticket_status === 'preparing')
-                                    <input type="hidden" name="status" value="ready">
-                                    <button class="btn btn-success w-100 fw-bold py-2 fs-6">MARK READY</button>
-                                @elseif($ticket->ticket_status === 'ready')
-                                    <input type="hidden" name="status" value="served">
-                                    <button class="btn btn-secondary w-100 fw-bold py-2 fs-6">DISPATCH / SERVED</button>
-                                @endif
-                            </form>
-                        </div>
-                    </div>
-                </div>
-            @empty
-                <div class="col-12 text-center py-5 text-secondary">
-                    <i class="bi bi-check-circle fs-1 d-block mb-3 text-success"></i>
-                    <h3>No pending orders in {{ $kitchen->name }}.</h3>
-                    <p>New orders will appear automatically here.</p>
-                </div>
-            @endforelse
+            @foreach(['new' => 'New orders', 'preparing' => 'Preparing orders', 'ready' => 'Ready orders'] as $stage => $label)
+                @php($stageTickets = $tickets->filter(fn ($ticket) => $stage === 'new' ? in_array($ticket->ticket_status, ['new', 'accepted'], true) : $ticket->ticket_status === $stage))
+                <section class="col-lg-4" aria-label="{{ $label }}">
+                    <h2 class="h4 mb-3">{{ $label }} <span class="badge bg-secondary">{{ $stageTickets->count() }}</span></h2>
+                    @forelse($stageTickets as $ticket)
+                        @include('kots._display-ticket', ['ticket' => $ticket, 'interactive' => true])
+                    @empty
+                        <p class="text-secondary">No {{ strtolower($label) }}.</p>
+                    @endforelse
+                </section>
+            @endforeach
         </div>
+        <section class="mt-4 border-top border-secondary pt-3" aria-label="Ticket history">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h2 class="h4 mb-0">{{ $historyType === 'completed' ? 'Completed orders' : 'Cancelled items' }}</h2>
+                <div class="btn-group">
+                    <a class="btn btn-outline-light btn-sm" href="{{ request()->fullUrlWithQuery(['history' => 'cancelled', 'history_page' => 1]) }}">Cancelled items</a>
+                    <a class="btn btn-outline-light btn-sm" href="{{ request()->fullUrlWithQuery(['history' => 'completed', 'history_page' => 1]) }}">Completed orders</a>
+                </div>
+            </div>
+            <div class="row g-3">
+                @forelse($historyTickets as $ticket)
+                    <div class="col-md-6 col-xl-4">@include('kots._display-ticket', ['ticket' => $ticket, 'interactive' => false])</div>
+                @empty
+                    <p class="text-secondary">No history found.</p>
+                @endforelse
+            </div>
+            {{ $historyTickets->links() }}
+        </section>
     </main>
 
     <script>
@@ -123,13 +90,19 @@
             const secure = @json(config('broadcasting.connections.reverb.options.scheme')) === 'https';
             const status = document.getElementById('connection-status');
             const soundButton = document.getElementById('sound-toggle');
+            const soundAllowed = @json((bool) app(\App\Services\BranchSettings::class)->forBranch((int) $kitchen->branch_id)['sound_enabled']);
             const soundStorageKey = `nagarjuna-kds-sound-${kitchenId}`;
-            let soundEnabled = localStorage.getItem(soundStorageKey) === 'enabled';
+            let soundEnabled = soundAllowed && localStorage.getItem(soundStorageKey) === 'enabled';
             let socket;
             let reconnectTimer;
             let retry = 0;
             let connected = false;
             let connectedOnce = false;
+            let refreshing = false;
+            let refreshAgain = false;
+            let lastAlertAt = 0;
+            const knownTickets = new Map();
+            document.querySelectorAll('[data-ticket-id]').forEach(card => knownTickets.set(card.dataset.ticketId, Number(card.dataset.cancelledQuantity)));
 
             const setStatus = (text, ok = false) => {
                 status.textContent = text;
@@ -137,15 +110,47 @@
             };
             const updateDurations = () => {
                 document.querySelectorAll('[data-created-at]').forEach(card => {
-                    const seconds = Math.max(0, Math.floor(Date.now() / 1000) - Number(card.dataset.createdAt));
+                    const end = card.dataset.endedAt ? Number(card.dataset.endedAt) : Math.floor(Date.now() / 1000);
+                    const seconds = Math.max(0, end - Number(card.dataset.createdAt));
                     const minutes = Math.floor(seconds / 60);
                     const hours = Math.floor(minutes / 60);
                     const label = hours > 0 ? `${hours}h ${minutes % 60}m` : minutes > 0 ? `${minutes}m` : `${seconds}s`;
                     card.querySelector('.waiting-duration').textContent = label;
                 });
             };
+            const refreshDisplay = async () => {
+                if (refreshing) { refreshAgain = true; return; }
+                refreshing = true;
+                try {
+                    const response = await fetch(window.location.href, {credentials: 'same-origin', headers: {'Accept': 'text/html'}});
+                    if (!response.ok || response.redirected) throw new Error('Display authorization or connection unavailable.');
+                    const next = new DOMParser().parseFromString(await response.text(), 'text/html');
+                    const main = next.querySelector('main');
+                    if (!main) throw new Error('Display unavailable.');
+                    let shouldAlert = false;
+                    main.querySelectorAll('[data-ticket-id]').forEach(card => {
+                        const previous = knownTickets.get(card.dataset.ticketId);
+                        const cancelled = Number(card.dataset.cancelledQuantity);
+                        if ((previous === undefined && card.dataset.ticketStatus === 'new') || (previous !== undefined && cancelled > previous)) shouldAlert = true;
+                        knownTickets.set(card.dataset.ticketId, cancelled);
+                    });
+                    if (shouldAlert) playAlert();
+                    document.querySelector('main').replaceWith(main);
+                    ['count-new', 'count-preparing', 'count-ready'].forEach(id => {
+                        document.getElementById(id).textContent = next.getElementById(id).textContent;
+                    });
+                    updateDurations();
+                    setStatus(connected ? 'Live updates connected' : 'Live reconnecting · polling active', connected);
+                } catch (_) { setStatus('Display unavailable · reconnecting'); }
+                finally {
+                    refreshing = false;
+                    if (refreshAgain) { refreshAgain = false; refreshDisplay(); }
+                }
+            };
             const playAlert = () => {
                 if (!soundEnabled) return;
+                if (Date.now() - lastAlertAt < 1000) return;
+                lastAlertAt = Date.now();
                 try {
                     const audio = new AudioContext();
                     const oscillator = audio.createOscillator();
@@ -160,6 +165,8 @@
                 } catch (_) {}
             };
             soundButton.textContent = soundEnabled ? 'Sound enabled' : 'Enable sound';
+            soundButton.disabled = !soundAllowed;
+            if (!soundAllowed) soundButton.textContent = 'Sound disabled by branch';
             soundButton.addEventListener('click', () => {
                 soundEnabled = !soundEnabled;
                 localStorage.setItem(soundStorageKey, soundEnabled ? 'enabled' : 'disabled');
@@ -191,7 +198,6 @@
             const connect = () => {
                 if (!key || !host) {
                     setStatus('Realtime unavailable · retrying');
-                    setTimeout(() => window.location.reload(), 15000);
                     return;
                 }
                 setStatus('Connecting to kitchen updates…');
@@ -211,14 +217,14 @@
                             retry = 0;
                             connected = true;
                             setStatus('Live updates connected', true);
-                            if (connectedOnce) window.location.reload();
+                            refreshDisplay();
                             connectedOnce = true;
                         } else if (message.event === 'pusher:error') {
                             setStatus('Live updates unavailable · reconnecting');
                             socket.close();
                         } else if (message.event === 'kot.ticket.created' || message.event === 'kot.ticket.updated' || message.event === 'kot.ticket.cancelled') {
                             if (message.event === 'kot.ticket.created' || message.event === 'kot.ticket.cancelled' || data.change_type === 'created' || data.change_type === 'cancelled') playAlert();
-                            setTimeout(() => window.location.reload(), 250);
+                            refreshDisplay();
                         }
                     };
                     socket.onerror = () => setStatus('Connection lost · reconnecting');
@@ -237,9 +243,10 @@
             updateDurations();
             setInterval(updateDurations, 1000);
             setInterval(() => {
-                if (!connected && navigator.onLine) window.location.reload();
+                if (navigator.onLine && !document.hidden) refreshDisplay();
             }, 15000);
-            window.addEventListener('online', () => window.location.reload());
+            window.addEventListener('online', () => { refreshDisplay(); if (!socket || socket.readyState > WebSocket.OPEN) connect(); });
+            document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshDisplay(); });
             connect();
         })();
     </script>

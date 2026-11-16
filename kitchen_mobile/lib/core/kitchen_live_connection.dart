@@ -35,6 +35,7 @@ class KitchenLiveConnection {
   bool _reconnectEnabled = false;
   void Function(bool connected)? _onConnectionChanged;
   VoidCallback? _onTicketChanged;
+  void Function(int ticketId)? _onNewTicket;
 
   bool get isConfigured =>
       apiBaseUrl.trim().isNotEmpty &&
@@ -46,6 +47,7 @@ class KitchenLiveConnection {
     required List<int> kitchenIds,
     required void Function(bool connected) onConnectionChanged,
     required VoidCallback onTicketChanged,
+    void Function(int ticketId)? onNewTicket,
   }) {
     disconnect();
     _disposed = false;
@@ -56,6 +58,7 @@ class KitchenLiveConnection {
     _retryCount = 0;
     _onConnectionChanged = onConnectionChanged;
     _onTicketChanged = onTicketChanged;
+    _onNewTicket = onNewTicket;
     if (isConfigured) _open(_generation);
   }
 
@@ -120,6 +123,10 @@ class KitchenLiveConnection {
       } else if (event == 'kot.ticket.created' ||
           event == 'kot.ticket.updated' ||
           event == 'kot.ticket.cancelled') {
+        if (event == 'kot.ticket.created') {
+          final ticketId = int.tryParse('${data['ticket_id'] ?? ''}');
+          if (ticketId != null) _onNewTicket?.call(ticketId);
+        }
         _onTicketChanged?.call();
       } else if (event == 'pusher:error') {
         _setConnected(false);
@@ -247,6 +254,7 @@ class KitchenLiveConnection {
   void dispose() {
     _onConnectionChanged = null;
     _onTicketChanged = null;
+    _onNewTicket = null;
     disconnect();
     _disposed = true;
     _httpClient.close();

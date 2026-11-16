@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Http\Controllers\Concerns\ManagesTenantAccess;
 use App\Models\Category;
-use App\Models\MenuItem;
 use App\Models\Order;
 use App\Models\RestaurantTable;
 use App\Services\OrderService;
@@ -163,7 +162,7 @@ class OrderController extends Controller
         $this->authorizeOrderAccess($order);
 
         $validated = $request->validate([
-            'status' => ['required', 'string', 'in:pending,confirmed,preparing,ready,served,completed'],
+            'status' => ['required', 'string', 'in:completed'],
         ]);
 
         $this->orderService->updateOrderStatus($order, $validated['status']);
@@ -184,4 +183,3 @@ class OrderController extends Controller
         }
     }
 }
-

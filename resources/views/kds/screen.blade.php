@@ -691,7 +691,7 @@
 
         <!-- 3-COLUMNS BOARD (MATCHING MOCKUP) -->
         <main class="board-grid">
-            <!-- COLUMN 1: NEW ORDERS (ACCEPTED / NEW) -->
+            <!-- COLUMN 1: ACCEPTED ORDERS; ACCEPT NEW TICKETS IN THE STAFF QUEUE -->
             <div class="board-column col-new-orders">
                 <div class="col-header col-header-new">
                     <!-- Bell with little yellow rays -->
@@ -737,7 +737,30 @@
             </div>
         </main>
 
-        <!-- FULLSCREEN EXPAND ACTION (ONLY EXPAND ICON AS REQUESTED) -->
+        <div class="d-flex gap-2 align-items-center" style="flex-shrink:0; min-height:32px;">
+            <button id="soundToggle" type="button" class="btn btn-sm btn-outline-success">Enable sound</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="offcanvas" data-bs-target="#ticketHistory">Completed / cancelled</button>
+            <span id="kdsActionError" class="text-danger small" role="alert"></span>
+        </div>
+        <div class="offcanvas offcanvas-bottom" tabindex="-1" id="ticketHistory" aria-labelledby="historyTitle" style="height:75vh;">
+            <div class="offcanvas-header">
+                <h2 class="offcanvas-title h5" id="historyTitle">Ticket history</h2>
+                <div class="btn-group ms-3">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" data-history="cancelled">Cancelled items</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" data-history="completed">Completed orders</button>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+            </div>
+            <div class="offcanvas-body">
+                <div id="historyCardsContainer"></div>
+                <div class="d-flex gap-3 align-items-center my-3">
+                    <button id="historyPrevious" class="btn btn-sm btn-outline-secondary" type="button">Previous</button>
+                    <span id="historyPage"></span>
+                    <button id="historyNext" class="btn btn-sm btn-outline-secondary" type="button">Next</button>
+                </div>
+            </div>
+        </div>
+        <!-- Fullscreen control -->
         <button class="fullscreen-expand-btn" onclick="toggleScreenFull()" title="Full Screen TV Mode">
             <i class="bi bi-arrows-fullscreen"></i>
         </button>
@@ -750,284 +773,22 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
     <script>
-        // Dedicated kitchen station ID or null for Master/All Kitchens
-        const initialKitchenId = {{ $kitchen ? $kitchen->id : 'null' }};
-        const activeKitchenId = initialKitchenId;
-
-        let soundEnabled = true;
-        let audioContext = null;
-        let knownIds = new Set();
-
-        // Live Real-Time Clock & Date (updates every second)
-        function refreshClock() {
-            const now = new Date();
-            let h = now.getHours();
-            const m = String(now.getMinutes()).padStart(2, '0');
-            const ampm = h >= 12 ? 'PM' : 'AM';
-            h = h % 12;
-            h = h ? h : 12;
-
-            const timeEl = document.getElementById('liveTime');
-            const dateEl = document.getElementById('liveDate');
-
-            if (timeEl) {
-                timeEl.innerText = `${h}:${m} ${ampm}`;
-            }
-
-            const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-            const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-            const dayStr = days[now.getDay()];
-            const dateNum = String(now.getDate()).padStart(2, '0');
-            const monthStr = months[now.getMonth()];
-            const yearStr = now.getFullYear();
-
-            if (dateEl) {
-                dateEl.innerText = `${dayStr}, ${dateNum} ${monthStr} ${yearStr}`;
-            }
-        }
-        setInterval(refreshClock, 1000);
-        refreshClock();
-
-        // Web Audio Two-Tone Bell Chime on New Order
-        function playAlertSound() {
-            if (!soundEnabled) return;
-            try {
-                if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                if (audioContext.state === 'suspended') audioContext.resume();
-
-                const osc = audioContext.createOscillator();
-                const gain = audioContext.createGain();
-                osc.type = 'sine';
-                osc.frequency.setValueAtTime(587.33, audioContext.currentTime); // D5
-                osc.frequency.setValueAtTime(880.00, audioContext.currentTime + 0.12); // A5
-
-                gain.gain.setValueAtTime(0.28, audioContext.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.65);
-
-                osc.connect(gain);
-                gain.connect(audioContext.destination);
-                osc.start();
-                osc.stop(audioContext.currentTime + 0.65);
-            } catch(e) {}
-        }
-
-        function toggleScreenFull() {
-            if (!document.fullscreenElement) {
-                document.documentElement.requestFullscreen().catch(() => {});
-            } else {
-                document.exitFullscreen().catch(() => {});
-            }
-        }
-
-        document.addEventListener('fullscreenchange', () => {
-            const icon = document.querySelector('.fullscreen-expand-btn i');
-            if (icon) {
-                if (document.fullscreenElement) {
-                    icon.className = 'bi bi-fullscreen-exit';
-                } else {
-                    icon.className = 'bi bi-arrows-fullscreen';
-                }
-            }
-        });
-
-        // Format Seconds to "MM:SS" (or "HH:MM:SS" if >= 1 hour)
-        function formatSecs(seconds) {
-            const totalSec = Math.max(0, parseInt(seconds || 0, 10));
-            const h = Math.floor(totalSec / 3600);
-            const m = Math.floor((totalSec % 3600) / 60);
-            const s = totalSec % 60;
-            if (h > 0) {
-                return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-            }
-            return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-        }
-
-        // Real-Time Second Increment for Active Live Timers ONLY (.live-card-timer)
-        setInterval(() => {
-            document.querySelectorAll('.live-card-timer').forEach(el => {
-                let sec = parseInt(el.getAttribute('data-sec') || '0', 10);
-                sec++;
-                el.setAttribute('data-sec', sec);
-                el.innerText = formatSecs(sec);
-            });
-        }, 1000);
-
-        // Generate EXACT KOT Card HTML matching user design (image)
-        function buildCardHtml(ticket, stage) {
-            // Extract readable number from kot_number or kot_display_number
-            let kotNum = ticket.kot_display_number || ticket.kot_number;
-
-            // Table string (clean display: 'Table X' or 'Takeaway', never 'Table Takeaway / N/A')
-            let rawTable = (ticket.table_name || '').trim();
-            let tableStr = '';
-            if (!rawTable || rawTable.toLowerCase().includes('n/a') || rawTable.toLowerCase().includes('takeaway')) {
-                tableStr = 'Takeaway';
-            } else if (/^table\s*/i.test(rawTable)) {
-                tableStr = rawTable;
-            } else {
-                tableStr = `Table ${rawTable}`;
-            }
-
-            // Duration Capsule
-            // Requirement: "duration should start from the second the kitchen staff accepted that order!!"
-            let durationHtml = '';
-            const sec = parseInt(ticket.elapsed_seconds || 0, 10);
-            const timeFormatted = formatSecs(sec);
-            const isLive = Boolean(ticket.is_running);
-            const timerClass = isLive ? 'live-card-timer' : 'static-card-timer';
-
-            if (stage === 'new') {
-                durationHtml = `
-                    <div class="timer-capsule-exact" title="${isLive ? 'Live Duration' : 'Awaiting Acceptance'}">
-                        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-                            <path d="M12 1a1 1 0 0 1 1 1v1.07A8.001 8.001 0 0 1 19.93 11H21a1 1 0 1 1 0 2h-1.07A8.001 8.001 0 0 1 12 21a8.001 8.001 0 0 1-7.93-8H3a1 1 0 1 1 0-2h1.07A8.001 8.001 0 0 1 11 3.07V2a1 1 0 0 1 1-1zm0 4a6 6 0 1 0 6 6 6 6 0 0 0-6-6zm0 2a1 1 0 0 1 1 1v2.586l1.707 1.707a1 1 0 0 1-1.414 1.414l-2-2A1 1 0 0 1 11 10.5V8a1 1 0 0 1 1-1z"/>
-                        </svg>
-                        <span class="${timerClass}" data-sec="${sec}">${timeFormatted}</span>
-                    </div>
-                `;
-            } else if (stage === 'preparing') {
-                durationHtml = `
-                    <div class="timer-capsule-prep" title="Preparing Duration">
-                        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-                            <path d="M12 1a1 1 0 0 1 1 1v1.07A8.001 8.001 0 0 1 19.93 11H21a1 1 0 1 1 0 2h-1.07A8.001 8.001 0 0 1 12 21a8.001 8.001 0 0 1-7.93-8H3a1 1 0 1 1 0-2h1.07A8.001 8.001 0 0 1 11 3.07V2a1 1 0 0 1 1-1zm0 4a6 6 0 1 0 6 6 6 6 0 0 0-6-6zm0 2a1 1 0 0 1 1 1v2.586l1.707 1.707a1 1 0 0 1-1.414 1.414l-2-2A1 1 0 0 1 11 10.5V8a1 1 0 0 1 1-1z"/>
-                        </svg>
-                        <span class="${timerClass}" data-sec="${sec}">${timeFormatted}</span>
-                    </div>
-                `;
-            } else if (stage === 'ready') {
-                // STOPPED: total preparation duration frozen
-                durationHtml = `
-                    <div class="timer-capsule-ready" title="Total Duration">
-                        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-                            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
-                        </svg>
-                        <span class="total-duration-val">${timeFormatted}</span>
-                    </div>
-                `;
-            }
-
-            // Dishes list rows (compact, matching image)
-            const dishesHtml = (ticket.items || []).map(item => `
-                <div class="dish-row-compact">
-                    <span class="dish-name-compact">${item.dish_name}</span>
-                    <span class="dish-qty-compact">× ${item.quantity}</span>
-                </div>
-                ${item.special_instructions ? `<div class="dish-note-pill">${item.special_instructions}</div>` : ''}
-            `).join('');
-
-            // Special instructions callout (shown only if present)
-            const specialNote = ticket.special_instructions && ticket.special_instructions.trim() !== ''
-                ? `<div class="dish-note-pill mt-1">${ticket.special_instructions}</div>`
-                : '';
-
-            // Order Received Time below duration
-            const receivedTimeHtml = ticket.order_received_time 
-                ? `<span class="received-time-text">${ticket.order_received_time}</span>` 
-                : '';
-
-            return `
-                <div class="kot-order-card" id="card-${ticket.id}" title="${ticket.kot_number}">
-                    <div class="kot-badge-box">
-                        <span class="kot-box-label">KOT</span>
-                        <span class="kot-box-number">${kotNum}</span>
-                        <span class="kot-box-table">${tableStr}</span>
-                    </div>
-                    <div class="kot-dishes-middle">
-                        ${dishesHtml}
-                        ${specialNote}
-                    </div>
-                    <div class="kot-right-column">
-                        ${durationHtml}
-                        ${receivedTimeHtml}
-                    </div>
-                </div>
-            `;
-        }
-
-        // Real-time Feed Polling
-        async function pullFeed() {
-            try {
-                const url = activeKitchenId ? `/kds/${activeKitchenId}/feed` : `/kds/feed`;
-                const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-                if (!res.ok) throw new Error('Network error');
-                const data = await res.json();
-
-                const newTickets = data.new_tickets || [];
-                const prepTickets = data.preparing_tickets || [];
-                const readyTickets = data.ready_tickets || [];
-
-                const countNew = data.counts?.new ?? 0;
-                const countPrep = data.counts?.preparing ?? 0;
-                const countReady = data.counts?.ready ?? 0;
-
-                // Update Header Summary Stats
-                document.getElementById('sumNew').innerText = countNew;
-                document.getElementById('sumPrep').innerText = countPrep;
-                document.getElementById('sumReady').innerText = countReady;
-
-                // Update Column Header Counts
-                document.getElementById('countNew').innerText = countNew;
-                document.getElementById('countPrep').innerText = countPrep;
-                document.getElementById('countReady').innerText = countReady;
-
-                // Audio alert on new order arrival
-                const currentNewIds = new Set(newTickets.map(t => t.id));
-                let hasNew = false;
-                for (let id of currentNewIds) {
-                    if (!knownIds.has(id)) {
-                        hasNew = true;
-                        break;
-                    }
-                }
-                if (hasNew && knownIds.size > 0) {
-                    playAlertSound();
-                }
-                knownIds = new Set([...newTickets.map(t => t.id), ...prepTickets.map(t => t.id), ...readyTickets.map(t => t.id)]);
-
-                // Render Column 1: New Orders (Accepted / New)
-                const cNew = document.getElementById('newCardsContainer');
-                if (newTickets.length === 0) {
-                    cNew.innerHTML = '<div class="empty-column-state">No new orders waiting</div>';
-                } else {
-                    cNew.innerHTML = newTickets.map(t => buildCardHtml(t, 'new')).join('');
-                }
-
-                // Render Column 2: Preparing Orders (Preparing)
-                const cPrep = document.getElementById('prepCardsContainer');
-                if (prepTickets.length === 0) {
-                    cPrep.innerHTML = '<div class="empty-column-state">No orders in preparation</div>';
-                } else {
-                    cPrep.innerHTML = prepTickets.map(t => buildCardHtml(t, 'preparing')).join('');
-                }
-
-                // Render Column 3: Ready Orders (Ready)
-                const cReady = document.getElementById('readyCardsContainer');
-                if (readyTickets.length === 0) {
-                    cReady.innerHTML = '<div class="empty-column-state">No ready orders for pickup</div>';
-                } else {
-                    cReady.innerHTML = readyTickets.map(t => buildCardHtml(t, 'ready')).join('');
-                }
-
-                // Clear network warning on successful fetch
-                const netPill = document.getElementById('networkPill');
-                if (netPill) netPill.style.display = 'none';
-
-            } catch (err) {
-                console.error('Error fetching KDS feed:', err);
-                // Show network reconnection warning
-                const netPill = document.getElementById('networkPill');
-                if (netPill) netPill.style.display = 'inline-flex';
-            }
-        }
-
-        // Initial load & Polling
-        pullFeed();
-        setInterval(pullFeed, 3500);
-
-        // Resume AudioContext on first touch/click
-        document.body.addEventListener('click', () => {
-            if (audioContext && audioContext.state === 'suspended') audioContext.resume();
-        }, { once: true });
+        window.nagarjunaKds = {
+            kitchenId: @json($kitchen?->id),
+            branchId: @json($branchId ?? $kitchen?->branch_id),
+            kitchenIds: @json($kitchen ? [$kitchen->id] : $allKitchens->pluck('id')->values()),
+            feedUrl: @json($kitchen ? route('kds.feed', $kitchen) : route('kds.feed.all')),
+            authUrl: @json(route('web.broadcasting.auth')),
+            canEdit: @json(auth()->user()->hasPermission('kot.edit')),
+            soundAllowed: @json(isset($branchId) || $kitchen ? (bool) app(\App\Services\BranchSettings::class)->forBranch((int) ($branchId ?? $kitchen->branch_id))['sound_enabled'] : true),
+            live: {
+                key: @json(config('broadcasting.connections.reverb.key')),
+                host: @json(config('broadcasting.connections.reverb.options.host')),
+                port: @json(config('broadcasting.connections.reverb.options.port')),
+                secure: @json(config('broadcasting.connections.reverb.options.scheme') === 'https'),
+            },
+        };
     </script>
+    <script src="{{ asset('js/kds-screen.js') }}"></script>
 </body>
 </html>

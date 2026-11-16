@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../app/app_theme.dart';
@@ -31,39 +33,71 @@ class FloorTableScreen extends StatefulWidget {
   State<FloorTableScreen> createState() => _FloorTableScreenState();
 }
 
-class _FloorTableScreenState extends State<FloorTableScreen> {
+class _FloorTableScreenState extends State<FloorTableScreen>
+    with WidgetsBindingObserver {
   FloorTableSnapshot? _snapshot;
   RestaurantTable? _selectedTable;
   int? _selectedFloorId;
   _TableFilter _filter = _TableFilter.all;
   bool _isLoading = true;
   String? _errorMessage;
+  Timer? _refreshTimer;
+  bool _isRefreshing = false;
+  bool _inForeground = true;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadFloorTables();
+    _refreshTimer = Timer.periodic(const Duration(seconds: 12), (_) {
+      if (_inForeground) unawaited(_loadFloorTables(quiet: true));
+    });
   }
 
-  Future<void> _loadFloorTables() async {
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _inForeground = state == AppLifecycleState.resumed;
+    if (_inForeground) unawaited(_loadFloorTables(quiet: true));
+  }
+
+  Future<void> _loadFloorTables({bool quiet = false}) async {
+    if (_isRefreshing) return;
+    _isRefreshing = true;
     setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-      _snapshot = null;
-      _selectedTable = null;
-      _selectedFloorId = null;
+      _isLoading = _snapshot == null;
+      if (!quiet) _errorMessage = null;
     });
 
     try {
       final snapshot = await widget.repository.loadAssignedFloorTables();
       if (!mounted) return;
+      final floorId = _selectedFloorId;
+      final tableId = _selectedTable?.id;
+      RestaurantTable? selectedTable;
+      for (final floor in snapshot.floors) {
+        if (floor.id != floorId) continue;
+        for (final table in floor.tables) {
+          if (table.id == tableId && table.canOpen) selectedTable = table;
+        }
+      }
       setState(() {
         _snapshot = snapshot;
         _selectedFloorId = snapshot.floors.isEmpty
             ? null
+            : snapshot.floors.any((floor) => floor.id == floorId)
+            ? floorId
             : snapshot.floors.first.id;
-        _selectedTable = null;
+        _selectedTable = selectedTable;
         _isLoading = false;
+        _errorMessage = null;
       });
     } on ApiException catch (error) {
       if (!mounted) return;
@@ -87,6 +121,8 @@ class _FloorTableScreenState extends State<FloorTableScreen> {
         _errorMessage = 'We could not load your restaurant tables. Check your connection and try again.';
         _isLoading = false;
       });
+    } finally {
+      _isRefreshing = false;
     }
   }
 
@@ -167,7 +203,7 @@ class _FloorTableScreenState extends State<FloorTableScreen> {
       body: SafeArea(
         child: _isLoading
             ? const _LoadingState()
-            : _errorMessage != null
+            : _errorMessage != null && snapshot == null
             ? _UnavailableState(
                 title: 'Could not load tables',
                 message: _errorMessage!,
@@ -180,7 +216,18 @@ class _FloorTableScreenState extends State<FloorTableScreen> {
                     'There is no floor information for your assigned branch.',
                 onRetry: _loadFloorTables,
               )
-            : _buildTableContent(snapshot),
+            : Column(
+                children: [
+                  if (_errorMessage != null)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                      child: Text(
+                        'Showing the last table status. $_errorMessage',
+                      ),
+                    ),
+                  Expanded(child: _buildTableContent(snapshot)),
+                ],
+              ),
       ),
       bottomNavigationBar: canShowSelectionBar
           ? _SelectionBar(

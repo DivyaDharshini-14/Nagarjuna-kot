@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'app/kitchen_theme.dart';
 import 'core/api_client.dart';
+import 'core/kitchen_alert_sound.dart';
 import 'core/kitchen_live_connection.dart';
 import 'core/push_notifications.dart';
 import 'core/secure_token_store.dart';
@@ -81,6 +82,14 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
   bool _hasBoardSnapshot = false;
   bool _liveConnected = false;
   bool _showStockControl = false;
+  final _alertSound = KitchenAlertSound();
+  bool _soundEnabled = false;
+  bool _branchSoundAllowed = true;
+  bool _savingSound = false;
+  final Set<int> _announcedTicketIds = {};
+  int _boardPage = 1;
+  int _boardLastPage = 1;
+  int _boardTotal = 0;
   Map<int, String> _ticketStatuses = const {};
   Map<int, int> _ticketCancellationQuantities = const {};
   Map<String, dynamic>? _pendingPushData;
@@ -96,6 +105,46 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
       ),
     );
     _restoreSession();
+    unawaited(_restoreSoundPreference());
+  }
+
+  Future<void> _restoreSoundPreference() async {
+    try {
+      final enabled = await widget.repository.tokens.readSoundEnabled();
+      if (mounted) setState(() => _soundEnabled = enabled);
+    } catch (_) {
+      // Sound stays off if the device cannot read its saved preference.
+    }
+  }
+
+  Future<void> _toggleSound() async {
+    if (_savingSound || !_branchSoundAllowed) return;
+    final enabled = !_soundEnabled;
+    setState(() => _savingSound = true);
+    try {
+      if (enabled && !await _alertSound.play()) {
+        _scaffoldMessengerKey.currentState?.showSnackBar(
+          const SnackBar(content: Text('Sound is unavailable on this device.')),
+        );
+        return;
+      }
+      await widget.repository.tokens.saveSoundEnabled(enabled);
+      if (mounted) setState(() => _soundEnabled = enabled);
+    } catch (_) {
+      _scaffoldMessengerKey.currentState?.showSnackBar(
+        const SnackBar(content: Text('Could not save the sound preference.')),
+      );
+    } finally {
+      if (mounted) setState(() => _savingSound = false);
+    }
+  }
+
+  void _announceNewTicket(int ticketId) {
+    if (!_announcedTicketIds.add(ticketId)) return;
+    if (_announcedTicketIds.length > 1000) {
+      _announcedTicketIds.remove(_announcedTicketIds.first);
+    }
+    if (_soundEnabled && _branchSoundAllowed) unawaited(_alertSound.play());
   }
 
   @override
@@ -178,10 +227,16 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
     if (!mounted) return;
     setState(() {
       _account = account;
+      _branchSoundAllowed = account.soundAllowed;
       _kitchens = kitchens;
       _selectedKitchen = null;
       _tickets = const [];
       _boardView = 'active';
+      _boardPage = 1;
+      _boardLastPage = 1;
+      _boardTotal = 0;
+      _showStockControl = false;
+      _announcedTicketIds.clear();
       _restoring = false;
       _startupError = null;
       _refreshing = false;
@@ -226,6 +281,10 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
     if (!mounted || _account == null) return;
     final type = data['type'];
     if (type == 'kot_created' || type == 'kot_cancelled') {
+      final ticketId = int.tryParse('${data['ticket_id'] ?? ''}');
+      if (type == 'kot_created' && ticketId != null) {
+        _announceNewTicket(ticketId);
+      }
       _scaffoldMessengerKey.currentState?.showSnackBar(
         SnackBar(
           content: Text(
@@ -271,6 +330,9 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
     if (_selectedKitchen?.id == kitchen?.id) return;
     setState(() {
       _selectedKitchen = kitchen;
+      _boardPage = 1;
+      _boardLastPage = 1;
+      _boardTotal = 0;
       _tickets = const [];
       _refreshing = false;
       _loadingBoard = false;
@@ -304,6 +366,7 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
         }
       },
       onTicketChanged: () => _refreshTickets(notify: true, force: true),
+      onNewTicket: _announceNewTicket,
     );
   }
 
@@ -320,11 +383,14 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
       _boardError = null;
     });
     try {
-      final tickets = await widget.repository.getTickets(
+      final page = await widget.repository.getTicketPage(
         kitchen?.id,
         view: _boardView,
+        page: _boardPage,
       );
+      final tickets = page.items;
       if (!mounted || generation != _refreshGeneration) return;
+      _branchSoundAllowed = page.soundAllowed;
       if (_selectedKitchen?.id != kitchen?.id) {
         setState(() {
           _loadingBoard = false;
@@ -337,6 +403,9 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
       }
       setState(() {
         _tickets = tickets;
+        _boardPage = page.currentPage;
+        _boardLastPage = page.lastPage;
+        _boardTotal = page.total;
         _ticketStatuses = {
           for (final ticket in tickets) ticket.id: ticket.status,
         };
@@ -388,6 +457,24 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
     if (_boardView == view) return;
     setState(() {
       _boardView = view;
+      _boardPage = 1;
+      _boardLastPage = 1;
+      _boardTotal = 0;
+      _tickets = const [];
+      _hasBoardSnapshot = false;
+    });
+    await _refreshTickets(force: true);
+  }
+
+  Future<void> _changeBoardPage(int page) async {
+    if (page < 1 ||
+        page > _boardLastPage ||
+        page == _boardPage ||
+        _refreshing) {
+      return;
+    }
+    setState(() {
+      _boardPage = page;
       _tickets = const [];
       _hasBoardSnapshot = false;
     });
@@ -412,7 +499,12 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
       return total > (_ticketCancellationQuantities[ticket.id] ?? 0);
     });
     final notices = <String>[];
-    if (added.isNotEmpty) notices.add('New KOT ${added.first.number} received');
+    if (added.isNotEmpty) {
+      notices.add('New KOT ${added.first.number} received');
+      for (final ticket in added) {
+        _announceNewTicket(ticket.id);
+      }
+    }
     if (cancelled.isNotEmpty) {
       notices.add('KOT ${cancelled.first.number} was cancelled');
     }
@@ -488,6 +580,7 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
       _ticketStatuses = const {};
       _ticketCancellationQuantities = const {};
       _liveConnected = false;
+      _showStockControl = false;
     });
   }
 
@@ -545,7 +638,15 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
       onKitchenChanged: _changeKitchen,
       onStatusChange: _updateTicket,
       onSignOut: _signOut,
-      onStockControl: account.canManageStock
+      soundEnabled: _soundEnabled && _branchSoundAllowed,
+      soundAllowed: _branchSoundAllowed,
+      soundBusy: _savingSound,
+      onToggleSound: _toggleSound,
+      currentPage: _boardPage,
+      lastPage: _boardLastPage,
+      totalTickets: _boardTotal,
+      onPageChanged: _changeBoardPage,
+      onStockControl: account.canViewStock
           ? () => setState(() => _showStockControl = true)
           : null,
     );
@@ -574,10 +675,10 @@ class _RetrySessionScreen extends StatelessWidget {
   Widget build(BuildContext context) => Scaffold(
     body: SafeArea(
       child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
-          child: Padding(
-            padding: const EdgeInsets.all(28),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(28),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -585,6 +686,7 @@ class _RetrySessionScreen extends StatelessWidget {
                 const SizedBox(height: 18),
                 Text(
                   'Kitchen board unavailable',
+                  textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
                 const SizedBox(height: 8),

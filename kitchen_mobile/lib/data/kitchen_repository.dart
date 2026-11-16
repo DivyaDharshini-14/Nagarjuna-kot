@@ -41,17 +41,20 @@ class KitchenRepository {
   Future<List<KotTicket>> getTickets(
     int? kitchenId, {
     String view = 'active',
+  }) async => (await getTicketPage(kitchenId, view: view)).items;
+
+  Future<KitchenPage<KotTicket>> getTicketPage(
+    int? kitchenId, {
+    String view = 'active',
+    int page = 1,
   }) async {
     final response = await api.get(
       kitchenId == null
-          ? '/kitchen-mobile/kot?view=$view'
-          : '/kitchen-mobile/kitchens/$kitchenId/kot?view=$view',
+          ? '/kitchen-mobile/kot?view=$view&page=$page'
+          : '/kitchen-mobile/kitchens/$kitchenId/kot?view=$view&page=$page',
     );
     final data = response['data'] as Map<String, dynamic>;
-    return (data['tickets'] as List<dynamic>? ?? const [])
-        .whereType<Map<String, dynamic>>()
-        .map(KotTicket.fromJson)
-        .toList(growable: false);
+    return KitchenPage.fromData(data, 'tickets', KotTicket.fromJson);
   }
 
   Future<void> updateStatus(int ticketId, String status) async {
@@ -61,13 +64,13 @@ class KitchenRepository {
     );
   }
 
-  Future<List<KitchenStockItem>> getStockItems() async {
-    final response = await api.get('/kitchen-mobile/stock');
+  Future<List<KitchenStockItem>> getStockItems() async =>
+      (await getStockPage()).items;
+
+  Future<KitchenPage<KitchenStockItem>> getStockPage({int page = 1}) async {
+    final response = await api.get('/kitchen-mobile/stock?page=$page');
     final data = response['data'] as Map<String, dynamic>;
-    return (data['items'] as List<dynamic>? ?? const [])
-        .whereType<Map<String, dynamic>>()
-        .map(KitchenStockItem.fromJson)
-        .toList(growable: false);
+    return KitchenPage.fromData(data, 'items', KitchenStockItem.fromJson);
   }
 
   Future<KitchenStockItem> adjustStock({
@@ -105,15 +108,21 @@ class KitchenRepository {
 
   Future<List<KitchenStockTransaction>> getStockTransactions(
     int menuItemId,
-  ) async {
+  ) async => (await getStockTransactionPage(menuItemId)).items;
+
+  Future<KitchenPage<KitchenStockTransaction>> getStockTransactionPage(
+    int menuItemId, {
+    int page = 1,
+  }) async {
     final response = await api.get(
-      '/kitchen-mobile/stock/$menuItemId/transactions',
+      '/kitchen-mobile/stock/$menuItemId/transactions?page=$page',
     );
     final data = response['data'] as Map<String, dynamic>;
-    return (data['transactions'] as List<dynamic>? ?? const [])
-        .whereType<Map<String, dynamic>>()
-        .map(KitchenStockTransaction.fromJson)
-        .toList(growable: false);
+    return KitchenPage.fromData(
+      data,
+      'transactions',
+      KitchenStockTransaction.fromJson,
+    );
   }
 
   Future<void> signOut() async {

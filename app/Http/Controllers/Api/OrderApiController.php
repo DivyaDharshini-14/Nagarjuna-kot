@@ -2,11 +2,14 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Http\Controllers\Concerns\ManagesTenantAccess;
+use App\Http\Controllers\Concerns\ScopesKitchenOperations;
 use App\Http\Controllers\Controller;
 use App\Models\Kitchen;
 use App\Models\KotItem;
 use App\Models\KotTicket;
 use App\Models\Order;
+use App\Models\RestaurantTable;
 use App\Services\OrderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -14,6 +17,8 @@ use Symfony\Component\HttpFoundation\Response;
 
 class OrderApiController extends Controller
 {
+    use ManagesTenantAccess, ScopesKitchenOperations;
+
     public function __construct(
         protected OrderService $orderService
     ) {}
@@ -24,17 +29,18 @@ class OrderApiController extends Controller
      */
     public function store(Request $request): JsonResponse
     {
+        $this->mergeLockedTenant($request);
         $validated = $request->validate([
             'company_id' => ['nullable', 'exists:companies,id'],
             'branch_id' => ['nullable', 'exists:branches,id'],
             'table_id' => ['required', 'exists:restaurant_tables,id'],
             'customer_name' => ['nullable', 'string', 'max:255'],
             'customer_phone' => ['nullable', 'string', 'max:20'],
-            'guest_count' => ['nullable', 'integer', 'min:1'],
+            'guest_count' => ['nullable', 'integer', 'min:1', 'max:100'],
             'special_instructions' => ['nullable', 'string', 'max:1000'],
-            'items' => ['required', 'array', 'min:1'],
+            'items' => ['required', 'array', 'min:1', 'max:100'],
             'items.*.menu_item_id' => ['required', 'exists:menu_items,id'],
-            'items.*.quantity' => ['required', 'integer', 'min:1'],
+            'items.*.quantity' => ['required', 'integer', 'min:1', 'max:99'],
             'items.*.special_instructions' => ['nullable', 'string', 'max:255'],
         ]);
 
@@ -44,8 +50,10 @@ class OrderApiController extends Controller
         }
 
         // If company_id or branch_id not in request, infer from authenticated waiter
-        $validated['company_id'] = $validated['company_id'] ?? $user->company_id;
-        $validated['branch_id'] = $validated['branch_id'] ?? $user->branch_id;
+        $table = RestaurantTable::findOrFail($validated['table_id']);
+        $validated['company_id'] = $validated['company_id'] ?? $user->company_id ?? $table->company_id;
+        $validated['branch_id'] = $validated['branch_id'] ?? $user->branch_id ?? $table->branch_id;
+        $this->assertTenant($validated);
 
         $order = $this->orderService->createOrder($validated, $user);
 
@@ -62,11 +70,10 @@ class OrderApiController extends Controller
     public function index(Request $request): JsonResponse
     {
         $query = Order::query()->with(['table', 'waiter', 'items.menuItem', 'kotTickets.kitchen']);
+        $this->applyBranchScope($query);
 
         if ($request->filled('branch_id')) {
             $query->where('branch_id', $request->branch_id);
-        } elseif ($request->user()?->branch_id) {
-            $query->where('branch_id', $request->user()->branch_id);
         }
 
         if ($request->filled('table_id')) {
@@ -92,6 +99,7 @@ class OrderApiController extends Controller
      */
     public function show(Order $order): JsonResponse
     {
+        $this->authorizeOrder($order);
         $order->load([
             'table',
             'waiter',
@@ -112,10 +120,11 @@ class OrderApiController extends Controller
      */
     public function addItems(Request $request, Order $order): JsonResponse
     {
+        $this->authorizeOrder($order);
         $validated = $request->validate([
-            'items' => ['required', 'array', 'min:1'],
+            'items' => ['required', 'array', 'min:1', 'max:100'],
             'items.*.menu_item_id' => ['required', 'exists:menu_items,id'],
-            'items.*.quantity' => ['required', 'integer', 'min:1'],
+            'items.*.quantity' => ['required', 'integer', 'min:1', 'max:99'],
             'items.*.special_instructions' => ['nullable', 'string', 'max:255'],
         ]);
 
@@ -145,18 +154,7 @@ class OrderApiController extends Controller
             'items.*.quantity' => ['required_with:items', 'integer', 'min:1', 'max:99'],
         ]);
 
-        $scope = Order::query()->whereKey($order->id);
-        if ($user->company_id) {
-            $scope->where('company_id', $user->company_id);
-        } elseif (! $user->isAdmin()) {
-            abort(403);
-        }
-        if ($user->branch_id) {
-            $scope->where('branch_id', $user->branch_id);
-        } elseif (! $user->isAdmin()) {
-            abort(403);
-        }
-        $order = $scope->firstOrFail();
+        $this->authorizeOrder($order);
 
         [$batch, $cancellations] = $this->orderService->requestItemCancellations(
             $order,
@@ -167,6 +165,7 @@ class OrderApiController extends Controller
         );
 
         $approved = $cancellations->every(fn ($cancellation) => $cancellation->status === 'approved');
+
         return response()->json([
             'message' => $approved
                 ? 'Cancellation completed and sent to the kitchen.'
@@ -190,6 +189,7 @@ class OrderApiController extends Controller
      */
     public function orderKot(Order $order): JsonResponse
     {
+        $this->authorizeOrder($order);
         $tickets = $order->kotTickets()->with([
             'kitchen',
             'items.menuItem',
@@ -211,6 +211,7 @@ class OrderApiController extends Controller
      */
     public function kitchenKot(Kitchen $kitchen): JsonResponse
     {
+        $this->authorizeKitchenAccess($kitchen);
         $tickets = KotTicket::where('kitchen_id', $kitchen->id)
             ->whereIn('ticket_status', ['new', 'accepted', 'preparing', 'ready'])
             ->with(['order.table', 'order.waiter', 'items.menuItem'])
@@ -233,8 +234,9 @@ class OrderApiController extends Controller
      */
     public function updateTicketStatus(Request $request, KotTicket $ticket): JsonResponse
     {
+        $this->authorizeKotAccess($ticket);
         $validated = $request->validate([
-            'status' => ['required', 'string', 'in:new,accepted,preparing,ready,served'],
+            'status' => ['required', 'string', 'in:accepted,preparing,ready,served'],
         ]);
 
         $updated = $this->orderService->updateKotTicketStatus($ticket, $validated['status']);
@@ -251,8 +253,11 @@ class OrderApiController extends Controller
      */
     public function updateItemStatus(Request $request, KotItem $item): JsonResponse
     {
+        $ticket = $item->ticket;
+        abort_unless($ticket, 404);
+        $this->authorizeKotAccess($ticket);
         $validated = $request->validate([
-            'status' => ['required', 'string', 'in:new,accepted,preparing,ready,served'],
+            'status' => ['required', 'string', 'in:accepted,preparing,ready,served'],
         ]);
 
         $updated = $this->orderService->updateKotItemStatus($item, $validated['status']);
@@ -262,5 +267,9 @@ class OrderApiController extends Controller
             'item' => $updated,
         ]);
     }
-}
 
+    private function authorizeOrder(Order $order): void
+    {
+        abort_unless($this->applyBranchScope(Order::query())->whereKey($order->id)->exists(), 404);
+    }
+}

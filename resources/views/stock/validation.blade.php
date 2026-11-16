@@ -59,7 +59,7 @@
             <div class="card p-3.5 h-100 border-0 shadow-sm dashcart-card d-flex flex-column justify-content-between">
                 <div>
                     <div class="d-flex align-items-center justify-content-between mb-2">
-                        <span class="dashcart-stat-label">Low Stock (1-5)</span>
+                        <span class="dashcart-stat-label">Low Stock</span>
                         <div class="dashcart-icon-circle bg-amber-subtle text-amber">
                             <i class="bi bi-exclamation-triangle"></i>
                         </div>
@@ -146,7 +146,7 @@
                     <select name="validation_status" class="form-select form-select-sm" onchange="this.form.submit()">
                         <option value="all">All Validation States</option>
                         <option value="healthy" @selected($validationStatus === 'healthy')>🟢 Healthy Stock (> 5)</option>
-                        <option value="warning" @selected($validationStatus === 'warning')>🟡 Low Stock (1-5)</option>
+                        <option value="warning" @selected($validationStatus === 'warning')>🟡 Low Stock</option>
                         <option value="critical" @selected($validationStatus === 'critical')>🔴 Zero Stock / Blocked (0)</option>
                         <option value="discrepancy" @selected($validationStatus === 'discrepancy')>⚠️ Discrepancies (Sync Needed)</option>
                         <option value="untracked" @selected($validationStatus === 'untracked')>⚪ Untracked Items</option>
@@ -225,7 +225,7 @@
                             $isTracked = (bool) $dish->stock_tracking_enabled;
                             $stockQty = $dish->prepared_stock_quantity;
                             $hasStock = $stockQty !== null;
-                            $isLow = $isTracked && $hasStock && $stockQty <= 5 && $stockQty > 0;
+                            $isLow = $isTracked && $hasStock && $stockQty <= ($stockThresholds[$dish->branch_id] ?? 5) && $stockQty > 0;
                             $isZero = $isTracked && $hasStock && $stockQty <= 0;
                             $isDiscrepancy = $isTracked && $hasStock && (
                                 ($dish->availability === 'available' && $stockQty <= 0) ||

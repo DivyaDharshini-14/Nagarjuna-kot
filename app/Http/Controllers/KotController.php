@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Controllers\Concerns\ManagesTenantAccess;
+use App\Http\Controllers\Concerns\ScopesKitchenOperations;
 use App\Models\Kitchen;
 use App\Models\KotTicket;
 use App\Services\OrderService;
@@ -13,7 +14,7 @@ use Illuminate\View\View;
 
 class KotController extends Controller
 {
-    use ManagesTenantAccess;
+    use ManagesTenantAccess, ScopesKitchenOperations;
 
     public function __construct(
         protected OrderService $orderService
@@ -24,7 +25,7 @@ class KotController extends Controller
         $kots = KotTicket::query()
             ->with(['kitchen', 'order.table', 'order.waiter', 'items.menuItem']);
 
-        $this->applyBranchScope($kots);
+        $this->scopeKitchenTickets($kots);
 
         if ($request->filled('kitchen_id')) {
             $kots->where('kitchen_id', $request->kitchen_id);
@@ -56,9 +57,8 @@ class KotController extends Controller
             ->withQueryString();
 
         $branchId = $this->locksBranch() ? $this->actor()->branch_id : ($request->branch_id ?? null);
-        $kitchens = $branchId
-            ? Kitchen::where('branch_id', $branchId)->where('is_active', true)->orderBy('name')->get()
-            : Kitchen::where('is_active', true)->orderBy('name')->get();
+        $kitchens = $this->accessibleKitchens()->when($branchId, fn ($query) => $query->where('branch_id', $branchId))
+            ->orderBy('name')->get();
 
         return view('kots.index', compact('kots', 'kitchens'));
     }
@@ -68,7 +68,7 @@ class KotController extends Controller
         $this->authorizeKotAccess($kot);
 
         $validated = $request->validate([
-            'status' => ['required', 'string', 'in:new,accepted,preparing,ready,served'],
+            'status' => ['required', 'string', 'in:accepted,preparing,ready,served'],
         ]);
 
         $this->orderService->updateKotTicketStatus($kot, $validated['status']);
@@ -78,7 +78,7 @@ class KotController extends Controller
 
     public function display(Kitchen $kitchen): View
     {
-        $this->authorizeKitchenDisplay($kitchen);
+        $this->authorizeKitchenAccess($kitchen);
 
         return $this->renderDisplay($kitchen);
     }
@@ -113,17 +113,6 @@ class KotController extends Controller
         $validated = $request->validate([
             'status' => ['required', 'string', 'in:accepted,preparing,ready,served'],
         ]);
-        $allowedTransitions = [
-            'new' => ['accepted'],
-            'accepted' => ['preparing'],
-            'preparing' => ['ready'],
-            'ready' => ['served'],
-        ];
-        abort_unless(
-            $kot->ticket_status === $validated['status']
-                || in_array($validated['status'], $allowedTransitions[$kot->ticket_status] ?? [], true),
-            409,
-        );
         $this->orderService->updateKotTicketStatus($kot, $validated['status']);
 
         return redirect()->route('kds.registered-display', $displayToken);
@@ -131,35 +120,24 @@ class KotController extends Controller
 
     private function renderDisplay(Kitchen $kitchen, ?string $displayToken = null): View
     {
-        $tickets = KotTicket::where('kitchen_id', $kitchen->id)
+        request()->validate(['history' => ['nullable', 'in:cancelled,completed'], 'history_page' => ['nullable', 'integer', 'min:1']]);
+        $query = KotTicket::where('kitchen_id', $kitchen->id)
+            ->where('company_id', $kitchen->company_id)->where('branch_id', $kitchen->branch_id)
+            ->with(['order.table', 'order.waiter', 'items.menuItem', 'items.orderItem.cancellations']);
+        $tickets = (clone $query)->whereIn('ticket_status', ['new', 'accepted', 'preparing', 'ready'])
+            ->whereHas('order', fn ($order) => $order->whereNotIn('status', ['completed', 'cancelled']))
+            ->oldest()->get();
+        $historyType = request('history', 'cancelled');
+        if ($historyType === 'completed') {
+            $query->where(fn ($history) => $history->where('ticket_status', 'served')
+                ->orWhereHas('order', fn ($order) => $order->where('status', 'completed')));
+        } else {
+            $query->where(fn ($history) => $history->where('ticket_status', 'cancelled')
+                ->orWhereHas('items', fn ($items) => $items->where('cancelled_quantity', '>', 0)));
+        }
+        $historyTickets = $query->latest('updated_at')->latest('id')->paginate(24, ['*'], 'history_page')->withQueryString();
 
-            ->whereIn('ticket_status', ['new', 'accepted', 'preparing', 'ready'])
-            ->with(['order.table', 'order.waiter', 'items.menuItem'])
-            ->orderByRaw("
-                CASE ticket_status
-                    WHEN 'new' THEN 1
-                    WHEN 'accepted' THEN 2
-                    WHEN 'preparing' THEN 3
-                    WHEN 'ready' THEN 4
-                    WHEN 'served' THEN 5
-                    WHEN 'cancelled' THEN 6
-                    ELSE 7
-                END ASC
-            ")
-            ->orderByDesc('created_at')
-            ->orderByDesc('id')
-
-            ->where(function ($query) {
-                $query->whereIn('ticket_status', ['new', 'accepted', 'preparing', 'ready'])
-                    ->orWhere(fn ($cancelled) => $cancelled
-                        ->where('ticket_status', 'cancelled')
-                        ->where('updated_at', '>=', now()->subMinutes(15)));
-            })
-            ->with(['order.table', 'order.waiter', 'items.menuItem', 'items.orderItem.cancellations'])
-            ->orderBy('created_at')
-            ->get();
-
-        return view('kots.display', compact('kitchen', 'tickets', 'displayToken'));
+        return view('kots.display', compact('kitchen', 'tickets', 'displayToken', 'historyTickets', 'historyType'));
     }
 
     private function registeredKitchen(string $displayToken): Kitchen
@@ -171,31 +149,4 @@ class KotController extends Controller
             ->whereHas('branch', fn ($query) => $query->where('is_active', true))
             ->firstOrFail();
     }
-
-    protected function authorizeKotAccess(KotTicket $kot): void
-    {
-        if ($this->isSuperAdmin()) {
-            return;
-        }
-
-        abort_unless((int) $kot->company_id === (int) $this->actor()->company_id, 403);
-
-        if ($this->locksBranch()) {
-            abort_unless((int) $kot->branch_id === (int) $this->actor()->branch_id, 403);
-        }
-    }
-
-    protected function authorizeKitchenDisplay(Kitchen $kitchen): void
-    {
-        if ($this->isSuperAdmin()) {
-            return;
-        }
-
-        abort_unless((int) $kitchen->company_id === (int) $this->actor()->company_id, 403);
-
-        if ($this->locksBranch()) {
-            abort_unless((int) $kitchen->branch_id === (int) $this->actor()->branch_id, 403);
-        }
-    }
 }
-
