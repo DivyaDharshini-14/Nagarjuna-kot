@@ -45,7 +45,7 @@ class Order extends Model
 
     public function table(): BelongsTo
     {
-        return $this->belongsTo(RestaurantTable::class, 'table_id');
+        return $this->belongsTo(RestaurantTable::class, 'table_id')->withTrashed();
     }
 
     public function waiter(): BelongsTo
