@@ -37,7 +37,7 @@
         </div>
     </div>
 
-    {{-- Filter Bar (Exact Match: Date, Company, Branch, Kitchen, Orange Refresh Button) --}}
+    {{-- Filter Bar (Date Selector) --}}
     <div class="filter-bar-card mb-4">
         <form method="GET" action="{{ route('dashboard') }}" id="dashboardFilters">
             <div class="row g-2 align-items-center">
@@ -57,10 +57,17 @@
                         >
                     </div>
                 </div>
-    {{-- Hidden form for background real-time sync (No UI filter controls) --}}
-    <form id="dashboardFilters" method="GET" action="{{ route('dashboard') }}" class="d-none">
-        <input type="hidden" name="format" value="json">
-    </form>
+
+                @if(!empty($date) && $date !== now()->toDateString())
+                    <div class="col-auto">
+                        <a href="{{ route('dashboard') }}" class="btn btn-sm btn-light border text-muted px-2 py-1.5" title="Reset to Today" style="font-size: 0.82rem; border-radius: 8px;">
+                            <i class="bi bi-x-circle me-1"></i>Today
+                        </a>
+                    </div>
+                @endif
+            </div>
+        </form>
+    </div>
 
     {{-- 1. Six Tabletop KPI Summary Cards --}}
     <div class="row g-3 mb-4">
@@ -514,6 +521,31 @@
     color: #111827;
 }
 
+/* Filter Bar Styling */
+.filter-bar-card {
+    background: transparent;
+}
+.input-group-clean {
+    border-radius: 8px;
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    overflow: hidden;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+.input-group-clean .input-group-text {
+    border: none;
+    background: #ffffff;
+}
+.input-group-clean .form-control {
+    border: none;
+    box-shadow: none;
+    font-size: 0.86rem;
+    font-weight: 500;
+}
+.input-group-clean .form-control:focus {
+    box-shadow: none;
+}
+
 /* Tabletop Card Container */
 .tabletop-card {
     background-color: #ffffff;
@@ -810,7 +842,11 @@ async function fetchDashboardData() {
     isRefreshing = true;
 
     try {
-        const response = await fetch("{{ route('dashboard') }}?format=json", {
+        const dateInput = document.getElementById('dashboard_date');
+        const selectedDate = dateInput ? dateInput.value : '';
+        const fetchUrl = `{{ route('dashboard') }}?format=json${selectedDate ? '&date=' + encodeURIComponent(selectedDate) : ''}`;
+
+        const response = await fetch(fetchUrl, {
             headers: {
                 'X-Requested-With': 'XMLHttpRequest',
                 'Accept': 'application/json',

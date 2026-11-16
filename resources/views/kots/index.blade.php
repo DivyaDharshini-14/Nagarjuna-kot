@@ -46,18 +46,28 @@
             @php
                 $now = now();
                 $receivedAt = $kot->order?->created_at ?? $kot->created_at ?? $now;
-                $startTime = $kot->accepted_at ?? $kot->created_at ?? $now;
+                $acceptedAt = $kot->accepted_at;
 
-                if ($kot->ticket_status === 'ready') {
-                    $elapsedSeconds = $kot->duration_seconds ?? ($kot->ready_at ? abs((int) $kot->ready_at->diffInSeconds($startTime)) : abs((int) $kot->updated_at->diffInSeconds($startTime)));
-                } elseif (in_array($kot->ticket_status, ['served', 'cancelled'])) {
-                    $elapsedSeconds = $kot->duration_seconds ?? ($kot->ready_at ? abs((int) $kot->ready_at->diffInSeconds($startTime)) : abs((int) $kot->updated_at->diffInSeconds($startTime)));
-                } else {
+                // Determine if timer is actively running or closed/frozen
+                $isLive = in_array($kot->ticket_status, ['new', 'accepted', 'preparing']);
+
+                if ($kot->ticket_status === 'new') {
+                    // Waiting duration before kitchen acceptance
+                    $elapsedSeconds = abs((int) $now->diffInSeconds($receivedAt));
+                } elseif (in_array($kot->ticket_status, ['accepted', 'preparing'])) {
+                    // Preparation duration since acceptance (fallback to received if accepted_at missing)
+                    $startTime = $acceptedAt ?? $receivedAt;
                     $elapsedSeconds = abs((int) $now->diffInSeconds($startTime));
-                }
-
-                if ($elapsedSeconds > 43200 && !$kot->duration_seconds) {
-                    $elapsedSeconds = $kot->ticket_status === 'ready' ? 720 : 180;
+                } else {
+                    // Ready / Served / Cancelled: Timing is CLOSED / FROZEN
+                    $startTime = $acceptedAt ?? $receivedAt;
+                    if ($kot->duration_seconds) {
+                        $elapsedSeconds = (int) $kot->duration_seconds;
+                    } elseif ($kot->ready_at) {
+                        $elapsedSeconds = abs((int) $kot->ready_at->diffInSeconds($startTime));
+                    } else {
+                        $elapsedSeconds = abs((int) $kot->updated_at->diffInSeconds($startTime));
+                    }
                 }
 
                 $h = floor($elapsedSeconds / 3600);
@@ -66,8 +76,8 @@
                 $timeFormatted = $h > 0 ? sprintf('%02d:%02d:%02d', $h, $m, $s) : sprintf('%02d:%02d', $m, $s);
 
                 $timerClass = match($kot->ticket_status) {
-                    'new', 'accepted' => 'timer-new',
-                    'preparing' => 'timer-prep',
+                    'new' => 'timer-new',
+                    'accepted', 'preparing' => 'timer-prep',
                     'ready' => 'timer-ready',
                     default => 'timer-served',
                 };
@@ -80,18 +90,29 @@
                             {{ strtoupper(substr($kot->kitchen?->name ?? 'K', 0, 1)) }}
                         </div>
 
-                        <div class="kot-timer-pill {{ $timerClass }}" title="Waiting Duration">
-                            <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" class="me-1">
-                                <path d="M12 1a1 1 0 0 1 1 1v1.07A8.001 8.001 0 0 1 19.93 11H21a1 1 0 1 1 0 2h-1.07A8.001 8.001 0 0 1 12 21a8.001 8.001 0 0 1-7.93-8H3a1 1 0 1 1 0-2h1.07A8.001 8.001 0 0 1 11 3.07V2a1 1 0 0 1 1-1zm0 4a6 6 0 1 0 6 6 6 6 0 0 0-6-6zm0 2a1 1 0 0 1 1 1v2.586l1.707 1.707a1 1 0 0 1-1.414 1.414l-2-2A1 1 0 0 1 11 10.5V8a1 1 0 0 1 1-1z"/>
-                            </svg>
-                            <span class="live-card-timer" data-sec="{{ $elapsedSeconds }}">{{ $timeFormatted }}</span>
+                        <div class="kot-timer-pill {{ $timerClass }}" title="{{ $isLive ? 'Live Duration' : 'Timing Closed' }}">
+                            @if($kot->ticket_status === 'served')
+                                <i class="bi bi-check2-all me-1"></i>
+                                <span class="frozen-card-timer">{{ $timeFormatted }}</span>
+                            @elseif($kot->ticket_status === 'ready')
+                                <i class="bi bi-check-circle me-1"></i>
+                                <span class="frozen-card-timer">{{ $timeFormatted }}</span>
+                            @elseif($kot->ticket_status === 'cancelled')
+                                <i class="bi bi-x-circle me-1"></i>
+                                <span class="frozen-card-timer">{{ $timeFormatted }}</span>
+                            @else
+                                <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" class="me-1">
+                                    <path d="M12 1a1 1 0 0 1 1 1v1.07A8.001 8.001 0 0 1 19.93 11H21a1 1 0 1 1 0 2h-1.07A8.001 8.001 0 0 1 12 21a8.001 8.001 0 0 1-7.93-8H3a1 1 0 1 1 0-2h1.07A8.001 8.001 0 0 1 11 3.07V2a1 1 0 0 1 1-1zm0 4a6 6 0 1 0 6 6 6 6 0 0 0-6-6zm0 2a1 1 0 0 1 1 1v2.586l1.707 1.707a1 1 0 0 1-1.414 1.414l-2-2A1 1 0 0 1 11 10.5V8a1 1 0 0 1 1-1z"/>
+                                </svg>
+                                <span class="live-card-timer" data-sec="{{ $elapsedSeconds }}">{{ $timeFormatted }}</span>
+                            @endif
                         </div>
                     </div>
 
-                    {{-- Metadata Row: Station Name + Order Received Time (Like 'Amazon 5 days ago') --}}
+                    {{-- Metadata Row: Station Name + Order Received Time --}}
                     <div class="d-flex align-items-baseline gap-2 mb-1">
                         <span class="fw-bold fs-6" style="color: var(--theme-primary, #dc2626);">{{ $kot->kitchen?->name }}</span>
-                        <span class="text-muted small">{{ $receivedAt->format('h:i A') }}</span>
+                        <span class="text-muted small">({{ $receivedAt->format('h:i A') }})</span>
                     </div>
 
                     {{-- Card Title: Prominent KOT Number (Like 'Senior UI/UX Designer') --}}
