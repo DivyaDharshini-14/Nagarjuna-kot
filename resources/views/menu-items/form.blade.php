@@ -45,28 +45,17 @@
     </div>
 </div>
 <div class="row">
-    <div class="col-md-4 mb-3">
+    <div class="col-md-6 mb-3">
         <label class="form-label" for="selling_price">Selling price</label>
         <input class="form-control @error('selling_price') is-invalid @enderror" id="selling_price" type="number" min="0" step="0.01" name="selling_price" value="{{ old('selling_price', $menuItem?->selling_price) }}" required>
         @error('selling_price')
             <div class="invalid-feedback">{{ $message }}</div>
         @enderror
     </div>
-    <div class="col-md-4 mb-3">
+    <div class="col-md-6 mb-3">
         <label class="form-label" for="display_order">Display order</label>
         <input class="form-control @error('display_order') is-invalid @enderror" id="display_order" type="number" min="0" name="display_order" value="{{ old('display_order', $menuItem?->display_order ?? 0) }}" required>
         @error('display_order')
-            <div class="invalid-feedback">{{ $message }}</div>
-        @enderror
-    </div>
-    <div class="col-md-4 mb-3">
-        <label class="form-label" for="availability">Availability</label>
-        <select class="form-select @error('availability') is-invalid @enderror" id="availability" name="availability" required>
-            @foreach($availabilities as $value => $label)
-                <option value="{{ $value }}" @selected(old('availability', $menuItem?->availability ?? 'available') === $value)>{{ $label }}</option>
-            @endforeach
-        </select>
-        @error('availability')
             <div class="invalid-feedback">{{ $message }}</div>
         @enderror
     </div>
@@ -96,30 +85,6 @@
     @enderror
 </div>
 @include('partials.checkbox', ['name' => 'stock_tracking_enabled', 'label' => 'Track prepared dish stock', 'checked' => $menuItem?->stock_tracking_enabled ?? false])
-<div class="mb-3">
-    <label class="form-label" for="prepared_stock_quantity">Prepared quantity available</label>
-    <input
-        class="form-control @error('prepared_stock_quantity') is-invalid @enderror"
-        id="prepared_stock_quantity"
-        type="number"
-        min="0"
-        max="999999"
-        step="1"
-        name="prepared_stock_quantity"
-        value="{{ old('prepared_stock_quantity', $menuItem?->prepared_stock_quantity) }}"
-        aria-describedby="prepared-stock-help"
-    >
-    <div class="form-text" id="prepared-stock-help">Required when stock tracking is enabled. Set this to the number of portions currently available.</div>
-    @error('prepared_stock_quantity')
-        <div class="text-danger small mt-1">{{ $message }}</div>
-    @enderror
-</div>
-<div class="mb-3">
-    <label class="form-label" for="stock_adjustment_reason">Stock or availability change reason</label>
-    <input class="form-control" id="stock_adjustment_reason" name="stock_adjustment_reason" value="{{ old('stock_adjustment_reason') }}" maxlength="500" placeholder="Required when changing stock or availability">
-    <div class="form-text">Stock movements and availability changes are recorded in the transaction history.</div>
-    @error('stock_adjustment_reason')<div class="text-danger small mt-1">{{ $message }}</div>@enderror
-</div>
 @include('partials.checkbox', ['name' => 'is_active', 'label' => 'Active', 'checked' => $menuItem?->is_active ?? true])
 <div class="d-flex gap-2">
     <button class="btn btn-primary">Save</button>

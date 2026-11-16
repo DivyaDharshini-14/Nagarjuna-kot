@@ -16,6 +16,10 @@
     <input class="form-control" id="phone" name="phone" value="{{ old('phone', $company?->phone) }}">
 </div>
 <div class="mb-3">
+    <label class="form-label" for="gst_number">GST Number <span class="text-muted small">(optional)</span></label>
+    <input class="form-control" id="gst_number" name="gst_number" value="{{ old('gst_number', $company?->gst_number) }}" placeholder="e.g. 29ABCDE1234F1Z5">
+</div>
+<div class="mb-3">
     <label class="form-label" for="address">Address</label>
     <textarea class="form-control" id="address" name="address" rows="3">{{ old('address', $company?->address) }}</textarea>
 </div>

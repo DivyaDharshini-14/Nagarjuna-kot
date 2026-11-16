@@ -505,6 +505,15 @@ class OrderService
                 $updateData['ready_at'] = $now;
                 $startTime = $ticket->accepted_at ?? $ticket->created_at ?? $now;
                 $updateData['duration_seconds'] = abs((int) $now->diffInSeconds($startTime));
+            } elseif ($status === 'served') {
+                $now = now();
+                if (! $ticket->ready_at) {
+                    $updateData['ready_at'] = $now;
+                }
+                if (! $ticket->duration_seconds) {
+                    $startTime = $ticket->accepted_at ?? $ticket->created_at ?? $now;
+                    $updateData['duration_seconds'] = abs((int) $now->diffInSeconds($startTime));
+                }
             }
 
             $ticket->update($updateData);

@@ -19,7 +19,7 @@ class KitchenController extends Controller
     public function index(Request $request): View
     {
         $kitchens = $this->applyBranchScope(Kitchen::query()->with(['company', 'branch']));
-        $this->applySearch($kitchens, $request, ['name', 'code']);
+        $this->applySearch($kitchens, $request, ['name', 'code', 'kitchen_type']);
         $this->applyStatus($kitchens, $request);
 
         $kitchens = $kitchens->latest()->paginate(10)->withQueryString();
@@ -143,6 +143,7 @@ class KitchenController extends Controller
                 'regex:/^[A-Za-z0-9_-]+$/',
                 Rule::unique('kitchens', 'code')->where('branch_id', $request->input('branch_id'))->ignore($kitchen?->id),
             ],
+            'kitchen_type' => ['nullable', 'string', 'max:100'],
             'description' => ['nullable', 'string'],
             'is_active' => ['required', 'boolean'],
         ]);

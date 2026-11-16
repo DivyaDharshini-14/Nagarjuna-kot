@@ -37,10 +37,37 @@
         </div>
     </div>
 
-    {{-- Hidden form for background real-time sync (No UI filter controls) --}}
-    <form id="dashboardFilters" method="GET" action="{{ route('dashboard') }}" class="d-none">
-        <input type="hidden" name="format" value="json">
-    </form>
+    {{-- Filter Bar (Date Selector) --}}
+    <div class="filter-bar-card mb-4">
+        <form method="GET" action="{{ route('dashboard') }}" id="dashboardFilters">
+            <div class="row g-2 align-items-center">
+                {{-- Date Input / Selector --}}
+                <div class="col-12 col-sm-6 col-lg-3">
+                    <div class="input-group input-group-clean">
+                        <span class="input-group-text bg-white border-end-0 text-muted ps-3">
+                            <i class="bi bi-calendar3 text-dark"></i>
+                        </span>
+                        <input
+                            type="date"
+                            name="date"
+                            id="dashboard_date"
+                            class="form-control border-start-0 ps-1"
+                            value="{{ $date ?? now()->toDateString() }}"
+                            onchange="this.form.submit()"
+                        >
+                    </div>
+                </div>
+
+                @if(!empty($date) && $date !== now()->toDateString())
+                    <div class="col-auto">
+                        <a href="{{ route('dashboard') }}" class="btn btn-sm btn-light border text-muted px-2 py-1.5" title="Reset to Today" style="font-size: 0.82rem; border-radius: 8px;">
+                            <i class="bi bi-x-circle me-1"></i>Today
+                        </a>
+                    </div>
+                @endif
+            </div>
+        </form>
+    </div>
 
     {{-- 1. Six Tabletop KPI Summary Cards --}}
     <div class="row g-3 mb-4">
@@ -208,99 +235,7 @@
         </div>
     </div>
 
-    {{-- 2. Order Status Pipeline Card --}}
-    <div class="tabletop-card p-3.5 mb-4">
-        <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2 mb-3">
-            <div>
-                <h2 class="fs-6 fw-bold text-dark mb-0" style="font-size: 1rem; letter-spacing: -0.01em;">
-                    Order Status Pipeline
-                </h2>
-                <span class="text-secondary small" style="font-size: 0.8rem; color: #6b7280;">
-                    Live distribution across all order workflow stages
-                </span>
-            </div>
-            <div class="text-secondary small fw-medium">
-                Total Orders: <strong class="text-dark" id="status-pipeline-total">{{ number_format($summary['total'] ?? 0) }}</strong>
-            </div>
-        </div>
-
-        {{-- Multi-segment Progress Pipeline Bar --}}
-        <div class="status-pipeline-bar mb-3" id="statusPipelineBar">
-            @php
-                $distActive = $statusDistribution['active']['percentage'] ?? 0;
-                $distPrep = $statusDistribution['preparing']['percentage'] ?? 0;
-                $distReady = $statusDistribution['ready']['percentage'] ?? 0;
-                $distComp = $statusDistribution['completed']['percentage'] ?? 0;
-                $distCanc = $statusDistribution['cancelled']['percentage'] ?? 0;
-            @endphp
-            <div class="pipeline-segment seg-active" id="seg-active" style="width: {{ $distActive }}%;" title="Active: {{ $summary['active'] ?? 0 }} ({{ $distActive }}%)"></div>
-            <div class="pipeline-segment seg-preparing" id="seg-preparing" style="width: {{ $distPrep }}%;" title="Preparing: {{ $summary['preparing'] ?? 0 }} ({{ $distPrep }}%)"></div>
-            <div class="pipeline-segment seg-ready" id="seg-ready" style="width: {{ $distReady }}%;" title="Ready: {{ $summary['ready'] ?? 0 }} ({{ $distReady }}%)"></div>
-            <div class="pipeline-segment seg-completed" id="seg-completed" style="width: {{ $distComp }}%;" title="Completed: {{ $summary['completed'] ?? 0 }} ({{ $distComp }}%)"></div>
-            <div class="pipeline-segment seg-cancelled" id="seg-cancelled" style="width: {{ $distCanc }}%;" title="Cancelled: {{ $summary['cancelled'] ?? 0 }} ({{ $distCanc }}%)"></div>
-        </div>
-
-        {{-- Status Breakdown Chips --}}
-        <div class="row g-2 pt-1">
-            <div class="col-6 col-md-4 col-xl">
-                <div class="tabletop-status-chip d-flex align-items-center gap-2 p-2">
-                    <span class="chip-dot" style="background-color: #0284c7;"></span>
-                    <div class="min-w-0">
-                        <div class="text-secondary small fw-semibold" style="font-size: 0.72rem;">Active</div>
-                        <div class="fw-bold text-dark small" id="chip-active-val">
-                            {{ $summary['active'] ?? 0 }} <span class="text-muted fw-normal" style="font-size: 0.7rem;">({{ $distActive }}%)</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-6 col-md-4 col-xl">
-                <div class="tabletop-status-chip d-flex align-items-center gap-2 p-2">
-                    <span class="chip-dot" style="background-color: #f59e0b;"></span>
-                    <div class="min-w-0">
-                        <div class="text-secondary small fw-semibold" style="font-size: 0.72rem;">Preparing</div>
-                        <div class="fw-bold text-dark small" id="chip-prep-val">
-                            {{ $summary['preparing'] ?? 0 }} <span class="text-muted fw-normal" style="font-size: 0.7rem;">({{ $distPrep }}%)</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-6 col-md-4 col-xl">
-                <div class="tabletop-status-chip d-flex align-items-center gap-2 p-2">
-                    <span class="chip-dot" style="background-color: #10b981;"></span>
-                    <div class="min-w-0">
-                        <div class="text-secondary small fw-semibold" style="font-size: 0.72rem;">Ready</div>
-                        <div class="fw-bold text-dark small" id="chip-ready-val">
-                            {{ $summary['ready'] ?? 0 }} <span class="text-muted fw-normal" style="font-size: 0.7rem;">({{ $distReady }}%)</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-6 col-md-4 col-xl">
-                <div class="tabletop-status-chip d-flex align-items-center gap-2 p-2">
-                    <span class="chip-dot" style="background-color: #8b5cf6;"></span>
-                    <div class="min-w-0">
-                        <div class="text-secondary small fw-semibold" style="font-size: 0.72rem;">Completed</div>
-                        <div class="fw-bold text-dark small" id="chip-comp-val">
-                            {{ $summary['completed'] ?? 0 }} <span class="text-muted fw-normal" style="font-size: 0.7rem;">({{ $distComp }}%)</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-6 col-md-4 col-xl">
-                <div class="tabletop-status-chip d-flex align-items-center gap-2 p-2">
-                    <span class="chip-dot" style="background-color: #ef4444;"></span>
-                    <div class="min-w-0">
-                        <div class="text-secondary small fw-semibold" style="font-size: 0.72rem;">Cancelled</div>
-                        <div class="fw-bold text-dark small" id="chip-canc-val">
-                            {{ $summary['cancelled'] ?? 0 }} <span class="text-muted fw-normal" style="font-size: 0.7rem;">({{ $distCanc }}%)</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    {{-- 3. Middle Row: Orders Overview Chart & Kitchen-wise Pending Orders --}}
+    {{-- 2. Middle Row: Orders Overview Chart & Kitchen-wise Pending Orders --}}
     <div class="row g-4 mb-4 align-items-stretch">
         {{-- Orders Overview Chart --}}
         <div class="col-12 col-xl-7 col-xxl-8">
@@ -584,6 +519,31 @@
 /* Tabletop Dashboard Theme */
 .tabletop-dashboard {
     color: #111827;
+}
+
+/* Filter Bar Styling */
+.filter-bar-card {
+    background: transparent;
+}
+.input-group-clean {
+    border-radius: 8px;
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    overflow: hidden;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+.input-group-clean .input-group-text {
+    border: none;
+    background: #ffffff;
+}
+.input-group-clean .form-control {
+    border: none;
+    box-shadow: none;
+    font-size: 0.86rem;
+    font-weight: 500;
+}
+.input-group-clean .form-control:focus {
+    box-shadow: none;
 }
 
 /* Tabletop Card Container */
@@ -882,7 +842,11 @@ async function fetchDashboardData() {
     isRefreshing = true;
 
     try {
-        const response = await fetch("{{ route('dashboard') }}?format=json", {
+        const dateInput = document.getElementById('dashboard_date');
+        const selectedDate = dateInput ? dateInput.value : '';
+        const fetchUrl = `{{ route('dashboard') }}?format=json${selectedDate ? '&date=' + encodeURIComponent(selectedDate) : ''}`;
+
+        const response = await fetch(fetchUrl, {
             headers: {
                 'X-Requested-With': 'XMLHttpRequest',
                 'Accept': 'application/json',

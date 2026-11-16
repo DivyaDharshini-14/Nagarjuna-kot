@@ -35,7 +35,7 @@ class KdsController extends Controller
 
         $kitchens = $query->with(['branch', 'company'])
             ->withCount([
-                'kotTickets as new_count' => fn ($q) => $q->whereIn('ticket_status', ['new', 'accepted']),
+                'kotTickets as new_count' => fn ($q) => $q->where('ticket_status', 'accepted'),
                 'kotTickets as preparing_count' => fn ($q) => $q->where('ticket_status', 'preparing'),
                 'kotTickets as ready_count' => fn ($q) => $q->where('ticket_status', 'ready'),
             ])
@@ -142,9 +142,9 @@ class KdsController extends Controller
             }
         }
 
-        // Active tickets query: new, accepted, preparing, ready
+        // Active tickets query for KDS: accepted, preparing, ready
         $query = KotTicket::query()
-            ->whereIn('ticket_status', ['new', 'accepted', 'preparing', 'ready'])
+            ->whereIn('ticket_status', ['accepted', 'preparing', 'ready'])
             ->with([
                 'kitchen',
                 'order.table',
@@ -165,19 +165,21 @@ class KdsController extends Controller
 
         $formatTicket = function (KotTicket $t) use ($now) {
             $receivedAt = $t->order?->created_at ?? $t->created_at ?? $now;
-            $startTime = $t->accepted_at ?? $t->created_at ?? $now;
+
+            // Requirement: "that duration should start from the second the kitchen staff accepted that order!!"
+            $startTime = $t->accepted_at ?? ($t->ticket_status === 'accepted' || $t->ticket_status === 'preparing' ? $t->updated_at ?? $t->created_at : null);
 
             if ($t->ticket_status === 'ready') {
-                $elapsedSeconds = $t->duration_seconds ?? ($t->ready_at ? abs((int) $t->ready_at->diffInSeconds($startTime)) : abs((int) $t->updated_at->diffInSeconds($startTime)));
+                $elapsedSeconds = $t->duration_seconds ?? ($t->ready_at && $startTime ? abs((int) $t->ready_at->diffInSeconds($startTime)) : ($startTime ? abs((int) $t->updated_at->diffInSeconds($startTime)) : 0));
                 $isRunning = false;
-            } else {
-                $elapsedSeconds = abs((int) $now->diffInSeconds($startTime));
+            } elseif ($t->ticket_status === 'accepted' || $t->ticket_status === 'preparing') {
+                // Accepted by kitchen staff: live duration ticks from accepted_at
+                $elapsedSeconds = $startTime ? max(0, abs((int) $now->diffInSeconds($startTime))) : 0;
                 $isRunning = true;
-            }
-
-            // Cap elapsed seconds if it's unreasonably large from old seed data (> 12 hours)
-            if ($elapsedSeconds > 43200 && !$t->duration_seconds) {
-                $elapsedSeconds = $t->ticket_status === 'ready' ? 720 : 180;
+            } else {
+                // Not yet accepted by kitchen staff: duration timer has not started
+                $elapsedSeconds = 0;
+                $isRunning = false;
             }
 
             // Extract numeric display (e.g. "1" from "KOT-20261106-K4-0001")
@@ -186,6 +188,10 @@ class KdsController extends Controller
             } else {
                 $kotDisplay = $t->id;
             }
+
+            // Table resolution: do not show soft-deleted tables
+            $table = $t->order?->table;
+            $tableName = ($table && !$table->trashed()) ? $table->name : 'Takeaway';
 
             return [
                 'id' => $t->id,
@@ -196,7 +202,7 @@ class KdsController extends Controller
                 'kitchen_code' => $t->kitchen?->code ?? '',
                 'order_id' => $t->order_id,
                 'order_number' => $t->order?->order_number ?? '—',
-                'table_name' => $t->order?->table?->name ?? 'Takeaway / N/A',
+                'table_name' => $tableName,
                 'waiter_name' => $t->order?->waiter?->name ?? 'Staff',
                 'ticket_status' => $t->ticket_status,
                 'special_instructions' => $t->order?->special_instructions,
@@ -205,6 +211,7 @@ class KdsController extends Controller
                 'order_received_time_full' => $receivedAt->format('H:i:s'),
                 'created_at_time' => $receivedAt->format('H:i:s'),
                 'created_at_iso' => $receivedAt->toIso8601String(),
+                'accepted_at_iso' => $t->accepted_at?->toIso8601String(),
                 'elapsed_seconds' => $elapsedSeconds,
                 'is_running' => $isRunning,
                 'items' => $t->items->map(fn (KotItem $item) => [
@@ -219,11 +226,12 @@ class KdsController extends Controller
         };
 
         // User requirement:
+        // "once he accept the order then only it'll comes under new orders and that duration should start from there!!!!"
         // "Accepted means thats a new order!!! section!!"
         // "Preparing means the order is being preparing section"
         // "ready means ready oders section!!"
         // "Do not show served order!!!"
-        $newTickets = $tickets->filter(fn ($t) => in_array($t->ticket_status, ['new', 'accepted'], true))->map($formatTicket)->values();
+        $newTickets = $tickets->filter(fn ($t) => $t->ticket_status === 'accepted')->map($formatTicket)->values();
         $preparingTickets = $tickets->filter(fn ($t) => $t->ticket_status === 'preparing')->map($formatTicket)->values();
         $readyTickets = $tickets->filter(fn ($t) => $t->ticket_status === 'ready')->map($formatTicket)->values();
 

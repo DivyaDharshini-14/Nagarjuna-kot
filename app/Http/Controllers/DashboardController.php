@@ -358,6 +358,11 @@ class DashboardController extends Controller
 
         $maxBranchOrders = max(1, $branchBreakdown->max('total') ?? 1);
 
+        // If a standard browser GET request visits with ?format=json (e.g. from previously bookmarked or broken URL), redirect to clean view
+        if ($request->input('format') === 'json' && ! $request->ajax() && ! $request->wantsJson() && $request->acceptsHtml()) {
+            return redirect()->route('dashboard', $request->except('format'));
+        }
+
         // Real-time JSON endpoint for live background polling
         if ($request->ajax() || $request->wantsJson() || $request->input('format') === 'json') {
             return response()->json([

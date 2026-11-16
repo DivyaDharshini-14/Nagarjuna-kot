@@ -45,7 +45,7 @@ class Order extends Model
 
     public function table(): BelongsTo
     {
-        return $this->belongsTo(RestaurantTable::class, 'table_id');
+        return $this->belongsTo(RestaurantTable::class, 'table_id')->withTrashed();
     }
 
     public function waiter(): BelongsTo
@@ -59,6 +59,11 @@ class Order extends Model
     }
 
     public function kotTickets(): HasMany
+    {
+        return $this->hasMany(KotTicket::class);
+    }
+
+    public function kots(): HasMany
     {
         return $this->hasMany(KotTicket::class);
     }
