@@ -348,6 +348,10 @@
             justify-content: center;
             text-align: center;
             min-width: 82px;
+            max-width: 96px;
+            width: 86px;
+            overflow: hidden;
+            box-sizing: border-box;
             flex-shrink: 0;
         }
 
@@ -370,11 +374,15 @@
         }
 
         .kot-box-table {
-            font-size: 0.82rem;
+            font-size: 0.80rem;
             font-weight: 800;
             color: #1f2937;
             line-height: 1.15;
             white-space: nowrap;
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: block;
         }
 
         /* 2. MIDDLE: DISH ITEMS LIST */
@@ -849,33 +857,41 @@
             // Extract readable number from kot_number or kot_display_number
             let kotNum = ticket.kot_display_number || ticket.kot_number;
 
-            // Table string
-            let tableStr = ticket.table_name || '1';
-            if (!tableStr.toLowerCase().startsWith('table')) {
-                tableStr = `Table ${tableStr}`;
+            // Table string (clean display: 'Table X' or 'Takeaway', never 'Table Takeaway / N/A')
+            let rawTable = (ticket.table_name || '').trim();
+            let tableStr = '';
+            if (!rawTable || rawTable.toLowerCase().includes('n/a') || rawTable.toLowerCase().includes('takeaway')) {
+                tableStr = 'Takeaway';
+            } else if (/^table\s*/i.test(rawTable)) {
+                tableStr = rawTable;
+            } else {
+                tableStr = `Table ${rawTable}`;
             }
 
             // Duration Capsule
+            // Requirement: "duration should start from the second the kitchen staff accepted that order!!"
             let durationHtml = '';
             const sec = parseInt(ticket.elapsed_seconds || 0, 10);
             const timeFormatted = formatSecs(sec);
+            const isLive = Boolean(ticket.is_running);
+            const timerClass = isLive ? 'live-card-timer' : 'static-card-timer';
 
             if (stage === 'new') {
                 durationHtml = `
-                    <div class="timer-capsule-exact" title="Duration">
+                    <div class="timer-capsule-exact" title="${isLive ? 'Live Duration' : 'Awaiting Acceptance'}">
                         <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
                             <path d="M12 1a1 1 0 0 1 1 1v1.07A8.001 8.001 0 0 1 19.93 11H21a1 1 0 1 1 0 2h-1.07A8.001 8.001 0 0 1 12 21a8.001 8.001 0 0 1-7.93-8H3a1 1 0 1 1 0-2h1.07A8.001 8.001 0 0 1 11 3.07V2a1 1 0 0 1 1-1zm0 4a6 6 0 1 0 6 6 6 6 0 0 0-6-6zm0 2a1 1 0 0 1 1 1v2.586l1.707 1.707a1 1 0 0 1-1.414 1.414l-2-2A1 1 0 0 1 11 10.5V8a1 1 0 0 1 1-1z"/>
                         </svg>
-                        <span class="live-card-timer" data-sec="${sec}">${timeFormatted}</span>
+                        <span class="${timerClass}" data-sec="${sec}">${timeFormatted}</span>
                     </div>
                 `;
             } else if (stage === 'preparing') {
                 durationHtml = `
-                    <div class="timer-capsule-prep" title="Duration">
+                    <div class="timer-capsule-prep" title="Preparing Duration">
                         <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
                             <path d="M12 1a1 1 0 0 1 1 1v1.07A8.001 8.001 0 0 1 19.93 11H21a1 1 0 1 1 0 2h-1.07A8.001 8.001 0 0 1 12 21a8.001 8.001 0 0 1-7.93-8H3a1 1 0 1 1 0-2h1.07A8.001 8.001 0 0 1 11 3.07V2a1 1 0 0 1 1-1zm0 4a6 6 0 1 0 6 6 6 6 0 0 0-6-6zm0 2a1 1 0 0 1 1 1v2.586l1.707 1.707a1 1 0 0 1-1.414 1.414l-2-2A1 1 0 0 1 11 10.5V8a1 1 0 0 1 1-1z"/>
                         </svg>
-                        <span class="live-card-timer" data-sec="${sec}">${timeFormatted}</span>
+                        <span class="${timerClass}" data-sec="${sec}">${timeFormatted}</span>
                     </div>
                 `;
             } else if (stage === 'ready') {
