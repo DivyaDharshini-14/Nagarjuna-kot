@@ -11,6 +11,7 @@ use App\Models\Order;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\View\View;
 
@@ -323,14 +324,20 @@ class DashboardController extends Controller
         // 10. Hourly Order Trend Data (Today vs Yesterday for smooth Dashcart area line chart)
         $hourlyLabels = ['10 AM', '11 AM', '12 PM', '1 PM', '2 PM', '3 PM', '4 PM', '5 PM'];
         $hourlyHours = [10, 11, 12, 13, 14, 15, 16, 17];
+
+        $driver = DB::connection()->getDriverName();
+        $hourExpression = $driver === 'sqlite'
+            ? "CAST(strftime('%H', created_at) AS INTEGER)"
+            : 'HOUR(created_at)';
+
         $hourlyCounts = (clone $baseOrderQuery)
-            ->selectRaw('HOUR(created_at) as hr, COUNT(*) as cnt')
+            ->selectRaw("$hourExpression as hr, COUNT(*) as cnt")
             ->groupBy('hr')
             ->pluck('cnt', 'hr')
             ->all();
 
         $yesterdayHourlyCounts = (clone $yesterdayQuery)
-            ->selectRaw('HOUR(created_at) as hr, COUNT(*) as cnt')
+            ->selectRaw("$hourExpression as hr, COUNT(*) as cnt")
             ->groupBy('hr')
             ->pluck('cnt', 'hr')
             ->all();

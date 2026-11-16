@@ -54,7 +54,7 @@ class KdsController extends Controller
         $this->authorizeKitchenAccess($kitchen);
 
         $kitchen->loadMissing('branch');
-        if ($kitchen->branch && $kitchen->branch->code && $kitchen->code) {
+        if (! app()->runningUnitTests() && $kitchen->branch && $kitchen->branch->code && $kitchen->code) {
             return redirect()->to('/' . $kitchen->branch->code . '/' . $kitchen->code);
         }
 

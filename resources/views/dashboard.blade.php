@@ -370,9 +370,11 @@
                             Latest transactions processed
                         </span>
                     </div>
-                    <a href="{{ route('orders.index') }}" class="tabletop-link small">
-                        View all <i class="bi bi-arrow-right ms-0.5"></i>
-                    </a>
+                    @if(auth()->user()->hasPermission('order.view'))
+                        <a href="{{ route('orders.index') }}" class="tabletop-link small">
+                            View all <i class="bi bi-arrow-right ms-0.5"></i>
+                        </a>
+                    @endif
                 </div>
 
                 <div class="table-responsive flex-grow-1">

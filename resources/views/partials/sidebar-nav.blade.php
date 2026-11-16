@@ -258,6 +258,7 @@
                    aria-controls="{{ $usersCollapseId }}">
                     <i class="bi bi-people"></i>
                     <span>Users &amp; Access</span>
+                    <span class="visually-hidden">Access Control</span>
                     <i class="bi bi-chevron-down ms-auto sidebar-chevron"></i>
                 </a>
                 <div class="collapse {{ $isUsersActive ? 'show' : '' }}" id="{{ $usersCollapseId }}">

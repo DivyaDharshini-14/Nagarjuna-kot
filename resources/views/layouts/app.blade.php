@@ -77,10 +77,17 @@
                 <!-- Right Controls: Notification & User Profile -->
                 <div class="d-flex align-items-center gap-2 ms-auto">
                     <!-- Notification Bell -->
-                    <a href="{{ route('orders.index') }}" class="topbar-icon-btn" title="View Recent Orders">
-                        <i class="bi bi-bell"></i>
-                        <span class="badge-dot"></span>
-                    </a>
+                    @if(auth()->user()->hasPermission('order.view'))
+                        <a href="{{ route('orders.index') }}" class="topbar-icon-btn" title="View Recent Orders">
+                            <i class="bi bi-bell"></i>
+                            <span class="badge-dot"></span>
+                        </a>
+                    @else
+                        <button type="button" class="topbar-icon-btn" title="Notifications">
+                            <i class="bi bi-bell"></i>
+                            <span class="badge-dot"></span>
+                        </button>
+                    @endif
 
                     <!-- User Profile Dropdown -->
                     @php
