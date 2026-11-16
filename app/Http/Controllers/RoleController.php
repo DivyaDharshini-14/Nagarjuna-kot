@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Models\Permission;
 use App\Models\Role;
-use App\Observers\OperationalAuditObserver;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -71,8 +70,7 @@ class RoleController extends Controller
             'is_active' => $request->boolean('is_active', true),
         ]);
 
-        $changes = $role->permissions()->sync($validated['permissions'] ?? []);
-        app(OperationalAuditObserver::class)->relationshipsChanged($role, ['permissions' => $changes]);
+        $role->permissions()->sync($validated['permissions'] ?? []);
 
         return redirect()->route('roles.index')->with('success', 'Role created successfully.');
     }
@@ -108,8 +106,7 @@ class RoleController extends Controller
             'is_active' => in_array($role->slug, $this->protectedRoles, true) ? true : $request->boolean('is_active', true),
         ]);
 
-        $changes = $role->permissions()->sync($validated['permissions'] ?? []);
-        app(OperationalAuditObserver::class)->relationshipsChanged($role, ['permissions' => $changes]);
+        $role->permissions()->sync($validated['permissions'] ?? []);
 
         return redirect()->route('roles.index')->with('success', 'Role and permissions updated successfully.');
     }
@@ -128,3 +125,4 @@ class RoleController extends Controller
         return redirect()->route('roles.index')->with('success', 'Role deleted successfully.');
     }
 }
+

@@ -48,14 +48,6 @@ class MobileMenuController extends Controller
                 'category:id,name',
                 'menuType:id,name',
             ])
-            ->withCount(['kitchenMenuItems as active_kitchen_count' => fn ($query) => $query
-                ->where('company_id', $user->company_id)
-                ->where('branch_id', $branch->id)
-                ->where('is_active', true)
-                ->whereHas('kitchen', fn ($kitchen) => $kitchen
-                    ->where('company_id', $user->company_id)
-                    ->where('branch_id', $branch->id)
-                    ->where('is_active', true))])
             ->orderBy('display_order')
             ->orderBy('name')
             ->get()
@@ -104,8 +96,7 @@ class MobileMenuController extends Controller
                 ? (int) $stockQuantity
                 : null,
             'stock_configured' => $stockConfigured,
-            'kitchen_configured' => $item->active_kitchen_count > 0,
-            'is_orderable' => $availability === 'available' && $inStock && $stockConfigured && $item->active_kitchen_count > 0,
+            'is_orderable' => $availability === 'available' && $inStock && $stockConfigured,
         ];
     }
 }

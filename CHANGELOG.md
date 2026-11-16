@@ -1,17 +1,5 @@
 # Release Notes
 
-## Nagarjuna operational remediation 13 November 2026
-
-- Route each dish to every active assigned kitchen, reject missing mappings, aggregate preparation state and account for stock/cancellation once per customer quantity.
-- Preserve terminal cancellations, validate preparation transitions under locks and allocate atomic order and branch/period KOT numbers.
-- Persist uncertain waiter quantity additions, clarify Add extra, refresh floors and reconcile open cart reviews with stock changes.
-- Add received clock time, foreground sound, read-only stock access and paginated kitchen history.
-- Align both TV displays with cancellation quantities/history, live reconnect and explicit station/tenant authorization; protect alternate session endpoints.
-- Add scoped reports/exports, branch settings, critical-operation/status history, kitchen type, database backup command and API/database/operator documentation.
-- Billing integration remains excluded. Deployment and target-device acceptance are recorded separately from static validation.
-
-The entries below are inherited Laravel skeleton history.
-
 ## [Unreleased](https://github.com/laravel/laravel/compare/v12.12.1...12.x)
 
 ## [v12.12.1](https://github.com/laravel/laravel/compare/v12.12.0...v12.12.1) - 2026-03-10

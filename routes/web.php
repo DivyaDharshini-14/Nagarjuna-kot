@@ -2,8 +2,8 @@
 
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\BranchController;
-use App\Http\Controllers\CancellationRequestController;
 use App\Http\Controllers\CategoryController;
+use App\Http\Controllers\CancellationRequestController;
 use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\FloorController;
@@ -15,14 +15,12 @@ use App\Http\Controllers\MenuItemController;
 use App\Http\Controllers\MenuTypeController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\ReportController;
-use App\Http\Controllers\ReportsController;
 use App\Http\Controllers\RestaurantTableController;
 use App\Http\Controllers\RoleController;
-use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\StockController;
 use App\Http\Controllers\UserController;
-use Illuminate\Broadcasting\BroadcastController;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Broadcasting\BroadcastController;
 
 Route::get('/', function () {
     return redirect()->route('dashboard');
@@ -41,9 +39,6 @@ Route::middleware('guest')->group(function () {
 
 Route::middleware(['auth', 'account.active'])->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
-    Route::get('/reports', [ReportsController::class, 'index'])->name('reports.index')->middleware('permission:report.view');
-    Route::get('/settings', [SettingsController::class, 'index'])->name('settings.index')->middleware('permission:settings.view');
-    Route::put('/settings/{branch}', [SettingsController::class, 'update'])->name('settings.update')->middleware('permission:settings.edit')->whereNumber('branch');
     Route::post('/broadcasting/auth', [BroadcastController::class, 'authenticate'])->name('web.broadcasting.auth');
     Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])->name('logout');
 
@@ -165,12 +160,12 @@ Route::middleware(['auth', 'account.active'])->group(function () {
     Route::post('/cancellation-requests/{batch}/reject', [CancellationRequestController::class, 'reject'])->name('cancellations.reject')->middleware('permission:order.approve')->whereUuid('batch');
 
     // Reports Module
-    Route::get('/reports/orders', [ReportController::class, 'orders'])->name('reports.orders')->middleware(['permission:order.view', 'permission:report.view']);
-    Route::get('/reports/orders/export', [ReportController::class, 'exportOrders'])->name('reports.orders.export')->middleware(['permission:order.view', 'permission:report.view', 'permission:report.export']);
-    Route::get('/reports/menu-items', [ReportController::class, 'menuItems'])->name('reports.menu-items')->middleware(['permission:order.view', 'permission:report.view']);
-    Route::get('/reports/menu-items/export', [ReportController::class, 'exportMenuItems'])->name('reports.menu-items.export')->middleware(['permission:order.view', 'permission:report.view', 'permission:report.export']);
-    Route::get('/reports/kots', [ReportController::class, 'kots'])->name('reports.kots')->middleware(['permission:kot.view', 'permission:report.view']);
-    Route::get('/reports/kots/export', [ReportController::class, 'exportKots'])->name('reports.kots.export')->middleware(['permission:kot.view', 'permission:report.view', 'permission:report.export']);
+    Route::get('/reports/orders', [ReportController::class, 'orders'])->name('reports.orders')->middleware('permission:order.view');
+    Route::get('/reports/orders/export', [ReportController::class, 'exportOrders'])->name('reports.orders.export')->middleware('permission:order.view');
+    Route::get('/reports/menu-items', [ReportController::class, 'menuItems'])->name('reports.menu-items')->middleware('permission:order.view');
+    Route::get('/reports/menu-items/export', [ReportController::class, 'exportMenuItems'])->name('reports.menu-items.export')->middleware('permission:order.view');
+    Route::get('/reports/kots', [ReportController::class, 'kots'])->name('reports.kots')->middleware('permission:kot.view');
+    Route::get('/reports/kots/export', [ReportController::class, 'exportKots'])->name('reports.kots.export')->middleware('permission:kot.view');
 
     // Kitchen Order Tickets (KOT) Management
     Route::get('/kots', [KotController::class, 'index'])->name('kots.index')->middleware('permission:kot.view');
@@ -182,12 +177,12 @@ Route::middleware(['auth', 'account.active'])->group(function () {
     Route::get('/kds/all', [KdsController::class, 'screenAll'])->name('kds.screen.all')->middleware('permission:kot.view');
     Route::get('/kds/feed', [KdsController::class, 'feed'])->name('kds.feed.all')->middleware('permission:kot.view');
     Route::get('/kds/dishes', [KdsController::class, 'menuDishes'])->name('kds.dishes.all')->middleware('permission:kot.view');
-    Route::post('/kds/dishes/{menuItem}/toggle-availability', [KdsController::class, 'toggleDishAvailabilityDirect'])->name('kds.dishes.toggle.all')->middleware('permission:menu-item.stock-adjustment');
+    Route::post('/kds/dishes/{menuItem}/toggle-availability', [KdsController::class, 'toggleDishAvailabilityDirect'])->name('kds.dishes.toggle.all')->middleware('permission:kot.edit');
 
     // Specific kitchen sub-resources (Must precede greedy generic {branchCode}/{kitchenCode})
     Route::get('/kds/{kitchen}/feed', [KdsController::class, 'feed'])->name('kds.feed')->whereNumber('kitchen')->middleware('permission:kot.view');
     Route::get('/kds/{kitchen}/dishes', [KdsController::class, 'menuDishes'])->name('kds.dishes')->whereNumber('kitchen')->middleware('permission:kot.view');
-    Route::post('/kds/{kitchen}/dishes/{menuItem}/toggle-availability', [KdsController::class, 'toggleDishAvailability'])->name('kds.dishes.toggle')->middleware('permission:menu-item.stock-adjustment');
+    Route::post('/kds/{kitchen}/dishes/{menuItem}/toggle-availability', [KdsController::class, 'toggleDishAvailability'])->name('kds.dishes.toggle')->middleware('permission:kot.edit');
     Route::post('/kds/tickets/{kot}/status', [KdsController::class, 'updateTicketStatus'])->name('kds.tickets.update-status')->middleware('permission:kot.edit');
     Route::post('/kds/items/{item}/status', [KdsController::class, 'updateItemStatus'])->name('kds.items.update-status')->middleware('permission:kot.edit');
 
@@ -196,7 +191,7 @@ Route::middleware(['auth', 'account.active'])->group(function () {
 
     // Backward-compatible redirect from /kds/{branchCode}/{kitchenCode} to canonical /{branchCode}/{kitchenCode}
     Route::get('/kds/{branchCode}/{kitchenCode}', function ($branchCode, $kitchenCode) {
-        return redirect()->to('/'.$branchCode.'/'.$kitchenCode);
+        return redirect()->to('/' . $branchCode . '/' . $kitchenCode);
     })->middleware('permission:kot.view');
 
     // Canonical TV screen URL: base_url/{branch_code}/{kitchen_code} (Requirement Section 2.C & 6)

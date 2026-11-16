@@ -17,17 +17,12 @@ class SendKotPushNotification implements ShouldQueue
 
     public bool $afterCommit = true;
 
-    public function __construct(private readonly FcmPushService $push) {}
-
-    public function handle(KotTicketChanged $event): void
+    public function handle(KotTicketChanged $event, FcmPushService $push): void
     {
-        $push = $this->push;
         $ticket = KotTicket::query()
             ->with(['kitchen', 'order.table', 'order.waiter'])
             ->find($event->ticketId);
-        if (! $ticket || ! $ticket->order) {
-            return;
-        }
+        if (! $ticket || ! $ticket->order) return;
 
         if (in_array($event->changeType, ['created', 'cancelled'], true)) {
             $kitchenUsers = User::query()
@@ -38,8 +33,6 @@ class SendKotPushNotification implements ShouldQueue
                     ->where('kitchens.is_active', true))
                 ->get()
                 ->filter(fn (User $user) => $user->canAuthenticate()
-                    && (int) $user->company_id === (int) $ticket->company_id
-                    && (int) $user->branch_id === (int) $ticket->branch_id
                     && $user->isKitchenStaff()
                     && $user->hasPermission('kot.view'));
 
@@ -58,11 +51,7 @@ class SendKotPushNotification implements ShouldQueue
 
         if ($event->changeType === 'updated' && $event->status === 'ready') {
             $waiter = $ticket->order->waiter;
-            if (! $waiter || ! $waiter->canAuthenticate() || ! $waiter->hasPermission('order.view')
-                || (int) $waiter->company_id !== (int) $ticket->company_id
-                || (int) $waiter->branch_id !== (int) $ticket->branch_id) {
-                return;
-            }
+            if (! $waiter || ! $waiter->canAuthenticate() || ! $waiter->isWaiter() || ! $waiter->hasPermission('order.view')) return;
             $this->sendToUsers($push, [$waiter->id], 'waiter', [
                 'title' => 'Kitchen ticket ready',
                 'body' => $ticket->kot_number.' · Table '.($ticket->order->table?->name ?? '—'),
@@ -84,9 +73,7 @@ class SendKotPushNotification implements ShouldQueue
         array $notification,
         array $data,
     ): void {
-        if ($userIds === []) {
-            return;
-        }
+        if ($userIds === []) return;
 
         $devices = MobileDeviceToken::query()
             ->whereIn('user_id', $userIds)

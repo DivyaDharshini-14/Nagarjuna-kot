@@ -1,31 +1,163 @@
-# Nagarjuna authentication and authorization
+# Web Authentication and Authorization
 
-Administrators provision staff accounts; public registration is disabled. Active user, company and matching active branch are checked on protected requests. Inactive roles grant no permissions. The custom `roles`, `permissions`, `user_roles` and `role_permissions` tables implement module/action access.
+## Test login
 
-## Sessions and mobile tokens
+Local development credentials:
 
-Web login/logout uses Laravel's session guard and CSRF protection. Login is throttled to six attempts per minute and regenerates the session ID. Create the first administrator interactively with `php artisan auth:create-admin`; development seed accounts are not deployment credentials.
+- URL: `http://127.0.0.1:8000/login`
+- Email: `admin@nagarjuna.test`
+- Password: `Admin@12345`
+- Role: `super-admin`
 
-Mobile authentication is implemented with Sanctum. Waiter and kitchen login endpoints issue separate `waiter:mobile` and `kitchen:mobile` abilities with seven-day expiry. The phone stores the bearer token in platform secure storage and never persists the password. Logout/revocation removes token-associated push registrations. Every route enforces ability and relevant module permission independently of hidden UI controls.
+This is a development-only account. Change its password or remove the account
+before using a shared, staging, or production database.
 
-## Scope
+Start the application with:
 
-Super Admin/Admin manage all tenants. Company Admin is confined to its company. Other branch staff use their assigned branch. Kitchen staff additionally require explicit active station assignments for queues, TV/session endpoints, history, stock and channel authorization; an empty assignment set grants no kitchen work.
+```bash
+php artisan serve
+```
 
-The mobile APIs derive tenant context from the account; changing request parameters cannot select another tenant. Related floor/table/menu/kitchen IDs must belong to that scope. Friendly browser KDS endpoints, legacy session KOT APIs and direct availability endpoints apply the same assignment/tenant guards. Registered TV bearer URLs authorize only their one active kitchen, with rotate/revoke controls.
+## Web authentication flow
 
-## Role permissions
+Web authentication uses Laravel's session guard. No mobile or API token
+authentication is included in the current phase.
 
-Waiter/Captain roles receive floor/table/menu view and order view/add/edit/cancel permissions. Kitchen Staff receive kitchen/KOT/menu view and KOT edit; Kitchen Manager also receives stock adjustment. Managers receive their branch management permissions and cancellation approval; Company Admin and management receive scoped report/settings capabilities. Exact defaults are defined in `RolePermissionSeeder`; roles remain configurable through authorized management.
+Routes are defined in `routes/web.php`:
 
-New report/settings permissions are `report.view/export`, `audit-log.view/export` and `settings.view/edit`. User activity needs the audit permission in addition to report access. Stock mutations require `menu-item.stock-adjustment`, including browser availability actions; read-only stock/history require menu view. Cancellations require order.cancel and a reason; decisions require order.approve and, when configured, a different approver.
+- `GET /login` displays the login form.
+- `POST /login` validates credentials and creates a session.
+- `GET /dashboard` requires an authenticated, active account.
+- `POST /logout` invalidates the session and regenerates the CSRF token.
 
-Avoid re-running the role synchronization seeder blindly on customized restaurant roles: it can replace their permission assignments. The remediation permission migration adds the new management capabilities without replacing other assignments. Production demo seeders are blocked.
+`AuthenticatedSessionController` handles login and logout. Login requests are
+limited to six attempts per minute. The session ID is regenerated after a
+successful login to prevent session fixation.
 
-## Operational integrity
+`EnsureAccountIsActive` runs on protected web routes. Access is rejected when:
 
-The shared order service locks/reloads authoritative state, rejects skipped/backwards/closed preparation transitions and never revives fully cancelled items. Multi-station stock and cancellation accounting happens once per customer quantity. Mobile create/add submissions require a UUID request key and payload hash; uncertain writes retain that exact identity across retries.
+- The user is inactive or soft-deleted.
+- The assigned company is inactive or soft-deleted.
+- The assigned branch is inactive or soft-deleted.
+- The assigned branch does not belong to the user's assigned company.
 
-Critical model changes, role/permission/station assignments, settings and status transitions are persisted in scoped audit/history tables without password/display-secret fields. API credentials and device tokens are not returned in reports. Configure HTTPS/WSS, private service credentials, managed workers and production logging in the deployment environment.
+Public registration is intentionally disabled. Administrators provision staff
+accounts.
 
-See [API.md](API.md) for endpoint authorization/error details and [OPERATIONS.md](OPERATIONS.md) for setup and manual acceptance. No claim of completed production UAT follows from static source review.
+## Creating an administrator
+
+Use the interactive command so that a password is not stored in source code:
+
+```bash
+php artisan auth:create-admin
+```
+
+The command creates an active user and assigns the `super-admin` role.
+
+## Database structure
+
+Authorization uses the project's custom role and permission models:
+
+- `users`: staff login and company/branch assignment.
+- `roles`: role name, unique slug, description, and active status.
+- `permissions`: module/action permissions represented by a unique slug.
+- `user_roles`: many-to-many assignment between users and roles.
+- `role_permissions`: many-to-many assignment between roles and permissions.
+
+Permission slugs follow the `module.action` format, for example:
+
+```text
+company.view
+branch.edit
+kitchen.add
+user.delete
+```
+
+## Seeded roles
+
+Run the idempotent seeders with:
+
+```bash
+php artisan db:seed
+```
+
+The following roles are created:
+
+- `super-admin`
+- `company-admin`
+- `branch-manager`
+- `restaurant-manager`
+- `captain-waiter`
+- `kitchen-manager`
+- `kitchen-staff`
+
+Current permission assignments:
+
+- Super Admin receives every permission and also has a code-level bypass.
+- Company Admin receives all actions for company, branch, kitchen, and user.
+- Branch Manager can view/add/edit branches, kitchens, and users.
+- Restaurant Manager can view branches, kitchens, and users.
+- Captain/Waiter, Kitchen Manager, and Kitchen Staff currently have no
+  permissions. Their permissions will be added with the Order and KOT modules.
+
+The current modules are company, branch, kitchen, user, role, and permission.
+Each module is seeded with view, add, edit, delete, approve, cancel, export, and
+stock-adjustment actions.
+
+## Checking roles and permissions
+
+The `User` model provides:
+
+```php
+$user->hasRole('branch-manager');
+$user->hasPermission('kitchen.edit');
+```
+
+Inactive roles do not grant access. A user may have multiple roles, and access
+is granted when any active role contains the requested permission.
+
+Protect a route with the permission middleware:
+
+```php
+Route::get('/users', [UserController::class, 'index'])
+    ->middleware(['auth', 'account.active', 'permission:user.view']);
+```
+
+Check access in a Blade view:
+
+```blade
+@if (auth()->user()->hasPermission('user.add'))
+    <a href="/users/create">Add user</a>
+@endif
+```
+
+Do not rely only on hiding links. Every protected controller route must also
+use permission middleware or a policy.
+
+## Assigning roles and permissions
+
+Assign a role to a user:
+
+```php
+$user->roles()->syncWithoutDetaching([$role->id]);
+```
+
+Replace all roles assigned to a user:
+
+```php
+$user->roles()->sync([$roleId]);
+```
+
+Replace all permissions assigned to a role:
+
+```php
+$role->permissions()->sync($permissionIds);
+```
+
+## Multi-company safety
+
+Authentication validates the user's company and branch assignment, but
+permission checks alone do not filter database records. Each future company,
+branch, kitchen, user, order, and stock query must also be scoped to the
+authenticated user's allowed company and branch. Only Super Admin should be
+allowed to operate without tenant scoping.

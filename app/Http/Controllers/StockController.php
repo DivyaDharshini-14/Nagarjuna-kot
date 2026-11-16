@@ -15,30 +15,13 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class StockController extends Controller
 {
     use ManagesTenantAccess;
-
-    private ?array $stockThresholds = null;
-
-    private function stockThresholds(): array
-    {
-        return $this->stockThresholds ??= DB::table('settings')->where('key', 'low_stock_threshold')->pluck('value', 'branch_id')
-            ->map(fn ($value) => (int) json_decode($value, true))->all();
-    }
-
-    private function filterStockThreshold($query, bool $low): void
-    {
-        $thresholds = $this->stockThresholds();
-        $operator = $low ? '<=' : '>';
-        foreach ($thresholds as $branchId => $threshold) {
-            $query->orWhere(fn ($branch) => $branch->where('branch_id', $branchId)->where('prepared_stock_quantity', $operator, $threshold));
-        }
-        $query->orWhere(fn ($fallback) => $fallback->whereNotIn('branch_id', array_keys($thresholds))->where('prepared_stock_quantity', $operator, 5));
-    }
 
     /**
      * Helper to resolve tenant and role-based stock filter context.
@@ -66,10 +49,17 @@ class StockController extends Controller
 
         // Kitchen staff specific scoping
         $assignedKitchenIds = [];
-        if ($user->isKitchenStaff() && ! $isSuper) {
-            $assignedKitchenIds = $user->kitchens()->where('kitchens.company_id', $user->company_id)
-                ->where('kitchens.branch_id', $user->branch_id)->where('kitchens.is_active', true)->pluck('kitchens.id')->all();
-            abort_if($selectedKitchenId && ! in_array($selectedKitchenId, $assignedKitchenIds, true), 404);
+        if (! $isAdmin && ! $user->isManager() && Schema::hasTable('kitchen_user')) {
+            try {
+                if ($user->kitchens()->exists()) {
+                    $assignedKitchenIds = $user->kitchens->pluck('id')->all();
+                    if ($selectedKitchenId && ! in_array($selectedKitchenId, $assignedKitchenIds, true)) {
+                        $selectedKitchenId = null;
+                    }
+                }
+            } catch (\Throwable $e) {
+                $assignedKitchenIds = [];
+            }
         }
 
         // Dropdown choices
@@ -95,7 +85,7 @@ class StockController extends Controller
         } elseif ($locksBranch) {
             $kitchenQuery->where('branch_id', $user->branch_id);
         }
-        if (! empty($assignedKitchenIds) || $user->isKitchenStaff()) {
+        if (! empty($assignedKitchenIds)) {
             $kitchenQuery->whereIn('id', $assignedKitchenIds);
         }
         $kitchens = $kitchenQuery->orderBy('name')->get();
@@ -128,7 +118,6 @@ class StockController extends Controller
             'kitchens' => $kitchens,
             'categories' => $categories,
             'canManageStock' => $user->hasPermission('menu-item.stock-adjustment'),
-            'stockThresholds' => $this->stockThresholds(),
         ];
     }
 
@@ -158,7 +147,7 @@ class StockController extends Controller
 
         if ($ctx['selectedKitchenId']) {
             $query->whereHas('kitchenMenuItems', fn ($q) => $q->where('kitchen_id', $ctx['selectedKitchenId'])->where('is_active', true));
-        } elseif (! empty($ctx['assignedKitchenIds']) || $ctx['user']->isKitchenStaff()) {
+        } elseif (! empty($ctx['assignedKitchenIds'])) {
             $query->whereHas('kitchenMenuItems', fn ($q) => $q->whereIn('kitchen_id', $ctx['assignedKitchenIds'])->where('is_active', true));
         }
 
@@ -183,13 +172,12 @@ class StockController extends Controller
     private function computeStockSummary($baseQuery): array
     {
         $b = clone $baseQuery;
-
         return [
             'total_dishes' => (clone $b)->count(),
             'tracked_dishes' => (clone $b)->where('stock_tracking_enabled', true)->count(),
             'total_portions' => (int) (clone $b)->where('stock_tracking_enabled', true)->sum('prepared_stock_quantity'),
             'low_stock' => (clone $b)->where('stock_tracking_enabled', true)
-                ->where(fn ($q) => $this->filterStockThreshold($q, true))
+                ->where('prepared_stock_quantity', '<=', 5)
                 ->where('prepared_stock_quantity', '>', 0)
                 ->count(),
             'out_of_stock' => (clone $b)->where('stock_tracking_enabled', true)
@@ -246,7 +234,7 @@ class StockController extends Controller
         $stockFilter = $request->input('stock_filter', 'all');
         if ($stockFilter === 'low_stock') {
             $query->where('stock_tracking_enabled', true)
-                ->where(fn ($q) => $this->filterStockThreshold($q, true))
+                ->where('prepared_stock_quantity', '<=', 5)
                 ->where('prepared_stock_quantity', '>', 0);
         } elseif ($stockFilter === 'out_of_stock') {
             $query->where('stock_tracking_enabled', true)
@@ -338,12 +326,12 @@ class StockController extends Controller
         switch ($validationStatus) {
             case 'healthy':
                 $query->where('stock_tracking_enabled', true)
-                    ->where(fn ($q) => $this->filterStockThreshold($q, false))
+                    ->where('prepared_stock_quantity', '>', 5)
                     ->where('availability', 'available');
                 break;
             case 'warning':
                 $query->where('stock_tracking_enabled', true)
-                    ->where(fn ($q) => $this->filterStockThreshold($q, true))
+                    ->where('prepared_stock_quantity', '<=', 5)
                     ->where('prepared_stock_quantity', '>', 0);
                 break;
             case 'critical':
@@ -458,11 +446,6 @@ class StockController extends Controller
                 'order:id,order_number',
             ])
             ->latest();
-        $this->applyBranchScope($txQuery);
-        if ($ctx['selectedKitchenId'] || $ctx['user']->isKitchenStaff()) {
-            $kitchenIds = $ctx['selectedKitchenId'] ? [$ctx['selectedKitchenId']] : $ctx['assignedKitchenIds'];
-            $txQuery->whereHas('menuItem.kitchenMenuItems', fn ($mapping) => $mapping->whereIn('kitchen_id', $kitchenIds)->where('is_active', true));
-        }
 
         if ($ctx['selectedBranchId']) {
             $txQuery->where('branch_id', $ctx['selectedBranchId']);
@@ -555,11 +538,11 @@ class StockController extends Controller
         if ($selectedStockStatus) {
             switch ($selectedStockStatus) {
                 case 'in_stock':
-                    $query->where('stock_tracking_enabled', true)->where(fn ($q) => $this->filterStockThreshold($q, false));
+                    $query->where('stock_tracking_enabled', true)->where('prepared_stock_quantity', '>', 5);
                     break;
                 case 'low_stock':
                     $query->where('stock_tracking_enabled', true)
-                        ->where(fn ($q) => $this->filterStockThreshold($q, true))
+                        ->where('prepared_stock_quantity', '<=', 5)
                         ->where('prepared_stock_quantity', '>', 0);
                     break;
                 case 'out_of_stock':
@@ -758,7 +741,7 @@ class StockController extends Controller
         $totalPortions = 0;
 
         DB::transaction(function () use ($validated, $user, &$results, &$totalItems, &$totalPortions) {
-            foreach (collect($validated['batches'])->sortBy('menu_item_id') as $entry) {
+            foreach ($validated['batches'] as $entry) {
                 $menuItem = MenuItem::findOrFail($entry['menu_item_id']);
                 $this->authorizeMenuItemAccess($user, $menuItem);
 
@@ -935,7 +918,7 @@ class StockController extends Controller
             $stock = (int) ($locked->prepared_stock_quantity ?? 0);
             $reasonText = ! empty(trim((string) ($validated['reason'] ?? '')))
                 ? trim($validated['reason'])
-                : ('Status updated to '.ucwords(str_replace('_', ' ', $validated['availability'])).' via Dish Availability board');
+                : ('Status updated to ' . ucwords(str_replace('_', ' ', $validated['availability'])) . ' via Dish Availability board');
 
             StockTransaction::create([
                 'company_id' => $locked->company_id,
@@ -947,7 +930,7 @@ class StockController extends Controller
                 'quantity_delta' => 0,
                 'stock_before' => $stock,
                 'stock_after' => $stock,
-                'reason' => $reasonText.' ('.$locked->availability.' -> '.$validated['availability'].')',
+                'reason' => $reasonText . ' (' . $locked->availability . ' → ' . $validated['availability'] . ')',
             ]);
 
             $locked->update(['availability' => $validated['availability']]);
@@ -1060,17 +1043,18 @@ class StockController extends Controller
     {
         $this->authorizeBranch($menuItem->branch);
 
-        if (! $this->isSuperAdmin() && $user->isKitchenStaff()) {
-            $assignedKitchenIds = $user->kitchens()->where('kitchens.company_id', $user->company_id)
-                ->where('kitchens.branch_id', $user->branch_id)->where('kitchens.is_active', true)->pluck('kitchens.id')->all();
-            abort_unless(
-                $menuItem->kitchenMenuItems()
-                    ->whereIn('kitchen_id', $assignedKitchenIds)
-                    ->where('is_active', true)
-                    ->exists(),
-                403,
-                'You are not authorized to manage stock for this kitchen station.'
-            );
+        if (! $this->isSuperAdmin() && ! $this->isCompanyAdmin() && ! $user->isManager() && $user->isKitchenStaff()) {
+            if (Schema::hasTable('kitchen_user')) {
+                $assignedKitchenIds = $user->kitchens()->pluck('kitchens.id')->all();
+                abort_unless(
+                    $menuItem->kitchenMenuItems()
+                        ->whereIn('kitchen_id', $assignedKitchenIds)
+                        ->where('is_active', true)
+                        ->exists(),
+                    403,
+                    'You are not authorized to manage stock for this kitchen station.'
+                );
+            }
         }
     }
 }

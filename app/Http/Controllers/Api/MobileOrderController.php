@@ -234,7 +234,6 @@ class MobileOrderController extends Controller
 
         $freshOrder = $order->fresh();
         $approved = $cancellations->every(fn (ItemCancellation $cancellation) => $cancellation->status === 'approved');
-
         return response()->json([
             'message' => $approved
                 ? 'Cancellation completed and sent to the kitchen.'
@@ -279,7 +278,6 @@ class MobileOrderController extends Controller
             ->groupBy('request_batch')
             ->map(function ($lines, $batch) use ($user, $approvalRequired) {
                 $first = $lines->first();
-
                 return [
                     'batch' => (string) $batch,
                     'order_id' => $first->order_id,
@@ -382,7 +380,7 @@ class MobileOrderController extends Controller
                 $entry->update(['order_id' => $order->id]);
 
                 return $order;
-            }, 3);
+            });
 
             return [$order, false];
         } catch (QueryException $exception) {
@@ -457,12 +455,11 @@ class MobileOrderController extends Controller
                     && $item->cancelled_quantity < $item->quantity
                     && $item->cancellations->where('status', 'pending')->isEmpty()
                     && $item->kotItems->isNotEmpty()
-                    && $item->kotItems->every(fn ($kotItem) => in_array(strtolower((string) $kotItem->item_status), ['ready', 'served'], true))
-                    && $item->kotItems->contains(fn ($kotItem) => strtolower((string) $kotItem->item_status) === 'ready'),
+                    && $item->kotItems->every(fn ($kotItem) => strtolower((string) $kotItem->item_status) === 'ready'),
                 'unit_price' => (string) $item->unit_price,
                 'total_price' => (string) $item->total_price,
                 'special_instructions' => $item->special_instructions,
-                'status' => $item->cancelled_quantity >= $item->quantity ? 'cancelled' : $item->status,
+                'status' => $item->status,
                 'cancellations' => $item->cancellations->map(fn ($cancellation) => [
                     'quantity' => $cancellation->quantity,
                     'status' => $cancellation->status,
@@ -485,8 +482,6 @@ class MobileOrderController extends Controller
                     'menu_item_id' => $item->menu_item_id,
                     'name' => $item->menuItem?->name,
                     'quantity' => $item->quantity,
-                    'cancelled_quantity' => $item->cancelled_quantity,
-                    'active_quantity' => max(0, $item->quantity - $item->cancelled_quantity),
                     'status' => $item->item_status,
                 ])->values(),
             ])->values(),
