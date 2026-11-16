@@ -315,7 +315,7 @@ class OrderManagementTest extends TestCase
         ]);
 
         // Kitchen Display API endpoint retrieves only tickets for that specific kitchen
-        $biryaniApiResponse = $this->actingAs($this->waiter)->getJson("/api/v1/kitchens/{$this->biryaniKitchen->id}/kot");
+        $biryaniApiResponse = $this->actingAs($this->manager)->getJson("/api/v1/kitchens/{$this->biryaniKitchen->id}/kot");
         $biryaniApiResponse->assertOk();
         $biryaniApiResponse->assertJsonFragment(['name' => 'Chicken Biryani']);
         $biryaniApiResponse->assertJsonMissing(['name' => 'Veg Fried Rice']);

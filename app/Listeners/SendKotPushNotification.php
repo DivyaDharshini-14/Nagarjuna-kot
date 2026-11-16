@@ -17,8 +17,10 @@ class SendKotPushNotification implements ShouldQueue
 
     public bool $afterCommit = true;
 
-    public function handle(KotTicketChanged $event, FcmPushService $push): void
+    public function handle(KotTicketChanged $event, ?FcmPushService $push = null): void
     {
+        $push = $push ?? app(FcmPushService::class);
+
         $ticket = KotTicket::query()
             ->with(['kitchen', 'order.table', 'order.waiter'])
             ->find($event->ticketId);
