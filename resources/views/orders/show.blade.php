@@ -25,26 +25,18 @@
             </p>
         </div>
         <div class="d-flex gap-2">
+            @if(auth()->user()->hasPermission('order.add') && !in_array($order->status, ['completed','cancelled']))
             <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#addItemsModal">
                 <i class="bi bi-plus-circle me-1"></i> Add Items
             </button>
-            <div class="dropdown">
-                <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
-                    Status Action
-                </button>
-                <ul class="dropdown-menu dropdown-menu-end">
-                    @foreach(['confirmed', 'preparing', 'ready', 'served', 'completed'] as $st)
-                        <li>
-                            <form method="POST" action="{{ route('orders.update-status', $order) }}">
-                                @csrf
-                                @method('PATCH')
-                                <input type="hidden" name="status" value="{{ $st }}">
-                                <button class="dropdown-item" type="submit">Mark as {{ ucfirst($st) }}</button>
-                            </form>
-                        </li>
-                    @endforeach
-                </ul>
-            </div>
+            @endif
+            @if(auth()->user()->hasPermission('order.edit') && !in_array($order->status, ['completed','cancelled']))
+                <form method="POST" action="{{ route('orders.update-status', $order) }}">
+                    @csrf @method('PATCH')
+                    <input type="hidden" name="status" value="completed">
+                    <button class="btn btn-outline-secondary" type="submit">Complete order and release table</button>
+                </form>
+            @endif
             <a href="{{ route('orders.index') }}" class="btn btn-outline-secondary">
                 <i class="bi bi-arrow-left me-1"></i> Back
             </a>

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Controllers\Concerns\ManagesTenantAccess;
+use App\Http\Controllers\Concerns\ScopesKitchenOperations;
 use App\Models\Branch;
 use App\Models\Company;
 use App\Models\Kitchen;
@@ -10,15 +11,15 @@ use App\Models\KotTicket;
 use App\Models\Order;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\View\View;
 
 class DashboardController extends Controller
 {
-    use ManagesTenantAccess;
+    use ManagesTenantAccess, ScopesKitchenOperations;
 
-    public function index(Request $request): View|JsonResponse
+    public function index(Request $request): View|JsonResponse|RedirectResponse
     {
         $user = $this->actor();
 
@@ -60,18 +61,11 @@ class DashboardController extends Controller
         $selectedKitchenId = $request->filled('kitchen_id') ? (int) $request->kitchen_id : null;
 
         // If user is restricted to specific kitchens (e.g. chef/kitchen staff)
-        $userAssignedKitchenIds = [];
-        if (! $isAdmin && ! $user->isManager() && Schema::hasTable('kitchen_user')) {
-            try {
-                if ($user->kitchens()->exists()) {
-                    $userAssignedKitchenIds = $user->kitchens->pluck('id')->all();
-                    if ($selectedKitchenId && ! in_array($selectedKitchenId, $userAssignedKitchenIds, true)) {
-                        $selectedKitchenId = null;
-                    }
-                }
-            } catch (\Throwable $e) {
-                $userAssignedKitchenIds = [];
-            }
+        $restrictKitchenAssignments = $user->isKitchenStaff() && ! $this->isSuperAdmin();
+        $userAssignedKitchenIds = $restrictKitchenAssignments
+            ? $this->accessibleKitchens()->pluck('kitchens.id')->all() : [];
+        if ($restrictKitchenAssignments && $selectedKitchenId && ! in_array($selectedKitchenId, $userAssignedKitchenIds, true)) {
+            $selectedKitchenId = null;
         }
 
         // 2. Date Filtering Resolution
@@ -107,7 +101,7 @@ class DashboardController extends Controller
         } elseif ($locksBranch) {
             $kitchenQuery->where('branch_id', $user->branch_id);
         }
-        if (! empty($userAssignedKitchenIds)) {
+        if ($restrictKitchenAssignments) {
             $kitchenQuery->whereIn('id', $userAssignedKitchenIds);
         }
         $kitchens = $kitchenQuery->orderBy('name')->get();
@@ -126,7 +120,7 @@ class DashboardController extends Controller
 
         if ($selectedKitchenId) {
             $baseOrderQuery->whereHas('kotTickets', fn ($q) => $q->where('kitchen_id', $selectedKitchenId));
-        } elseif (! empty($userAssignedKitchenIds)) {
+        } elseif ($restrictKitchenAssignments) {
             $baseOrderQuery->whereHas('kotTickets', fn ($q) => $q->whereIn('kitchen_id', $userAssignedKitchenIds));
         }
 
@@ -193,7 +187,7 @@ class DashboardController extends Controller
         }
         if ($selectedKitchenId) {
             $kotQuery->where('kitchen_id', $selectedKitchenId);
-        } elseif (! empty($userAssignedKitchenIds)) {
+        } elseif ($restrictKitchenAssignments) {
             $kotQuery->whereIn('kitchen_id', $userAssignedKitchenIds);
         }
 
@@ -310,6 +304,11 @@ class DashboardController extends Controller
         } elseif ($locksBranch) {
             $yesterdayQuery->where('branch_id', $user->branch_id);
         }
+        if ($selectedKitchenId) {
+            $yesterdayQuery->whereHas('kotTickets', fn ($query) => $query->where('kitchen_id', $selectedKitchenId));
+        } elseif ($restrictKitchenAssignments) {
+            $yesterdayQuery->whereHas('kotTickets', fn ($query) => $query->whereIn('kitchen_id', $userAssignedKitchenIds));
+        }
         $yesterdayTotal = $yesterdayQuery->count();
         $vsYesterdayPct = 0;
         if ($yesterdayTotal > 0) {
@@ -371,6 +370,7 @@ class DashboardController extends Controller
                 'vsYesterdayPct' => $vsYesterdayPct,
                 'branchBreakdown' => $branchBreakdown->map(function ($item) {
                     $b = is_array($item) ? $item['branch'] : $item->branch;
+
                     return [
                         'name' => is_object($b) ? $b->name : ($b['name'] ?? 'Branch'),
                         'total' => is_array($item) ? $item['total'] : $item->total,
@@ -387,6 +387,7 @@ class DashboardController extends Controller
                     $bName = is_array($item)
                         ? ($item['branch_name'] ?? (is_object($k) ? $k->branch?->name : 'Main Branch'))
                         : ($item->kitchen->branch?->name ?? 'Main Branch');
+
                     return [
                         'name' => $kName,
                         'branch_name' => $bName ?? 'Main Branch',
@@ -499,4 +500,3 @@ class DashboardController extends Controller
         }
     }
 }
-

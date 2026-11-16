@@ -71,6 +71,7 @@ class _KitchenSignInScreenState extends State<KitchenSignInScreen> {
                         alignment: Alignment.center,
                         child: const Text(
                           'N',
+                          textScaler: TextScaler.noScaling,
                           style: TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.w900,
@@ -79,28 +80,30 @@ class _KitchenSignInScreenState extends State<KitchenSignInScreen> {
                         ),
                       ),
                       const SizedBox(width: 12),
-                      const Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'NAGARJUNA',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: 1.3,
-                              fontSize: 15,
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'NAGARJUNA',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 1.3,
+                                fontSize: 15,
+                              ),
                             ),
-                          ),
-                          SizedBox(height: 3),
-                          Text(
-                            'KITCHEN OPERATIONS',
-                            style: TextStyle(
-                              color: KitchenColors.muted,
-                              fontSize: 9,
-                              letterSpacing: 1.5,
-                              fontWeight: FontWeight.w700,
+                            SizedBox(height: 3),
+                            Text(
+                              'KITCHEN OPERATIONS',
+                              style: TextStyle(
+                                color: KitchenColors.muted,
+                                fontSize: 9,
+                                letterSpacing: 1.5,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ],
                   ),
@@ -140,6 +143,7 @@ class _KitchenSignInScreenState extends State<KitchenSignInScreen> {
                               autofillHints: const [AutofillHints.username],
                               decoration: const InputDecoration(
                                 labelText: 'Email address',
+                                errorMaxLines: 6,
                                 prefixIcon: Icon(Icons.alternate_email_rounded),
                               ),
                               validator: (value) {
@@ -159,6 +163,7 @@ class _KitchenSignInScreenState extends State<KitchenSignInScreen> {
                               onFieldSubmitted: (_) => _submit(),
                               decoration: InputDecoration(
                                 labelText: 'Password',
+                                errorMaxLines: 6,
                                 prefixIcon: const Icon(
                                   Icons.lock_outline_rounded,
                                 ),

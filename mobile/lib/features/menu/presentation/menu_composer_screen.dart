@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../../app/app_theme.dart';
 import '../../../core/network/mobile_api_client.dart';
@@ -62,6 +63,8 @@ class _MenuComposerScreenState extends State<MenuComposerScreen> {
   bool _draftRestoreAttempted = false;
   Timer? _menuRefreshTimer;
   int? _connectedMenuBranchId;
+  bool _menuRequestInFlight = false;
+  final ValueNotifier<MenuSnapshot?> _menuSnapshots = ValueNotifier(null);
 
   @override
   void initState() {
@@ -76,12 +79,14 @@ class _MenuComposerScreenState extends State<MenuComposerScreen> {
   void dispose() {
     _searchController.dispose();
     _menuRefreshTimer?.cancel();
+    _menuSnapshots.dispose();
     widget.liveConnection.disconnect();
     super.dispose();
   }
 
   Future<void> _loadMenu() async {
-    if (_retryPending || _isSubmitting) return;
+    if (_retryPending || _isSubmitting || _menuRequestInFlight) return;
+    _menuRequestInFlight = true;
     setState(() {
       _isLoading = true;
       _errorMessage = null;
@@ -90,6 +95,12 @@ class _MenuComposerScreenState extends State<MenuComposerScreen> {
     try {
       final snapshot = await widget.repository.loadMenu();
       if (!mounted) return;
+      // A response that started before submission must not rewrite an uncertain
+      // request's visible cart or hide its same-request retry action.
+      if (_retryPending || _isSubmitting) {
+        setState(() => _isLoading = false);
+        return;
+      }
       final latestById = {for (final dish in snapshot.dishes) dish.id: dish};
       final refreshedCart = <int, CartLine>{};
       var adjustedCart = false;
@@ -124,6 +135,7 @@ class _MenuComposerScreenState extends State<MenuComposerScreen> {
         }
         _isLoading = false;
       });
+      _menuSnapshots.value = snapshot;
       if (_connectedMenuBranchId != snapshot.branchId &&
           widget.liveConnection.isConfigured) {
         _connectedMenuBranchId = snapshot.branchId;
@@ -167,6 +179,8 @@ class _MenuComposerScreenState extends State<MenuComposerScreen> {
             'We could not load the menu. Check your connection and retry.';
         _isLoading = false;
       });
+    } finally {
+      _menuRequestInFlight = false;
     }
   }
 
@@ -225,6 +239,7 @@ class _MenuComposerScreenState extends State<MenuComposerScreen> {
       useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (context) => CartReviewSheet(
+        menuSnapshots: _menuSnapshots,
         tableName: widget.table.name,
         initialLines: _cart.values.toList(growable: false),
         initialInstructions: _orderInstructions,
@@ -1235,6 +1250,7 @@ class CartReviewSheet extends StatefulWidget {
   const CartReviewSheet({
     super.key,
     required this.tableName,
+    required this.menuSnapshots,
     required this.initialLines,
     required this.initialInstructions,
     required this.initialGuestCount,
@@ -1243,6 +1259,7 @@ class CartReviewSheet extends StatefulWidget {
   });
 
   final String tableName;
+  final ValueListenable<MenuSnapshot?> menuSnapshots;
   final List<CartLine> initialLines;
   final String initialInstructions;
   final int initialGuestCount;
@@ -1257,6 +1274,8 @@ class _CartReviewSheetState extends State<CartReviewSheet> {
   late final TextEditingController _instructionsController;
   late final Map<int, CartLine> _lines;
   late int _guestCount;
+  String? _menuChangeNotice;
+  bool _changesAcknowledged = true;
 
   @override
   void initState() {
@@ -1266,12 +1285,56 @@ class _CartReviewSheetState extends State<CartReviewSheet> {
     );
     _lines = {for (final line in widget.initialLines) line.dish.id: line};
     _guestCount = widget.initialGuestCount.clamp(1, widget.maxGuests).toInt();
+    widget.menuSnapshots.addListener(_reconcileMenu);
+    _reconcileMenu();
   }
 
   @override
   void dispose() {
+    widget.menuSnapshots.removeListener(_reconcileMenu);
     _instructionsController.dispose();
     super.dispose();
+  }
+
+  void _reconcileMenu() {
+    final snapshot = widget.menuSnapshots.value;
+    if (snapshot == null) return;
+    final latestById = {for (final dish in snapshot.dishes) dish.id: dish};
+    final changes = <String>[];
+    final updatedLines = <int, CartLine>{};
+    for (final line in _lines.values) {
+      final dish = latestById[line.dish.id];
+      if (dish == null || !dish.isOrderable || dish.maximumQuantity == 0) {
+        changes.add('${line.dish.name} is unavailable and was removed.');
+        continue;
+      }
+      final quantity = line.quantity.clamp(1, dish.maximumQuantity).toInt();
+      updatedLines[dish.id] = line.copyWith(dish: dish, quantity: quantity);
+      if (quantity != line.quantity) {
+        changes.add(
+          '${dish.name} was reduced to $quantity portion(s) to match current stock.',
+        );
+      } else if (dish.preparedStockQuantity !=
+          line.dish.preparedStockQuantity) {
+        changes.add(
+          '${dish.name} now has ${dish.preparedStockQuantity ?? 'untracked'} portion(s) available.',
+        );
+      }
+      if (dish.price != line.dish.price) {
+        changes.add(
+          '${dish.name} reference price changed to ${_money(dish.price)}.',
+        );
+      }
+    }
+    setState(() {
+      _lines
+        ..clear()
+        ..addAll(updatedLines);
+      if (changes.isNotEmpty) {
+        _menuChangeNotice = changes.join('\n');
+        _changesAcknowledged = false;
+      }
+    });
   }
 
   Future<void> _editItemNote(CartLine line) async {
@@ -1281,7 +1344,9 @@ class _CartReviewSheetState extends State<CartReviewSheet> {
           _ItemNoteDialog(itemName: line.dish.name, initialNote: line.note),
     );
     if (!mounted || note == null) return;
-    setState(() => _lines[line.dish.id] = line.copyWith(note: note));
+    final latest = _lines[line.dish.id];
+    if (latest == null) return;
+    setState(() => _lines[line.dish.id] = latest.copyWith(note: note));
   }
 
   void _changeLine(CartLine line, int delta) {
@@ -1374,6 +1439,19 @@ class _CartReviewSheetState extends State<CartReviewSheet> {
                 ),
               ],
               const SizedBox(height: 12),
+              if (_menuChangeNotice != null) ...[
+                Text(
+                  _menuChangeNotice!,
+                  style: const TextStyle(color: AppColors.error, fontSize: 12),
+                ),
+                if (!_changesAcknowledged)
+                  TextButton(
+                    onPressed: () =>
+                        setState(() => _changesAcknowledged = true),
+                    child: const Text('I have reviewed these changes'),
+                  ),
+                const SizedBox(height: 8),
+              ],
               Expanded(
                 child: _lines.isEmpty
                     ? const Center(
@@ -1426,14 +1504,17 @@ class _CartReviewSheetState extends State<CartReviewSheet> {
                 ),
               ),
               FilledButton(
-                onPressed: () => Navigator.pop(
-                  context,
-                  CartDraft(
-                    lines: _lines.values.toList(growable: false),
-                    orderInstructions: _instructionsController.text.trim(),
-                    guestCount: _guestCount,
-                  ),
-                ),
+                onPressed: _lines.isEmpty || !_changesAcknowledged
+                    ? null
+                    : () => Navigator.pop(
+                        context,
+                        CartDraft(
+                          lines: _lines.values.toList(growable: false),
+                          orderInstructions: _instructionsController.text
+                              .trim(),
+                          guestCount: _guestCount,
+                        ),
+                      ),
                 child: Text(
                   widget.showGuestCount ? 'Submit order' : 'Add items to order',
                 ),

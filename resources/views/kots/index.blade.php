@@ -138,7 +138,12 @@
                         @foreach($kot->items as $item)
                             <div class="d-flex justify-content-between align-items-center py-1">
                                 <span class="text-dark fw-semibold small text-truncate pe-2">{{ $item->menuItem?->name }}</span>
-                                <span class="badge bg-light text-dark border px-2 py-1 small fw-bold flex-shrink-0">× {{ $item->quantity }}</span>
+                                <div class="text-end flex-shrink-0">
+                                    <span class="badge bg-light text-dark border px-2 py-1 small fw-bold">× {{ max(0, $item->quantity - $item->cancelled_quantity) }}</span>
+                                    @if($item->cancelled_quantity > 0)
+                                        <small class="d-block text-danger">Cancelled {{ $item->cancelled_quantity }}</small>
+                                    @endif
+                                </div>
                             </div>
                             @if($item->special_instructions)
                                 <small class="text-danger d-block mb-1 ps-1">
@@ -152,7 +157,7 @@
                     <div class="d-flex justify-content-between align-items-center pt-2 mt-auto">
                         <div>
                             <div class="fw-bold text-dark small">{{ $kot->order?->waiter?->name ? 'Waiter: ' . $kot->order->waiter->name : 'Staff' }}</div>
-                            <div class="text-muted" style="font-size: 0.76rem;">{{ $kot->items->sum('quantity') }} items</div>
+                            <div class="text-muted" style="font-size: 0.76rem;">{{ $kot->items->sum(fn($item) => max(0, $item->quantity - $item->cancelled_quantity)) }} items</div>
                         </div>
 
                         <div>

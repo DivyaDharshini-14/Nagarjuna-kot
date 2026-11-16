@@ -8,7 +8,7 @@ The app contains staff sign-in, branch-scoped floor/table selection, menu browsi
 
 Waiters with cancellation permission can cancel individual quantities or a full order with a required reason. Cancellations apply immediately unless the branch requires manager approval, in which case authorized managers can approve or reject them in the mobile app or web queue. A branch can require a different approver, including for requests made by users with approval permission. Dish instructions can be edited while every linked KOT remains new or accepted, additional items can be added from the order-progress screen or occupied table, and ready dishes can be marked served after every assigned kitchen has marked them ready. The waiter also persists an uncertain order submission's draft and idempotency key in secure storage so a retry can recover after app restart. Stock is reversed for tracked portions whose KOT work has not started; later cancellations are logged as wastage. Order actions are shown only when the signed-in role has the required permission.
 
-From **Edit order**, a waiter can adjust an existing dish line's active quantity. An increase is submitted through the existing stock-checked, idempotent add-items endpoint as new order-line and KOT work, leaving previously sent kitchen work unchanged. A reduction submits only the difference as a reasoned cancellation, so branch approval, cancellation history, and preparation-aware stock reversal or wastage remain in force. Quantity adjustment is unavailable while a cancellation for that line is awaiting a decision.
+From **Edit order**, choose **Add extra** portions or **Reduce line**. Extra portions create new line/KOT work and leave the selected original line unchanged. The app saves the exact addition payload and request key per staff identity before sending; navigation or restart recovers that same request, and other mutations wait for reconciliation. Reductions are reasoned cancellations and retain approval/history/stock/wastage policy. The floor refreshes every 12 seconds while visible and on resume. An open review sheet reacts to current menu/stock changes and requires acknowledgment before submitting altered quantities.
 
 ## Run on an Android device or emulator
 
@@ -60,7 +60,7 @@ storeFile=../upload-keystore.jks
 
 Keep `upload-keystore.jks` and its passwords in the project's approved secret storage and backup. Do not commit them. Confirm the final Android application ID (`com.nagarjuna.nagarjuna_waiter`) and version with the project owner before publishing; changing the application ID after release creates a different app listing.
 
-If the owner has not supplied an upload keystore, create one locally from the `mobile/` directory and store its passwords securely:
+Existing local signing files must be verified and backed up; do not overwrite them. On a fresh installation without an upload keystore, create one from `mobile/` and store its passwords securely:
 
 ```powershell
 keytool -genkey -v -keystore android/upload-keystore.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload
@@ -122,7 +122,7 @@ Order submission sends a UUID `Idempotency-Key`; the server validates the reques
 
 Before using a new environment, apply all Laravel migrations using the normal project deployment procedure. Do not reset a database containing project data.
 
-The order-progress screen listens for authenticated KOT events over the private order channel when Reverb is configured. It also refreshes every 12 seconds while open and when the app returns to the foreground, and shows an in-app Ready alert. The development `.env` defaults to the log broadcaster; live delivery requires Reverb, a queue worker, reachable WSS in production, and the launch defines shown above. Background Ready alerts require the Firebase and server configuration described in the production readiness guide.
+The order-progress screen listens for authenticated KOT events over the private order channel when Reverb is configured. It also refreshes every 12 seconds while open and when the app returns to the foreground, and shows an in-app Ready alert. Live delivery requires configured Reverb, a queue worker, reachable WSS in production, and the launch defines shown above. Background Ready alerts require Firebase and server configuration. See the current [API contract](../docs/API.md) and [operations guide](../docs/OPERATIONS.md); local configuration or static checks do not establish running production services.
 
 Apply the cancellation, stock-ledger, registered-display, and mobile-device-token migrations in each environment, then seed updated role permissions. Configure `FCM_PROJECT_ID` and a protected service-account file path on Laravel, and provide this app's Firebase Android config as `android/app/google-services.json`. See [`docs/mobile-production-readiness.md`](../docs/mobile-production-readiness.md) for deployment and staging acceptance steps.
 

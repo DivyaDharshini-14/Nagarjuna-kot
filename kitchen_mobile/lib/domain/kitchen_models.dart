@@ -2,12 +2,16 @@ class KitchenAccount {
   const KitchenAccount({
     required this.name,
     required this.branchName,
+    this.canViewStock = false,
     this.canManageStock = false,
+    this.soundAllowed = true,
   });
 
   final String name;
   final String branchName;
+  final bool canViewStock;
   final bool canManageStock;
+  final bool soundAllowed;
 
   factory KitchenAccount.fromJson(Map<String, dynamic> json) => KitchenAccount(
     name: json['name'] as String? ?? 'Kitchen staff',
@@ -15,7 +19,46 @@ class KitchenAccount {
         (json['branch'] as Map<String, dynamic>?)?['name'] as String? ??
         'Assigned branch',
     canManageStock: json['can_manage_stock'] == true,
+    soundAllowed: json['sound_allowed'] != false,
+    canViewStock:
+        json['can_view_stock'] == true ||
+        (json['can_view_stock'] == null && json['can_manage_stock'] == true),
   );
+}
+
+class KitchenPage<T> {
+  const KitchenPage({
+    required this.items,
+    this.currentPage = 1,
+    this.lastPage = 1,
+    required this.total,
+    this.soundAllowed = true,
+  });
+
+  final List<T> items;
+  final int currentPage;
+  final int lastPage;
+  final int total;
+  final bool soundAllowed;
+
+  factory KitchenPage.fromData(
+    Map<String, dynamic> data,
+    String itemKey,
+    T Function(Map<String, dynamic>) parse,
+  ) {
+    final items = (data[itemKey] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map(parse)
+        .toList(growable: false);
+    final pagination = data['pagination'] as Map<String, dynamic>?;
+    return KitchenPage(
+      items: items,
+      currentPage: (pagination?['current_page'] as num?)?.toInt() ?? 1,
+      lastPage: (pagination?['last_page'] as num?)?.toInt() ?? 1,
+      total: (pagination?['total'] as num?)?.toInt() ?? items.length,
+      soundAllowed: data['sound_allowed'] != false,
+    );
+  }
 }
 
 class KitchenStockItem {
@@ -124,6 +167,10 @@ class KotDish {
   final String status;
   final String? note;
   final String? foodType;
+  int get activeQuantity =>
+      cancelledQuantity >= quantity ? 0 : quantity - cancelledQuantity;
+  String get displayStatus =>
+      cancelledQuantity >= quantity ? 'cancelled' : status;
 
   factory KotDish.fromJson(Map<String, dynamic> json) {
     final menuItem = json['menu_item'] as Map<String, dynamic>? ?? const {};

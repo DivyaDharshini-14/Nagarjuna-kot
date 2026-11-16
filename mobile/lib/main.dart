@@ -267,6 +267,7 @@ class _NagarjunaWaiterAppState extends State<NagarjunaWaiterApp>
           _showCancellationApprovals = true;
         }
       });
+      await _recoverPendingAddition();
     } on Object {
       if (!mounted) return;
       setState(() {
@@ -295,7 +296,28 @@ class _NagarjunaWaiterAppState extends State<NagarjunaWaiterApp>
     });
   }
 
-  void _trackTableOrder(RestaurantTable table) {
+  Future<bool> _recoverPendingAddition() async {
+    final userId = widget.authRepository.currentUserId;
+    if (userId == null || !_hasFloorTableAccess) return false;
+    final addition = await widget.pendingDraftStore.readQuantityAddition(
+      userId,
+    );
+    if (!mounted || addition == null) return false;
+    setState(() {
+      _selectedTable = null;
+      _trackedOrderId = addition.orderId;
+      _trackedOrderNumber = 'Saved dish addition';
+    });
+    return true;
+  }
+
+  Future<void> _selectTable(RestaurantTable table) async {
+    if (await _recoverPendingAddition() || !mounted) return;
+    setState(() => _selectedTable = table);
+  }
+
+  Future<void> _trackTableOrder(RestaurantTable table) async {
+    if (await _recoverPendingAddition() || !mounted) return;
     final orderId = table.activeOrderId;
     if (orderId == null) return;
     setState(() {
@@ -304,7 +326,8 @@ class _NagarjunaWaiterAppState extends State<NagarjunaWaiterApp>
     });
   }
 
-  void _editOrderInMenu(RestaurantTable table) {
+  Future<void> _editOrderInMenu(RestaurantTable table) async {
+    if (await _recoverPendingAddition() || !mounted) return;
     setState(() {
       _trackedOrderId = null;
       _trackedOrderNumber = null;
@@ -397,9 +420,16 @@ class _NagarjunaWaiterAppState extends State<NagarjunaWaiterApp>
     final trackedOrderId = _trackedOrderId;
     if (trackedOrderId != null) {
       return OrderProgressScreen(
+        key: ValueKey(trackedOrderId),
         orderId: trackedOrderId,
         orderNumber: _trackedOrderNumber ?? 'Order',
         repository: widget.orderRepository,
+        pendingDraftStore: widget.pendingDraftStore,
+        userId: widget.authRepository.currentUserId!,
+        onRecoverPendingOrder: (orderId) => setState(() {
+          _trackedOrderId = orderId;
+          _trackedOrderNumber = 'Saved dish addition';
+        }),
         liveConnection: widget.liveConnection,
         onBack: _closeOrderProgress,
         onOrderCompleted: _closeOrderProgress,
@@ -414,8 +444,7 @@ class _NagarjunaWaiterAppState extends State<NagarjunaWaiterApp>
       repository: widget.floorTableRepository,
       onSignOut: _signOut,
       onSessionExpired: _expireSession,
-      onTableSelected: (RestaurantTable table) =>
-          setState(() => _selectedTable = table),
+      onTableSelected: _selectTable,
       onTrackOrder: _trackTableOrder,
       canApproveCancellations: _canApproveCancellations,
       onOpenCancellationApprovals: () =>

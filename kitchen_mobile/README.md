@@ -6,6 +6,8 @@ Apply Laravel migrations through the project's normal deployment process before 
 
 Kitchen managers can manage assigned-dish availability, record stock-in/wastage/damage/corrections, and inspect stock history. Kitchen staff can view stock and history with menu-view permission. Every stock movement and availability change requires a reason; negative balances are rejected. Approved waiter cancellations appear as cancelled quantities on KOTs.
 
+Cards show received clock time and elapsed age. Enable the sound icon for foreground new-KOT alerts; the preference is saved on the device and branch settings may disable sound. Completed/cancelled orders, stock dishes and transaction history have page controls instead of fixed history limits. Fully cancelled dishes display Cancelled and cannot be revived by preparation actions. A dish mapped to several stations remains one customer quantity and one stock deduction; its overall Ready state waits for all stations.
+
 ## Run on the Android emulator
 
 Start Laravel so it listens on `0.0.0.0:8000`, then run:
@@ -59,6 +61,12 @@ The signed bundle is written to `build/app/outputs/bundle/release/app-release.aa
 
 See [`docs/mobile-production-readiness.md`](../docs/mobile-production-readiness.md) for the shared Laravel deployment gates and cross-app acceptance checklist.
 
+## UI release check
+
+Before release, complete the [kitchen UI acceptance walkthrough](../docs/kitchen-mobile-ui-acceptance.md) on the service phones, including large font/display settings, narrow screens, landscape, and open keyboards. Repeat it after changing shared typography, inputs, cards or dialogs. Static analysis and an APK build do not replace this visual check.
+
+Keep availability controls expanded with variable item heights, and keep dialog titles, fields, counters and actions inside their scrollable body. Stock availability displays the persisted server value until a reason is saved successfully.
+
 ## Browser KDS display
 
-The large-screen KDS now subscribes to live Reverb updates, supports an operator-enabled sound alert, shows elapsed wait and connection state, reconnects, and reloads every 15 seconds while disconnected. In the web app, open a kitchen's edit page and register its TV display. Copy the generated URL to that kitchen's authorized display; it is shown only once. Anyone with the URL can view and update tickets for that kitchen. Revoke or regenerate the URL if it is exposed or retired.
+Both browser KDS paths subscribe to live updates, show stage sections and paginated completed/cancelled history, and retain automatic fallback refresh. Remaining/cancelled quantities and station/tenant authorization are shared across paths. In the web app, open a kitchen editor and register its TV display. The generated URL is shown once and permits viewing/updating only that station. Keep it private; rotate/revoke when exposed or retired. Deploy `public/js/kds-screen.js` with Laravel. See [API.md](../docs/API.md) and [OPERATIONS.md](../docs/OPERATIONS.md) for current contracts, setup and manual acceptance.

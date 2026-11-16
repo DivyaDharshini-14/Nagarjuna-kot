@@ -13,6 +13,7 @@ class KotTicket extends Model
 
     protected $fillable = [
         'kot_number',
+        'numbering_period',
         'order_id',
         'kitchen_id',
         'company_id',
@@ -60,4 +61,3 @@ class KotTicket extends Model
         return $this->hasMany(KotItem::class);
     }
 }
-

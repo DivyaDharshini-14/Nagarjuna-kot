@@ -24,6 +24,9 @@ class PermissionSeeder extends Seeder
             'permission',
             'order',
             'kot',
+            'report',
+            'audit-log',
+            'settings',
         ];
 
         $actions = [

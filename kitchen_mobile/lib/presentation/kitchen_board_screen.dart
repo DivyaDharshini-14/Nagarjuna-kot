@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../app/kitchen_theme.dart';
 import '../domain/kitchen_models.dart';
+import 'kitchen_page_controls.dart';
 
 class KitchenBoardScreen extends StatefulWidget {
   const KitchenBoardScreen({
@@ -23,6 +24,14 @@ class KitchenBoardScreen extends StatefulWidget {
     required this.onBoardViewChanged,
     required this.onStatusChange,
     required this.onSignOut,
+    required this.soundEnabled,
+    required this.soundAllowed,
+    required this.soundBusy,
+    required this.onToggleSound,
+    required this.currentPage,
+    required this.lastPage,
+    required this.totalTickets,
+    required this.onPageChanged,
     this.onStockControl,
   });
 
@@ -44,6 +53,14 @@ class KitchenBoardScreen extends StatefulWidget {
   final Future<void> Function(KotTicket ticket, String status) onStatusChange;
   final Future<void> Function() onSignOut;
   final VoidCallback? onStockControl;
+  final bool soundEnabled;
+  final bool soundAllowed;
+  final bool soundBusy;
+  final VoidCallback onToggleSound;
+  final int currentPage;
+  final int lastPage;
+  final int totalTickets;
+  final ValueChanged<int> onPageChanged;
 
   @override
   State<KitchenBoardScreen> createState() => _KitchenBoardScreenState();
@@ -77,30 +94,34 @@ class _KitchenBoardScreenState extends State<KitchenBoardScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        toolbarHeight: 70,
-        titleSpacing: 18,
+        toolbarHeight: 46 + MediaQuery.textScalerOf(context).scale(16),
+        titleSpacing: 12,
         title: Row(
           children: [
-            Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                color: KitchenColors.green,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              alignment: Alignment.center,
-              child: const Text(
-                'N',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w900,
-                  fontSize: 19,
+            if (MediaQuery.sizeOf(context).width >= 400 &&
+                MediaQuery.textScalerOf(context).scale(19) <= 25) ...[
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: KitchenColors.green,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                alignment: Alignment.center,
+                child: const Text(
+                  'N',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 19,
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(width: 11),
+              const SizedBox(width: 11),
+            ],
             Expanded(
               child: Column(
+                mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
@@ -129,6 +150,21 @@ class _KitchenBoardScreenState extends State<KitchenBoardScreen> {
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: !widget.soundAllowed
+                ? 'Sound disabled by branch settings'
+                : widget.soundEnabled
+                ? 'Turn new ticket sound off'
+                : 'Turn new ticket sound on',
+            onPressed: widget.soundBusy || !widget.soundAllowed
+                ? null
+                : widget.onToggleSound,
+            icon: Icon(
+              widget.soundEnabled
+                  ? Icons.volume_up_rounded
+                  : Icons.volume_off_rounded,
+            ),
+          ),
           if (widget.onStockControl != null)
             IconButton(
               tooltip: 'Prepared stock and availability',
@@ -167,109 +203,134 @@ class _KitchenBoardScreenState extends State<KitchenBoardScreen> {
           const SizedBox(width: 6),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: widget.onRefresh,
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(18, 13, 18, 30),
-          children: [
-            Text(
-              'Kitchen board',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-            const SizedBox(height: 5),
-            Text(switch (_filter) {
-              'Completed' =>
-                'Recently completed orders from your assigned kitchens.',
-              'Cancelled' => 'Orders and dishes with recorded cancellations.',
-              _ => 'Track incoming KOTs and move dishes through preparation.',
-            }, style: Theme.of(context).textTheme.bodyMedium),
-            const SizedBox(height: 18),
-            _stationPicker(),
-            const SizedBox(height: 10),
-            _LiveStatus(
-              configured: widget.liveConfigured,
-              connected: widget.liveConnected,
-            ),
-            const SizedBox(height: 15),
-            Row(
-              children: [
-                Expanded(
-                  child: _SummaryTile(
-                    label: 'NEW',
-                    count: newCount,
-                    color: KitchenColors.orange,
-                    icon: Icons.notifications_active_outlined,
-                  ),
-                ),
-                const SizedBox(width: 9),
-                Expanded(
-                  child: _SummaryTile(
-                    label: 'PREPARING',
-                    count: preparingCount,
-                    color: KitchenColors.amber,
-                    icon: Icons.soup_kitchen_outlined,
-                  ),
-                ),
-                const SizedBox(width: 9),
-                Expanded(
-                  child: _SummaryTile(
-                    label: 'READY',
-                    count: readyCount,
-                    color: KitchenColors.green,
-                    icon: Icons.task_alt_rounded,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-            _filterBar(),
-            const SizedBox(height: 10),
-            if (widget.error != null) _ConnectionBanner(message: widget.error!),
-            if (widget.refreshedAt != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10, left: 3),
-                child: Text(
-                  'Updated ${_timeLabel(widget.refreshedAt!)}',
-                  style: const TextStyle(
-                    color: KitchenColors.muted,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: widget.onRefresh,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(18, 13, 18, 30),
+            children: [
+              Text(
+                'Kitchen board',
+                style: Theme.of(context).textTheme.headlineMedium,
               ),
-            if (widget.isLoading)
-              const Padding(
-                padding: EdgeInsets.only(top: 55),
-                child: Center(child: CircularProgressIndicator()),
-              )
-            else if (widget.kitchens.isEmpty)
-              const _EmptyState(
-                icon: Icons.store_mall_directory_outlined,
-                title: 'No kitchen stations yet',
-                message: 'Ask a manager to activate a kitchen station for your branch.',
-              )
-            else if (visibleTickets.isEmpty)
-              _EmptyState(
-                icon: _filter == 'New'
-                    ? Icons.mark_email_read_outlined
-                    : Icons.restaurant_menu_rounded,
-                title: _emptyTitle,
-                message: _emptyMessage,
-              )
-            else
-              ...visibleTickets.map(
-                (ticket) => Padding(
-                  padding: const EdgeInsets.only(bottom: 13),
-                  child: _TicketCard(
-                    ticket: ticket,
-                    isBusy: widget.busyTicketId == '${ticket.id}',
-                    onStatusChange: (status) =>
-                        widget.onStatusChange(ticket, status),
+              const SizedBox(height: 5),
+              Text(switch (_filter) {
+                'Completed' =>
+                  'Recently completed orders from your assigned kitchens.',
+                'Cancelled' => 'Orders and dishes with recorded cancellations.',
+                _ => 'Track incoming KOTs and move dishes through preparation.',
+              }, style: Theme.of(context).textTheme.bodyMedium),
+              const SizedBox(height: 18),
+              _stationPicker(),
+              const SizedBox(height: 10),
+              _LiveStatus(
+                configured: widget.liveConfigured,
+                connected: widget.liveConnected,
+              ),
+              const SizedBox(height: 15),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final scale = MediaQuery.textScalerOf(context).scale(14) / 14;
+                  final columns = (constraints.maxWidth / (80 * scale + 9))
+                      .floor()
+                      .clamp(1, 3);
+                  final width =
+                      (constraints.maxWidth - 9 * (columns - 1)) / columns;
+                  return Wrap(
+                    spacing: 9,
+                    runSpacing: 9,
+                    children: [
+                      SizedBox(
+                        width: width,
+                        child: _SummaryTile(
+                          label: 'NEW',
+                          count: newCount,
+                          color: KitchenColors.orange,
+                          icon: Icons.notifications_active_outlined,
+                        ),
+                      ),
+                      SizedBox(
+                        width: width,
+                        child: _SummaryTile(
+                          label: 'PREPARING',
+                          count: preparingCount,
+                          color: KitchenColors.amber,
+                          icon: Icons.soup_kitchen_outlined,
+                        ),
+                      ),
+                      SizedBox(
+                        width: width,
+                        child: _SummaryTile(
+                          label: 'READY',
+                          count: readyCount,
+                          color: KitchenColors.green,
+                          icon: Icons.task_alt_rounded,
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+              const SizedBox(height: 20),
+              _filterBar(),
+              if (widget.boardView != 'active')
+                KitchenPageControls(
+                  currentPage: widget.currentPage,
+                  lastPage: widget.lastPage,
+                  total: widget.totalTickets,
+                  loading: widget.isRefreshing,
+                  onPageChanged: widget.onPageChanged,
+                ),
+              const SizedBox(height: 10),
+              if (widget.error != null)
+                _ConnectionBanner(message: widget.error!),
+              if (widget.refreshedAt != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10, left: 3),
+                  child: Text(
+                    'Updated ${_timeLabel(widget.refreshedAt!)}',
+                    style: const TextStyle(
+                      color: KitchenColors.muted,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
-              ),
-          ],
+              if (widget.isLoading)
+                const Padding(
+                  padding: EdgeInsets.only(top: 55),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (widget.kitchens.isEmpty)
+                const _EmptyState(
+                  icon: Icons.store_mall_directory_outlined,
+                  title: 'No kitchen stations yet',
+                  message: 'Ask a manager to assign an active kitchen station to your account.',
+                )
+              else if (visibleTickets.isEmpty)
+                _EmptyState(
+                  icon: _filter == 'New'
+                      ? Icons.mark_email_read_outlined
+                      : Icons.restaurant_menu_rounded,
+                  title: _emptyTitle,
+                  message: _emptyMessage,
+                )
+              else
+                ...visibleTickets.map(
+                  (ticket) => Padding(
+                    padding: const EdgeInsets.only(bottom: 13),
+                    child: _TicketCard(
+                      ticket: ticket,
+                      isBusy: widget.busyTicketId == '${ticket.id}',
+                      onStatusChange: (status) =>
+                          widget.onStatusChange(ticket, status),
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -293,20 +354,26 @@ class _KitchenBoardScreenState extends State<KitchenBoardScreen> {
             ),
             const SizedBox(width: 10),
             Expanded(
-              child: Text(
-                widget.selectedKitchen?.name ?? 'All assigned stations',
-                style: const TextStyle(fontWeight: FontWeight.w800),
-              ),
-            ),
-            Text(
-              widget.selectedKitchen == null
-                  ? 'ALL ASSIGNED'
-                  : 'ACTIVE STATION',
-              style: TextStyle(
-                color: KitchenColors.muted,
-                fontSize: 9,
-                letterSpacing: 0.7,
-                fontWeight: FontWeight.w800,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    widget.selectedKitchen?.name ?? 'All assigned stations',
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    widget.selectedKitchen == null
+                        ? 'ALL ASSIGNED'
+                        : 'ACTIVE STATION',
+                    style: const TextStyle(
+                      color: KitchenColors.muted,
+                      fontSize: 9,
+                      letterSpacing: 0.7,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -477,6 +544,7 @@ class _KitchenBoardScreenState extends State<KitchenBoardScreen> {
     final shouldSignOut = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
+        scrollable: true,
         title: const Text('Sign out?'),
         content: const Text(
           'You will need your staff credentials to sign in again.',
@@ -521,10 +589,12 @@ class _SummaryTile extends StatelessWidget {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
+        Wrap(
+          spacing: 8,
+          runSpacing: 4,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             Icon(icon, color: color, size: 16),
-            const Spacer(),
             Text(
               '$count',
               style: TextStyle(
@@ -538,8 +608,6 @@ class _SummaryTile extends StatelessWidget {
         const SizedBox(height: 8),
         Text(
           label,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
           style: const TextStyle(
             color: KitchenColors.muted,
             fontSize: 9,
@@ -623,63 +691,71 @@ class _TicketCard extends StatelessWidget {
                 top: Radius.circular(19),
               ),
             ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        ticket.number,
-                        style: const TextStyle(
-                          color: KitchenColors.ink,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: -0.3,
-                        ),
-                      ),
-                      const SizedBox(height: 5),
-                      Wrap(
-                        spacing: 7,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          Text(
-                            ticket.orderNumber,
-                            style: const TextStyle(
-                              color: KitchenColors.muted,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const Icon(
-                            Icons.circle,
-                            color: KitchenColors.muted,
-                            size: 4,
-                          ),
-                          Text(
-                            _tableLabel(ticket.tableName),
-                            style: const TextStyle(
-                              color: KitchenColors.ink,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
                 Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      ticket.number,
+                      style: const TextStyle(
+                        color: KitchenColors.ink,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Wrap(
+                      spacing: 7,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Text(
+                          ticket.orderNumber,
+                          style: const TextStyle(
+                            color: KitchenColors.muted,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const Icon(
+                          Icons.circle,
+                          color: KitchenColors.muted,
+                          size: 4,
+                        ),
+                        Text(
+                          _tableLabel(ticket.tableName),
+                          style: const TextStyle(
+                            color: KitchenColors.ink,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        Text(
+                          'Received ${_receivedTimeLabel(ticket.createdAt)}',
+                          style: const TextStyle(
+                            color: KitchenColors.muted,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 6,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     _StatusPill(
                       label: _statusName(ticket.status),
                       color: color,
                     ),
-                    const SizedBox(height: 7),
                     Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(Icons.schedule_rounded, color: color, size: 13),
                         const SizedBox(width: 3),
@@ -753,11 +829,14 @@ class _TicketCard extends StatelessWidget {
                           size: 18,
                         ),
                         SizedBox(width: 7),
-                        Text(
-                          'Ready for service',
-                          style: TextStyle(
-                            color: KitchenColors.greenDark,
-                            fontWeight: FontWeight.w800,
+                        Flexible(
+                          child: Text(
+                            'Ready for service',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: KitchenColors.greenDark,
+                              fontWeight: FontWeight.w800,
+                            ),
                           ),
                         ),
                       ],
@@ -782,108 +861,96 @@ class _DishRow extends StatelessWidget {
     final foodColor = _foodTypeColor(dish.foodType);
     return Padding(
       padding: const EdgeInsets.only(bottom: 13),
-      child: Row(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 29,
-            height: 29,
-            decoration: BoxDecoration(
-              color: const Color(0xFFF0EFE9),
-              borderRadius: BorderRadius.circular(9),
+          Text(
+            dish.name,
+            style: const TextStyle(
+              color: KitchenColors.ink,
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
             ),
-            alignment: Alignment.center,
-            child: Text(
-              '${dish.quantity - dish.cancelledQuantity}×',
+          ),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 9,
+            runSpacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Container(
+                constraints: const BoxConstraints(minWidth: 29, minHeight: 29),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF0EFE9),
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: Text(
+                  '${dish.activeQuantity}×',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: KitchenColors.ink,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              Container(
+                width: 10,
+                height: 10,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(3),
+                  border: Border.all(color: foodColor, width: 1.4),
+                ),
+                alignment: Alignment.center,
+                child: Container(
+                  width: 4,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: foodColor,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+              if (dish.foodType != null && dish.foodType!.isNotEmpty)
+                Text(
+                  dish.foodType!.toUpperCase(),
+                  style: TextStyle(
+                    color: foodColor,
+                    fontSize: 8,
+                    letterSpacing: 0.4,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              _StatusPill(
+                label: _statusName(dish.displayStatus),
+                color: _statusColor(dish.displayStatus),
+              ),
+            ],
+          ),
+          if (dish.cancelledQuantity > 0) ...[
+            const SizedBox(height: 3),
+            Text(
+              '${dish.cancelledQuantity} cancelled',
               style: const TextStyle(
-                color: KitchenColors.ink,
+                color: KitchenColors.red,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+          if (dish.note != null && dish.note!.trim().isNotEmpty) ...[
+            const SizedBox(height: 3),
+            Text(
+              dish.note!,
+              style: const TextStyle(
+                color: KitchenColors.orange,
                 fontSize: 12,
-                fontWeight: FontWeight.w900,
+                fontWeight: FontWeight.w600,
+                height: 1.3,
               ),
             ),
-          ),
-          const SizedBox(width: 10),
-          Container(
-            margin: const EdgeInsets.only(top: 5),
-            width: 10,
-            height: 10,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(3),
-              border: Border.all(color: foodColor, width: 1.4),
-            ),
-            alignment: Alignment.center,
-            child: Container(
-              width: 4,
-              height: 4,
-              decoration: BoxDecoration(
-                color: foodColor,
-                shape: BoxShape.circle,
-              ),
-            ),
-          ),
-          const SizedBox(width: 9),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        dish.name,
-                        style: const TextStyle(
-                          color: KitchenColors.ink,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 7),
-                    _StatusPill(
-                      label: _statusName(dish.status),
-                      color: _statusColor(dish.status),
-                    ),
-                  ],
-                ),
-                if (dish.cancelledQuantity > 0) ...[
-                  const SizedBox(height: 3),
-                  Text(
-                    '${dish.cancelledQuantity} cancelled',
-                    style: const TextStyle(
-                      color: KitchenColors.red,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-                if (dish.note != null && dish.note!.trim().isNotEmpty) ...[
-                  const SizedBox(height: 3),
-                  Text(
-                    dish.note!,
-                    style: const TextStyle(
-                      color: KitchenColors.orange,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      height: 1.3,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          if (dish.foodType != null && dish.foodType!.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(left: 8, top: 2),
-              child: Text(
-                dish.foodType!.toUpperCase(),
-                style: TextStyle(
-                  color: foodColor,
-                  fontSize: 8,
-                  letterSpacing: 0.4,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ),
+          ],
         ],
       ),
     );
@@ -1099,6 +1166,12 @@ String _timeLabel(DateTime time) {
   if (difference.inSeconds < 30) return 'just now';
   if (difference.inMinutes < 1) return 'less than a minute ago';
   return '${difference.inMinutes} min ago';
+}
+
+String _receivedTimeLabel(DateTime time) {
+  final local = time.toLocal();
+  String two(int value) => value.toString().padLeft(2, '0');
+  return '${two(local.day)}/${two(local.month)}/${local.year} ${two(local.hour)}:${two(local.minute)}';
 }
 
 String _durationLabel(Duration elapsed) {

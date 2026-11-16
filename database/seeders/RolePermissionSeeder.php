@@ -25,6 +25,7 @@ class RolePermissionSeeder extends Seeder
             'order.view', 'order.add', 'order.edit', 'order.cancel', 'order.approve',
             'kot.view', 'kot.edit',
             'menu-item.stock-adjustment',
+            'report.view', 'report.export', 'audit-log.view', 'audit-log.export', 'settings.view', 'settings.edit',
         ])->pluck('id')->toArray();
 
         $waiterPermissions = Permission::whereIn('slug', [
@@ -59,7 +60,7 @@ class RolePermissionSeeder extends Seeder
             // Company Admin – manage company-level setup
             'company-admin' => Permission::whereIn('module', [
                 'company', 'branch', 'kitchen', 'floor', 'table',
-                'category', 'menu-type', 'menu-item', 'kitchen-mapping', 'user',
+                'category', 'menu-type', 'menu-item', 'kitchen-mapping', 'user', 'report', 'audit-log', 'settings',
             ])->pluck('id')->toArray(),
 
             // Manager – manage branch operations, staff, order and KOT monitoring
@@ -87,6 +88,7 @@ class RolePermissionSeeder extends Seeder
                 'user.view',
                 'order.view',
                 'order.approve',
+                'report.view', 'report.export', 'audit-log.view', 'audit-log.export', 'settings.view', 'settings.edit',
             ])->pluck('id')->toArray(),
 
         ];

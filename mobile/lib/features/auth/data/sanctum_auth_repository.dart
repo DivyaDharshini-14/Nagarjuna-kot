@@ -5,10 +5,14 @@ import '../auth_repository.dart';
 import 'secure_token_store.dart';
 
 class SanctumAuthRepository implements AuthRepository {
-  const SanctumAuthRepository({required this.api, required this.tokens});
+  SanctumAuthRepository({required this.api, required this.tokens});
 
   final MobileApiClient api;
   final SecureTokenStore tokens;
+  int? _currentUserId;
+
+  @override
+  int? get currentUserId => _currentUserId;
 
   @override
   Future<void> signIn({required String email, required String password}) async {
@@ -22,6 +26,7 @@ class SanctumAuthRepository implements AuthRepository {
       },
     );
     final data = response['data'];
+    _captureUser(response);
     final token = data is Map<String, dynamic> ? data['token'] : null;
     if (token is! String || token.isEmpty) {
       throw const ApiException(
@@ -38,11 +43,12 @@ class SanctumAuthRepository implements AuthRepository {
     if (token == null || token.isEmpty) return false;
 
     try {
-      await api.get('auth/me');
+      _captureUser(await api.get('auth/me'));
       return true;
     } on ApiException catch (error) {
       if (error.statusCode != 401 && error.statusCode != 403) rethrow;
       await tokens.clear();
+      _currentUserId = null;
       return false;
     }
   }
@@ -50,6 +56,7 @@ class SanctumAuthRepository implements AuthRepository {
   @override
   Future<Set<String>> loadPermissions() async {
     final response = await api.get('auth/me');
+    _captureUser(response);
     final data = response['data'];
     final user = data is Map<String, dynamic> ? data['user'] : null;
     final permissions = user is Map<String, dynamic>
@@ -66,6 +73,20 @@ class SanctumAuthRepository implements AuthRepository {
       if (await tokens.read() != null) await api.post('auth/logout');
     } finally {
       await tokens.clear();
+      _currentUserId = null;
     }
+  }
+
+  void _captureUser(Map<String, dynamic> response) {
+    final data = response['data'];
+    final user = data is Map<String, dynamic> ? data['user'] : null;
+    final id = user is Map<String, dynamic> ? user['id'] : null;
+    if (id is! num || id < 1) {
+      throw const ApiException(
+        502,
+        'The server did not return your staff identity.',
+      );
+    }
+    _currentUserId = id.toInt();
   }
 }

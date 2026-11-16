@@ -83,6 +83,38 @@
     </div>
 </div>
 
+@php
+    $assignedKitchenIds = old('kitchen_assignments_present')
+        ? old('kitchens', [])
+        : (isset($user) && $user ? $user->kitchens->pluck('id')->all() : []);
+@endphp
+
+<div class="mb-3">
+    <input type="hidden" name="kitchen_assignments_present" value="1">
+    <label class="form-label" for="kitchens">Assigned Kitchen Stations</label>
+    <select
+        class="form-select @error('kitchens') is-invalid @enderror"
+        id="kitchens"
+        name="kitchens[]"
+        data-kitchen-select
+        data-url="{{ route('kitchens.options') }}"
+        data-placeholder="Choose kitchen stations"
+        multiple
+        size="4"
+    >
+        @foreach($kitchenChoices as $kitchen)
+            <option value="{{ $kitchen->id }}" @selected(in_array($kitchen->id, $assignedKitchenIds))>{{ $kitchen->name }} ({{ $kitchen->code }})</option>
+        @endforeach
+    </select>
+    @error('kitchens')
+        <div class="invalid-feedback">{{ $message }}</div>
+    @enderror
+    @error('kitchens.*')
+        <div class="text-danger small">{{ $message }}</div>
+    @enderror
+    <div class="form-text">Choose one or more stations for kitchen staff. Options load after selecting the user's branch.</div>
+</div>
+
 @include('partials.checkbox', ['name' => 'is_active', 'label' => 'Active Account', 'checked' => $user?->is_active ?? true])
 
 <div class="d-flex gap-2 mt-4">
