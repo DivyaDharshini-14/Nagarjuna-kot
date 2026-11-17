@@ -6,6 +6,9 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>@yield('title', 'Dashboard') | Nagarjuna KOT - Restaurant Management</title>
 
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="{{ asset('images/nagarjuna-logo.png') }}">
+
     <!-- Google Fonts: Plus Jakarta Sans -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -29,8 +32,8 @@
         <aside class="app-sidebar d-none d-lg-flex">
             <!-- Branding: Nagarjuna KOT (Fixed at top) -->
             <a href="{{ route('dashboard') }}" class="sidebar-brand flex-shrink-0">
-                <div class="sidebar-brand-icon">
-                    <span>N</span>
+                <div class="sidebar-brand-logo-wrap">
+                    <img src="{{ asset('images/nagarjuna-logo.png') }}" alt="Nagarjuna Andhra Style" class="sidebar-brand-logo">
                 </div>
                 <div class="sidebar-brand-text">
                     <h1>Nagarjuna KOT</h1>
@@ -48,8 +51,8 @@
         <div class="offcanvas offcanvas-start bg-white" tabindex="-1" id="sidebarOffcanvas" aria-labelledby="sidebarOffcanvasLabel" style="max-width: 280px;">
             <div class="offcanvas-header border-bottom">
                 <div class="d-flex align-items-center gap-2">
-                    <div class="sidebar-brand-icon">
-                        <span>N</span>
+                    <div class="sidebar-brand-logo-wrap">
+                        <img src="{{ asset('images/nagarjuna-logo.png') }}" alt="Nagarjuna Andhra Style" class="sidebar-brand-logo" style="height: 34px;">
                     </div>
                     <div>
                         <h5 class="fw-bold mb-0 text-dark" id="sidebarOffcanvasLabel" style="font-size: 1rem;">Nagarjuna KOT</h5>

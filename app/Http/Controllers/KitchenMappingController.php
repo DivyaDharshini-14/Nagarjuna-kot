@@ -55,43 +55,48 @@ class KitchenMappingController extends Controller
         $this->authorizeBranch($branch);
         $companyId = $branch->company_id;
 
-        $menuItemId = (int) $validated['menu_item_id'];
+        $menuItemIds = $request->has('menu_item_ids')
+            ? array_unique(array_map('intval', (array) $validated['menu_item_ids']))
+            : [(int) $validated['menu_item_id']];
         $kitchenIds = array_unique(array_map('intval', $validated['kitchen_ids']));
         $isActive = (bool) $validated['is_active'];
 
         // Save all selected kitchen assignments together in a transaction
-        DB::transaction(function () use ($companyId, $branch, $menuItemId, $kitchenIds, $isActive) {
-            foreach ($kitchenIds as $kitchenId) {
-                $mapping = KitchenMenuItem::withTrashed()
-                    ->where('branch_id', $branch->id)
-                    ->where('menu_item_id', $menuItemId)
-                    ->where('kitchen_id', $kitchenId)
-                    ->first();
+        DB::transaction(function () use ($companyId, $branch, $menuItemIds, $kitchenIds, $isActive) {
+            foreach ($menuItemIds as $menuItemId) {
+                foreach ($kitchenIds as $kitchenId) {
+                    $mapping = KitchenMenuItem::withTrashed()
+                        ->where('branch_id', $branch->id)
+                        ->where('menu_item_id', $menuItemId)
+                        ->where('kitchen_id', $kitchenId)
+                        ->first();
 
-                if ($mapping) {
-                    if ($mapping->trashed()) {
-                        $mapping->restore();
+                    if ($mapping) {
+                        if ($mapping->trashed()) {
+                            $mapping->restore();
+                        }
+                        $mapping->update([
+                            'company_id' => $companyId,
+                            'is_active' => $isActive,
+                        ]);
+                    } else {
+                        KitchenMenuItem::create([
+                            'company_id' => $companyId,
+                            'branch_id' => $branch->id,
+                            'menu_item_id' => $menuItemId,
+                            'kitchen_id' => $kitchenId,
+                            'is_active' => $isActive,
+                        ]);
                     }
-                    $mapping->update([
-                        'company_id' => $companyId,
-                        'is_active' => $isActive,
-                    ]);
-                } else {
-                    KitchenMenuItem::create([
-                        'company_id' => $companyId,
-                        'branch_id' => $branch->id,
-                        'menu_item_id' => $menuItemId,
-                        'kitchen_id' => $kitchenId,
-                        'is_active' => $isActive,
-                    ]);
                 }
             }
         });
 
-        $count = count($kitchenIds);
+        $dishCount = count($menuItemIds);
+        $stationCount = count($kitchenIds);
 
         return redirect()->route('kitchen-mappings.index')
-            ->with('success', "Assigned dish to {$count} kitchen station(s) successfully.");
+            ->with('success', "Assigned {$dishCount} menu item(s) to {$stationCount} kitchen station(s) successfully.");
     }
 
     public function edit(KitchenMenuItem $kitchenMapping): View
@@ -116,52 +121,56 @@ class KitchenMappingController extends Controller
         $this->authorizeBranch($branch);
         $companyId = $branch->company_id;
 
-        $menuItemId = (int) $validated['menu_item_id'];
+        $menuItemIds = $request->has('menu_item_ids')
+            ? array_unique(array_map('intval', (array) $validated['menu_item_ids']))
+            : [(int) $validated['menu_item_id']];
         $newKitchenIds = array_unique(array_map('intval', $validated['kitchen_ids']));
         $isActive = (bool) $validated['is_active'];
 
-        DB::transaction(function () use ($companyId, $branch, $menuItemId, $newKitchenIds, $isActive, $kitchenMapping) {
+        DB::transaction(function () use ($companyId, $branch, $menuItemIds, $newKitchenIds, $isActive, $kitchenMapping) {
             $oldBranchId = $kitchenMapping->branch_id;
             $oldMenuItemId = $kitchenMapping->menu_item_id;
 
-            // Remove assignments for kitchens that were unselected for this dish
-            KitchenMenuItem::where('branch_id', $branch->id)
-                ->where('menu_item_id', $menuItemId)
-                ->whereNotIn('kitchen_id', $newKitchenIds)
-                ->delete();
+            foreach ($menuItemIds as $menuItemId) {
+                // Remove assignments for kitchens that were unselected for this dish
+                KitchenMenuItem::where('branch_id', $branch->id)
+                    ->where('menu_item_id', $menuItemId)
+                    ->whereNotIn('kitchen_id', $newKitchenIds)
+                    ->delete();
 
-            // If the user changed the menu item or branch, remove previous mappings for old dish
-            if ($oldMenuItemId !== $menuItemId || $oldBranchId !== $branch->id) {
+                // Save/update all selected kitchen assignments together
+                foreach ($newKitchenIds as $kitchenId) {
+                    $mapping = KitchenMenuItem::withTrashed()
+                        ->where('branch_id', $branch->id)
+                        ->where('menu_item_id', $menuItemId)
+                        ->where('kitchen_id', $kitchenId)
+                        ->first();
+
+                    if ($mapping) {
+                        if ($mapping->trashed()) {
+                            $mapping->restore();
+                        }
+                        $mapping->update([
+                            'company_id' => $companyId,
+                            'is_active' => $isActive,
+                        ]);
+                    } else {
+                        KitchenMenuItem::create([
+                            'company_id' => $companyId,
+                            'branch_id' => $branch->id,
+                            'menu_item_id' => $menuItemId,
+                            'kitchen_id' => $kitchenId,
+                            'is_active' => $isActive,
+                        ]);
+                    }
+                }
+            }
+
+            // If the user unselected the original menu item or changed branch, clean up old records not in new list
+            if (!in_array($oldMenuItemId, $menuItemIds, true) || $oldBranchId !== $branch->id) {
                 KitchenMenuItem::where('branch_id', $oldBranchId)
                     ->where('menu_item_id', $oldMenuItemId)
                     ->delete();
-            }
-
-            // Save/update all selected kitchen assignments together
-            foreach ($newKitchenIds as $kitchenId) {
-                $mapping = KitchenMenuItem::withTrashed()
-                    ->where('branch_id', $branch->id)
-                    ->where('menu_item_id', $menuItemId)
-                    ->where('kitchen_id', $kitchenId)
-                    ->first();
-
-                if ($mapping) {
-                    if ($mapping->trashed()) {
-                        $mapping->restore();
-                    }
-                    $mapping->update([
-                        'company_id' => $companyId,
-                        'is_active' => $isActive,
-                    ]);
-                } else {
-                    KitchenMenuItem::create([
-                        'company_id' => $companyId,
-                        'branch_id' => $branch->id,
-                        'menu_item_id' => $menuItemId,
-                        'kitchen_id' => $kitchenId,
-                        'is_active' => $isActive,
-                    ]);
-                }
             }
         });
 
@@ -203,10 +212,20 @@ class KitchenMappingController extends Controller
                 ->all();
         }
 
+        $selectedMenuItemIds = [];
+        if (old('menu_item_ids') !== null) {
+            $selectedMenuItemIds = (array) old('menu_item_ids');
+        } elseif (old('menu_item_id') !== null) {
+            $selectedMenuItemIds = [(int) old('menu_item_id')];
+        } elseif ($mapping) {
+            $selectedMenuItemIds = [(int) $mapping->menu_item_id];
+        }
+
         return [
             'branches' => $branches,
             'selectedBranch' => $selectedBranch,
             'menuItems' => $this->menuItemChoices($branchId, $mapping ? (int) old('menu_item_id', $mapping->menu_item_id) : null),
+            'selectedMenuItemIds' => $selectedMenuItemIds,
             'kitchens' => $this->kitchenChoices($branchId),
             'selectedKitchenIds' => $selectedKitchenIds,
             'lockBranch' => $this->locksBranch(),
@@ -218,7 +237,7 @@ class KitchenMappingController extends Controller
     {
         $branchId = (int) $request->input('branch_id');
 
-        return $request->validate([
+        $rules = [
             'branch_id' => [
                 'required',
                 'integer',
@@ -227,14 +246,6 @@ class KitchenMappingController extends Controller
                         $query->where('company_id', $this->actor()->company_id);
                     }
                     $this->limitToActiveOrCurrent($query, $mapping?->branch_id);
-                }),
-            ],
-            'menu_item_id' => [
-                'required',
-                'integer',
-                Rule::exists('menu_items', 'id')->where(function ($query) use ($branchId, $mapping) {
-                    $query->where('branch_id', $branchId);
-                    $this->limitToActiveOrCurrent($query, $mapping?->menu_item_id);
                 }),
             ],
             'kitchen_ids' => [
@@ -250,8 +261,34 @@ class KitchenMappingController extends Controller
                 }),
             ],
             'is_active' => ['required', 'boolean'],
-        ], [
+        ];
+
+        if ($request->has('menu_item_ids')) {
+            $rules['menu_item_ids'] = ['required', 'array', 'min:1'];
+            $rules['menu_item_ids.*'] = [
+                'required',
+                'integer',
+                Rule::exists('menu_items', 'id')->where(function ($query) use ($branchId, $mapping) {
+                    $query->where('branch_id', $branchId);
+                    $this->limitToActiveOrCurrent($query, $mapping?->menu_item_id);
+                }),
+            ];
+        } else {
+            $rules['menu_item_id'] = [
+                'required',
+                'integer',
+                Rule::exists('menu_items', 'id')->where(function ($query) use ($branchId, $mapping) {
+                    $query->where('branch_id', $branchId);
+                    $this->limitToActiveOrCurrent($query, $mapping?->menu_item_id);
+                }),
+            ];
+        }
+
+        return $request->validate($rules, [
             'branch_id.required' => 'Please select a branch.',
+            'menu_item_ids.required' => 'Please select at least one menu item.',
+            'menu_item_ids.min' => 'Please select at least one menu item.',
+            'menu_item_ids.*.exists' => 'One or more selected menu items do not belong to the selected branch.',
             'menu_item_id.required' => 'Please select a menu item.',
             'menu_item_id.exists' => 'The selected menu item does not belong to the selected branch.',
             'kitchen_ids.required' => 'Please select at least one kitchen station.',

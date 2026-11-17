@@ -123,6 +123,21 @@ body {
     box-shadow: 0 2px 8px rgba(220, 38, 38, 0.25);
 }
 
+.sidebar-brand-logo-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.sidebar-brand-logo {
+    height: 38px;
+    width: auto;
+    max-width: 65px;
+    object-fit: contain;
+    display: block;
+}
+
 .sidebar-brand-text h1 {
     color: var(--theme-text-main);
     font-size: 1.05rem;
