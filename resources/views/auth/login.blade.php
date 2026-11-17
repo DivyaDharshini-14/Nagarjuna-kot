@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Sign in | Nagarjuna KOT</title>
+    <link rel="icon" type="image/png" href="{{ asset('images/nagarjuna-logo.png') }}">
     <style>
         * { box-sizing: border-box; }
         body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; background: #f7f3ed; color: #27221e; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
@@ -22,7 +23,9 @@
 </head>
 <body>
     <main class="card">
-        <p class="eyebrow">Nagarjuna</p>
+        <div style="text-align: center; margin-bottom: 1.25rem;">
+            <img src="{{ asset('images/nagarjuna-logo.png') }}" alt="Nagarjuna Andhra Style" style="height: 54px; width: auto; object-fit: contain;">
+        </div>
         <h1>KOT Management</h1>
         <p class="subtitle">Sign in with your staff account.</p>
 
