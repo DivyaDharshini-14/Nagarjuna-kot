@@ -22,7 +22,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 
     <!-- Unified Tabletop Theme -->
-    <link href="{{ asset('css/theme.css') }}" rel="stylesheet">
+    <link href="{{ asset('css/theme.css') }}?v={{ filemtime(public_path('css/theme.css')) }}" rel="stylesheet">
 
     @stack('styles')
 </head>

@@ -3,9 +3,19 @@
 @section('title', 'Kitchen Display System (KDS)')
 
 @section('content')
-<div class="mb-4">
-    <h1 class="h3 mb-1"><i class="bi bi-tv text-primary me-2"></i>Kitchen Display Screens</h1>
-    <p class="text-muted small mb-0">Select a kitchen station to launch its dedicated live TV display screen.</p>
+<div class="mb-4 d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div>
+        <h1 class="h3 mb-1"><i class="bi bi-tv text-primary me-2"></i>Kitchen Display Screens</h1>
+        <p class="text-muted small mb-0">Select a kitchen station to launch its dedicated live TV display screen.</p>
+    </div>
+    @if(isset($selectedDate) && $selectedDate !== now()->toDateString())
+        <div>
+            <span class="badge bg-warning text-dark fs-6 px-3 py-2">
+                <i class="bi bi-calendar3 me-1"></i>Viewing: {{ \Carbon\Carbon::parse($selectedDate)->format('D, d M Y') }}
+            </span>
+            <a href="{{ route('kds.index') }}" class="btn btn-outline-secondary btn-sm ms-2">Switch to Today</a>
+        </div>
+    @endif
 </div>
 
 @php
@@ -62,7 +72,7 @@
                         </div>
 
                         <div class="d-grid gap-2 mt-3">
-                            <a href="{{ url('/' . ($k->branch?->code ?? 'branch') . '/' . $k->code) }}" target="_blank" class="btn btn-primary fw-bold py-2 shadow-sm">
+                            <a href="{{ url('/' . ($k->branch?->code ?? 'branch') . '/' . $k->code . (isset($selectedDate) && $selectedDate !== now()->toDateString() ? '?date=' . urlencode($selectedDate) : '')) }}" target="_blank" class="btn btn-primary fw-bold py-2 shadow-sm">
                                 <i class="bi bi-box-arrow-up-right me-2"></i>Launch {{ $k->name }} ({{ $k->code }}) TV Screen
                             </a>
                             <div class="text-center text-muted" style="font-size: 0.76rem;">

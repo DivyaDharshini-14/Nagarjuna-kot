@@ -9,7 +9,7 @@
             <p class="text-muted small mb-0">Live kitchen-wise ticket distribution and preparation progress</p>
         </div>
         <div>
-            <a href="{{ route('kds.index') }}" class="btn btn-primary">
+            <a href="{{ route('kds.index', ['date' => $selectedDate ?? request('date', now()->toDateString())]) }}" class="btn btn-primary">
                 <i class="bi bi-tv me-1"></i>Kitchen Displays (KDS)
             </a>
         </div>
@@ -33,11 +33,11 @@
             </select>
         </div>
         <div class="col-md-3">
-            <input type="date" name="date" value="{{ request('date') }}" class="form-control rounded-3" title="Filter by date">
+            <input type="date" name="date" value="{{ $selectedDate ?? request('date', now()->toDateString()) }}" class="form-control rounded-3" title="Filter by date">
         </div>
         <div class="col-md-auto ms-auto d-flex gap-2">
             <button class="btn btn-primary rounded-3 px-3 fw-semibold">Filter</button>
-            <a href="{{ route('kots.index') }}" class="btn btn-outline-secondary rounded-3 px-3">Reset</a>
+            <a href="{{ route('kots.index') }}" class="btn btn-outline-secondary rounded-3 px-3">Today</a>
         </div>
     </form>
 

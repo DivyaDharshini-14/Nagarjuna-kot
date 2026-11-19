@@ -65,7 +65,7 @@ body {
     max-height: 100vh;
     position: sticky;
     top: 0;
-    padding: 1.25rem 0.85rem 1rem;
+    padding: 0.75rem 0.85rem 1rem;
     display: flex;
     flex-direction: column;
     border-right: 1px solid var(--theme-sidebar-border);
@@ -100,12 +100,14 @@ body {
 /* Sidebar Brand */
 .sidebar-brand {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 0.75rem;
-    padding: 0.25rem 0.5rem 1.25rem 0.5rem;
+    justify-content: center;
+    text-align: center;
+    padding: 0.25rem 0.5rem 0.75rem 0.5rem;
     text-decoration: none;
     border-bottom: 1px solid var(--theme-sidebar-border);
-    margin-bottom: 1rem;
+    margin-bottom: 0.75rem;
 }
 
 .sidebar-brand-icon {
@@ -127,7 +129,11 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    flex-shrink: 0;
+    width: 100%;
+}
+
+.sidebar-brand .sidebar-brand-logo-wrap {
+    margin-bottom: 0.65rem;
 }
 
 .sidebar-brand-logo {
@@ -138,13 +144,27 @@ body {
     display: block;
 }
 
+.sidebar-brand .sidebar-brand-logo {
+    height: 68px;
+    width: 165px;
+    max-width: 100%;
+    object-fit: fill;
+    display: block;
+}
+
+.sidebar-brand-text {
+    text-align: center;
+    width: 100%;
+}
+
 .sidebar-brand-text h1 {
     color: var(--theme-text-main);
-    font-size: 1.05rem;
+    font-size: 0.92rem;
     font-weight: 700;
-    margin: 0;
+    margin: 0 0 0.15rem 0;
     line-height: 1.2;
     letter-spacing: -0.01em;
+    text-align: center;
 }
 
 .sidebar-brand-text span {
@@ -152,6 +172,9 @@ body {
     font-size: 0.72rem;
     font-weight: 500;
     display: block;
+    line-height: 1.2;
+    white-space: nowrap;
+    text-align: center;
 }
 
 /* Sidebar Nav Items */
