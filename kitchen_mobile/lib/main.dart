@@ -70,26 +70,23 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
   KitchenStation? _selectedKitchen;
   List<KotTicket> _tickets = const [];
   Timer? _refreshTimer;
+  Timer? _dayRolloverTimer;
+  DateTime _boardDay = kitchenDayStart(DateTime.now());
   int _refreshGeneration = 0;
   bool _restoring = true;
-  bool _loadingBoard = false;
   bool _refreshing = false;
   String? _startupError;
   String? _boardError;
   String? _busyTicketId;
   String _boardView = 'active';
-  DateTime? _refreshedAt;
   bool _hasBoardSnapshot = false;
-  bool _liveConnected = false;
   bool _showStockControl = false;
   final _alertSound = KitchenAlertSound();
-  bool _soundEnabled = false;
   bool _branchSoundAllowed = true;
-  bool _savingSound = false;
   final Set<int> _announcedTicketIds = {};
   int _boardPage = 1;
   int _boardLastPage = 1;
-  int _boardTotal = 0;
+  bool _historyMayBeLimited = false;
   Map<int, String> _ticketStatuses = const {};
   Map<int, int> _ticketCancellationQuantities = const {};
   Map<String, dynamic>? _pendingPushData;
@@ -105,38 +102,6 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
       ),
     );
     _restoreSession();
-    unawaited(_restoreSoundPreference());
-  }
-
-  Future<void> _restoreSoundPreference() async {
-    try {
-      final enabled = await widget.repository.tokens.readSoundEnabled();
-      if (mounted) setState(() => _soundEnabled = enabled);
-    } catch (_) {
-      // Sound stays off if the device cannot read its saved preference.
-    }
-  }
-
-  Future<void> _toggleSound() async {
-    if (_savingSound || !_branchSoundAllowed) return;
-    final enabled = !_soundEnabled;
-    setState(() => _savingSound = true);
-    try {
-      if (enabled && !await _alertSound.play()) {
-        _scaffoldMessengerKey.currentState?.showSnackBar(
-          const SnackBar(content: Text('Sound is unavailable on this device.')),
-        );
-        return;
-      }
-      await widget.repository.tokens.saveSoundEnabled(enabled);
-      if (mounted) setState(() => _soundEnabled = enabled);
-    } catch (_) {
-      _scaffoldMessengerKey.currentState?.showSnackBar(
-        const SnackBar(content: Text('Could not save the sound preference.')),
-      );
-    } finally {
-      if (mounted) setState(() => _savingSound = false);
-    }
   }
 
   void _announceNewTicket(int ticketId) {
@@ -144,13 +109,14 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
     if (_announcedTicketIds.length > 1000) {
       _announcedTicketIds.remove(_announcedTicketIds.first);
     }
-    if (_soundEnabled && _branchSoundAllowed) unawaited(_alertSound.play());
+    if (_branchSoundAllowed) unawaited(_alertSound.play());
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _refreshTimer?.cancel();
+    _dayRolloverTimer?.cancel();
     widget.liveConnection.dispose();
     unawaited(widget.pushNotifications.dispose());
     super.dispose();
@@ -165,6 +131,7 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
       _startRefreshTimer();
     } else if (state != AppLifecycleState.resumed) {
       _refreshTimer?.cancel();
+      _dayRolloverTimer?.cancel();
       widget.liveConnection.disconnect();
     }
   }
@@ -231,21 +198,20 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
       _kitchens = kitchens;
       _selectedKitchen = null;
       _tickets = const [];
+      _boardDay = kitchenDayStart(DateTime.now());
       _boardView = 'active';
       _boardPage = 1;
       _boardLastPage = 1;
-      _boardTotal = 0;
+      _historyMayBeLimited = false;
       _showStockControl = false;
       _announcedTicketIds.clear();
       _restoring = false;
       _startupError = null;
       _refreshing = false;
-      _loadingBoard = false;
       _boardError = null;
       _hasBoardSnapshot = false;
       _ticketStatuses = const {};
       _ticketCancellationQuantities = const {};
-      _liveConnected = false;
     });
     if (kitchens.isNotEmpty) {
       await _refreshTickets();
@@ -281,20 +247,49 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
     if (!mounted || _account == null) return;
     final type = data['type'];
     if (type == 'kot_created' || type == 'kot_cancelled') {
+      // Fetch the ticket's date before displaying an alert for a delayed push.
       final ticketId = int.tryParse('${data['ticket_id'] ?? ''}');
-      if (type == 'kot_created' && ticketId != null) {
-        _announceNewTicket(ticketId);
+      final kitchenId = int.tryParse('${data['kitchen_id'] ?? ''}');
+      if (ticketId != null &&
+          (_boardView != 'active' ||
+              (_selectedKitchen != null &&
+                  _selectedKitchen?.id != kitchenId))) {
+        unawaited(
+          _checkTicketAlert(ticketId, kitchenId, isNew: type == 'kot_created'),
+        );
       }
-      _scaffoldMessengerKey.currentState?.showSnackBar(
-        SnackBar(
-          content: Text(
-            type == 'kot_created'
-                ? 'A new kitchen ticket arrived'
-                : 'A kitchen ticket was cancelled',
-          ),
-        ),
-      );
       unawaited(_refreshTickets(notify: true, force: true));
+    }
+  }
+
+  Future<void> _checkTicketAlert(
+    int ticketId,
+    int? kitchenId, {
+    required bool isNew,
+  }) async {
+    final account = _account;
+    try {
+      final page = await widget.repository.getTicketPage(
+        kitchenId,
+        view: isNew ? 'active' : 'cancelled',
+      );
+      if (!mounted || _account != account) return;
+      final today = kitchenDayStart(DateTime.now());
+      for (final ticket in page.items) {
+        if (ticket.id != ticketId || !ticket.isFromKitchenDay(today)) continue;
+        if (isNew) {
+          if (ticket.status == 'new') _announceNewTicket(ticket.id);
+        } else {
+          _scaffoldMessengerKey.currentState?.showSnackBar(
+            SnackBar(
+              content: Text('Cancellation update for KOT ${ticket.number}'),
+            ),
+          );
+        }
+        return;
+      }
+    } on Object {
+      // The regular board refresh handles connection and session errors.
     }
   }
 
@@ -324,6 +319,38 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
       const Duration(seconds: 12),
       (_) => _refreshTickets(notify: true),
     );
+    _scheduleDayRollover();
+  }
+
+  void _scheduleDayRollover() {
+    _dayRolloverTimer?.cancel();
+    final midnight = _boardDay.add(const Duration(days: 1));
+    _dayRolloverTimer = Timer(midnight.difference(DateTime.now()), () {
+      _refreshTickets(notify: true);
+      _scheduleDayRollover();
+    });
+  }
+
+  bool _rollBoardDay() {
+    final today = kitchenDayStart(DateTime.now());
+    if (today == _boardDay) return false;
+
+    _refreshGeneration++;
+    _scaffoldMessengerKey.currentState?.clearSnackBars();
+    setState(() {
+      _boardDay = today;
+      _boardView = 'active';
+      _boardPage = 1;
+      _boardLastPage = 1;
+      _historyMayBeLimited = false;
+      _tickets = const [];
+      _ticketStatuses = const {};
+      _ticketCancellationQuantities = const {};
+      _hasBoardSnapshot = false;
+      _refreshing = false;
+      _boardError = null;
+    });
+    return true;
   }
 
   Future<void> _changeKitchen(KitchenStation? kitchen) async {
@@ -332,11 +359,11 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
       _selectedKitchen = kitchen;
       _boardPage = 1;
       _boardLastPage = 1;
-      _boardTotal = 0;
+      _historyMayBeLimited = false;
       _tickets = const [];
       _refreshing = false;
-      _loadingBoard = false;
       _hasBoardSnapshot = false;
+      _boardError = null;
       _ticketStatuses = const {};
       _ticketCancellationQuantities = const {};
     });
@@ -351,7 +378,6 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
   }
 
   void _connectLive() {
-    if (mounted) setState(() => _liveConnected = false);
     final kitchenIds = _liveKitchenIds;
     if (kitchenIds.isEmpty) {
       widget.liveConnection.disconnect();
@@ -360,13 +386,16 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
     widget.liveConnection.connect(
       kitchenIds: kitchenIds,
       onConnectionChanged: (connected) {
-        if (mounted) {
-          setState(() => _liveConnected = connected);
-          if (connected) _refreshTickets(notify: true, force: true);
-        }
+        if (mounted && connected) _refreshTickets(notify: true, force: true);
       },
       onTicketChanged: () => _refreshTickets(notify: true, force: true),
-      onNewTicket: _announceNewTicket,
+      onNewTicket: (ticketId) {
+        if (_boardView != 'active') {
+          unawaited(
+            _checkTicketAlert(ticketId, _selectedKitchen?.id, isNew: true),
+          );
+        }
+      },
     );
   }
 
@@ -374,38 +403,45 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
     bool notify = false,
     bool force = false,
   }) async {
+    if (!mounted || _account == null) return;
+    final dayChanged = _rollBoardDay();
+    if (_kitchens.isEmpty || (_refreshing && !force)) return;
     final kitchen = _selectedKitchen;
-    if (_kitchens.isEmpty || (_refreshing && !force) || !mounted) return;
     final generation = ++_refreshGeneration;
-    setState(() {
-      _refreshing = true;
-      _loadingBoard = !_hasBoardSnapshot;
-      _boardError = null;
-    });
+    setState(() => _refreshing = true);
     try {
       final page = await widget.repository.getTicketPage(
         kitchen?.id,
         view: _boardView,
         page: _boardPage,
       );
-      final tickets = page.items;
       if (!mounted || generation != _refreshGeneration) return;
-      _branchSoundAllowed = page.soundAllowed;
-      if (_selectedKitchen?.id != kitchen?.id) {
-        setState(() {
-          _loadingBoard = false;
-          _refreshing = false;
-        });
+      if (kitchenDayStart(DateTime.now()) != _boardDay) {
+        await _refreshTickets(notify: notify, force: true);
         return;
       }
-      if (notify && _hasBoardSnapshot && _boardView == 'active') {
-        _notifyTicketChanges(tickets);
+      final tickets = page.items
+          .where((ticket) => ticket.isFromKitchenDay(_boardDay))
+          .toList(growable: false);
+      _branchSoundAllowed = page.soundAllowed;
+      if (_selectedKitchen?.id != kitchen?.id) {
+        setState(() => _refreshing = false);
+        return;
+      }
+      if (notify &&
+          (_hasBoardSnapshot || dayChanged) &&
+          _boardView == 'active') {
+        _notifyTicketChanges(tickets, includeCancellations: !dayChanged);
       }
       setState(() {
         _tickets = tickets;
+        _boardError = null;
         _boardPage = page.currentPage;
         _boardLastPage = page.lastPage;
-        _boardTotal = page.total;
+        _historyMayBeLimited =
+            _boardView != 'active' &&
+            page.lastPage == 1 &&
+            page.items.length >= 100;
         _ticketStatuses = {
           for (final ticket in tickets) ticket.id: ticket.status,
         };
@@ -417,8 +453,6 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
             ),
         };
         _hasBoardSnapshot = true;
-        _refreshedAt = DateTime.now();
-        _loadingBoard = false;
         _refreshing = false;
       });
     } on KitchenApiException catch (error) {
@@ -430,7 +464,6 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
       if (mounted) {
         setState(() {
           _boardError = error.message;
-          _loadingBoard = false;
           _refreshing = false;
         });
       }
@@ -438,7 +471,6 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
       if (mounted && generation == _refreshGeneration) {
         setState(() {
           _boardError = error.message;
-          _loadingBoard = false;
           _refreshing = false;
         });
       }
@@ -446,7 +478,6 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
       if (mounted && generation == _refreshGeneration) {
         setState(() {
           _boardError = error.message;
-          _loadingBoard = false;
           _refreshing = false;
         });
       }
@@ -459,9 +490,10 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
       _boardView = view;
       _boardPage = 1;
       _boardLastPage = 1;
-      _boardTotal = 0;
+      _historyMayBeLimited = false;
       _tickets = const [];
       _hasBoardSnapshot = false;
+      _boardError = null;
     });
     await _refreshTickets(force: true);
   }
@@ -477,11 +509,15 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
       _boardPage = page;
       _tickets = const [];
       _hasBoardSnapshot = false;
+      _boardError = null;
     });
     await _refreshTickets(force: true);
   }
 
-  void _notifyTicketChanges(List<KotTicket> tickets) {
+  void _notifyTicketChanges(
+    List<KotTicket> tickets, {
+    required bool includeCancellations,
+  }) {
     final added = tickets.where(
       (ticket) =>
           !_ticketStatuses.containsKey(ticket.id) && ticket.status == 'new',
@@ -505,10 +541,10 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
         _announceNewTicket(ticket.id);
       }
     }
-    if (cancelled.isNotEmpty) {
+    if (includeCancellations && cancelled.isNotEmpty) {
       notices.add('KOT ${cancelled.first.number} was cancelled');
     }
-    if (cancelledItems.isNotEmpty) {
+    if (includeCancellations && cancelledItems.isNotEmpty) {
       notices.add('Cancelled items on KOT ${cancelledItems.first.number}');
     }
     final text = notices.isEmpty ? null : notices.join(' · ');
@@ -520,11 +556,16 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
   }
 
   Future<void> _updateTicket(KotTicket ticket, String status) async {
+    if (_busyTicketId != null) return;
+    if (!ticket.isFromKitchenDay(kitchenDayStart(DateTime.now()))) {
+      await _refreshTickets(force: true);
+      return;
+    }
     setState(() => _busyTicketId = '${ticket.id}');
     try {
       await widget.repository.updateStatus(ticket.id, status);
       await _refreshTickets(force: true);
-      if (mounted) {
+      if (mounted && ticket.isFromKitchenDay(_boardDay)) {
         _scaffoldMessengerKey.currentState?.showSnackBar(
           SnackBar(
             content: Text('${ticket.number} moved to ${_statusLabel(status)}'),
@@ -552,6 +593,7 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
 
   Future<void> _signOut({bool clearOnly = false}) async {
     _refreshTimer?.cancel();
+    _dayRolloverTimer?.cancel();
     _refreshGeneration++;
     widget.liveConnection.disconnect();
     await widget.pushNotifications.deactivate(
@@ -574,12 +616,10 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
       _tickets = const [];
       _boardError = null;
       _busyTicketId = null;
-      _loadingBoard = false;
       _refreshing = false;
       _hasBoardSnapshot = false;
       _ticketStatuses = const {};
       _ticketCancellationQuantities = const {};
-      _liveConnected = false;
       _showStockControl = false;
     });
   }
@@ -616,35 +656,30 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
     if (_showStockControl) {
       return KitchenStockScreen(
         repository: widget.repository,
-        canManageStock: account.canManageStock,
+        userId: account.id,
+        canManageStock: account.canManageStock && account.id != null,
         onBack: () => setState(() => _showStockControl = false),
       );
     }
     return KitchenBoardScreen(
+      key: ValueKey(_boardDay),
       account: account,
       kitchens: _kitchens,
       selectedKitchen: _selectedKitchen,
       tickets: _tickets,
       busyTicketId: _busyTicketId,
-      isLoading: _loadingBoard,
+      hasSnapshot: _hasBoardSnapshot,
       isRefreshing: _refreshing,
       error: _boardError,
-      refreshedAt: _refreshedAt,
-      liveConfigured: widget.liveConnection.isConfigured,
-      liveConnected: _liveConnected,
       onRefresh: () => _refreshTickets(notify: false),
       boardView: _boardView,
       onBoardViewChanged: _changeBoardView,
       onKitchenChanged: _changeKitchen,
       onStatusChange: _updateTicket,
       onSignOut: _signOut,
-      soundEnabled: _soundEnabled && _branchSoundAllowed,
-      soundAllowed: _branchSoundAllowed,
-      soundBusy: _savingSound,
-      onToggleSound: _toggleSound,
       currentPage: _boardPage,
       lastPage: _boardLastPage,
-      totalTickets: _boardTotal,
+      historyMayBeLimited: _historyMayBeLimited,
       onPageChanged: _changeBoardPage,
       onStockControl: account.canViewStock
           ? () => setState(() => _showStockControl = true)

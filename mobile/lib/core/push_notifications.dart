@@ -22,7 +22,7 @@ class MobilePushNotifications {
 
   Future<void> initialize() async {
     try {
-      await Firebase.initializeApp();
+      await Firebase.initializeApp().timeout(const Duration(seconds: 10));
       FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
       _initialized = true;
     } catch (error) {

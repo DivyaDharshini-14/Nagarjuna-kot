@@ -67,4 +67,12 @@ class FloorTableSnapshot {
 
   final String branchName;
   final List<RestaurantFloor> floors;
+
+  Iterable<int> get activeOrderIds sync* {
+    for (final floor in floors) {
+      for (final table in floor.tables) {
+        if (table.activeOrderId case final int id) yield id;
+      }
+    }
+  }
 }

@@ -6,7 +6,27 @@ Apply Laravel migrations through the project's normal deployment process before 
 
 Kitchen managers can manage assigned-dish availability, record stock-in/wastage/damage/corrections, and inspect stock history. Kitchen staff can view stock and history with menu-view permission. Every stock movement and availability change requires a reason; negative balances are rejected. Approved waiter cancellations appear as cancelled quantities on KOTs.
 
-Cards show received clock time and elapsed age. Enable the sound icon for foreground new-KOT alerts; the preference is saved on the device and branch settings may disable sound. Completed/cancelled orders, stock dishes and transaction history have page controls instead of fixed history limits. Fully cancelled dishes display Cancelled and cannot be revived by preparation actions. A dish mapped to several stations remains one customer quantity and one stock deduction; its overall Ready state waits for all stations.
+Prepared dishes and stock history load 50 records per page. Use Previous/Next to reach older movements; the history is not limited to the latest 50. Staff with stock-view permission can open the stock screen and history without receiving stock-adjustment controls.
+
+Cards show received clock time and elapsed age. Choose **Enable new KOT sound** from **Account options** for foreground alerts. The preference is saved on the device and branch settings may disable sound.
+
+## Stock regression checks
+
+From the repository root, run the mobile API checks against the configured in-memory test database:
+
+```powershell
+php vendor/phpunit/phpunit/phpunit tests/Feature/MobileKitchenStockTest.php tests/Feature/MobileOrderStockAcceptanceTest.php --do-not-cache-result
+```
+
+These cover pagination, access boundaries, stock adjustments and audit records, insufficient-stock rollback, duplicate-safe mobile submissions/additions, cancellation reversals, approval, and prepared-item wastage. They do not modify the development restaurant database.
+
+From `kitchen_mobile/`, run the Flutter stock screen checks:
+
+```powershell
+flutter test test/kitchen_stock_screen_test.dart
+```
+
+Repeat target-device acceptance before release, including reconnecting after network loss and verifying live waiter menu updates. Concurrent stock handling must also be checked with the deployment database engine; in-memory SQLite tests alone do not validate database row locking.
 
 ## Run on the Android emulator
 

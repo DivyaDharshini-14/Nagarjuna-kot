@@ -6,6 +6,7 @@ import 'app/app_theme.dart';
 import 'core/network/mobile_api_client.dart';
 import 'core/network/mobile_order_live_connection.dart';
 import 'core/push_notifications.dart';
+import 'core/restaurant_day.dart';
 import 'features/auth/auth_repository.dart';
 import 'features/auth/data/sanctum_auth_repository.dart';
 import 'features/auth/data/secure_token_store.dart';
@@ -15,7 +16,7 @@ import 'features/menu/presentation/menu_composer_screen.dart';
 import 'features/orders/data/mobile_order_repository.dart';
 import 'features/orders/data/pending_order_draft_store.dart';
 import 'features/orders/domain/order_confirmation.dart';
-import 'features/orders/presentation/cancellation_approval_screen.dart';
+import 'features/orders/presentation/cancellation_history_screen.dart';
 import 'features/orders/presentation/order_progress_screen.dart';
 import 'features/tables/data/floor_table_repository.dart';
 import 'features/tables/domain/floor_table.dart';
@@ -97,12 +98,13 @@ class _NagarjunaWaiterAppState extends State<NagarjunaWaiterApp>
   int? _trackedOrderId;
   String? _trackedOrderNumber;
   int? _pendingPushOrderId;
-  bool _canApproveCancellations = false;
+  final _orderActivity = <int, DateTime>{};
+  bool _canViewOrders = false;
   bool _hasFloorTableAccess = false;
   bool _canAddOrderItems = false;
   bool _canEditOrders = false;
   bool _canCancelOrders = false;
-  bool _showCancellationApprovals = false;
+  bool _showCancellationHistory = false;
   final GlobalKey<ScaffoldMessengerState> _scaffoldMessengerKey =
       GlobalKey<ScaffoldMessengerState>();
 
@@ -153,7 +155,6 @@ class _NagarjunaWaiterAppState extends State<NagarjunaWaiterApp>
         unawaited(_activatePush());
         _openPendingPushOrder();
       }
-      if (!hasSession) await widget.pendingDraftStore.clear();
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -172,21 +173,21 @@ class _NagarjunaWaiterAppState extends State<NagarjunaWaiterApp>
     } catch (_) {
       // The local token is cleared by the repository even if the server is offline.
     }
-    await widget.pendingDraftStore.clear();
     if (!mounted) return;
     setState(() {
       _isAuthenticated = false;
       _selectedTable = null;
       _trackedOrderId = null;
       _trackedOrderNumber = null;
-      _canApproveCancellations = false;
+      _canViewOrders = false;
       _hasFloorTableAccess = false;
       _canAddOrderItems = false;
       _canEditOrders = false;
       _canCancelOrders = false;
       _permissionsError = null;
       _permissionsLoading = false;
-      _showCancellationApprovals = false;
+      _showCancellationHistory = false;
+      _orderActivity.clear();
     });
   }
 
@@ -207,10 +208,11 @@ class _NagarjunaWaiterAppState extends State<NagarjunaWaiterApp>
   }
 
   void _handleForegroundPush(Map<String, dynamic> data) {
-    if (!mounted || data['type'] != 'order_ready') return;
-    _scaffoldMessengerKey.currentState?.showSnackBar(
-      const SnackBar(content: Text('A kitchen ticket is ready')),
-    );
+    if (data['type'] != 'order_ready') return;
+    final orderId = int.tryParse('${data['order_id'] ?? ''}');
+    if (orderId != null && orderId > 0) {
+      unawaited(_showOrderReady(orderId, openOrder: false));
+    }
   }
 
   void _handlePushOpened(Map<String, dynamic> data) {
@@ -221,11 +223,7 @@ class _NagarjunaWaiterAppState extends State<NagarjunaWaiterApp>
       _pendingPushOrderId = orderId;
       return;
     }
-    setState(() {
-      _selectedTable = null;
-      _trackedOrderId = orderId;
-      _trackedOrderNumber = 'Order';
-    });
+    unawaited(_showOrderReady(orderId, openOrder: true));
   }
 
   void _onAuthenticated() {
@@ -249,7 +247,7 @@ class _NagarjunaWaiterAppState extends State<NagarjunaWaiterApp>
       final permissions = await widget.authRepository.loadPermissions();
       if (!mounted) return;
       setState(() {
-        _canApproveCancellations = permissions.contains('order.approve');
+        _canViewOrders = permissions.contains('order.view');
         _canAddOrderItems = permissions.contains('order.add');
         _canEditOrders = permissions.contains('order.edit');
         _canCancelOrders = permissions.contains('order.cancel');
@@ -259,13 +257,10 @@ class _NagarjunaWaiterAppState extends State<NagarjunaWaiterApp>
             permissions.contains('category.view') &&
             permissions.contains('menu-type.view') &&
             permissions.contains('menu-item.view') &&
-            permissions.contains('order.view') &&
+            _canViewOrders &&
             _canAddOrderItems;
         _permissionsLoading = false;
         _permissionsError = null;
-        if (_canApproveCancellations && !_hasFloorTableAccess) {
-          _showCancellationApprovals = true;
-        }
       });
       await _recoverPendingAddition();
     } on Object {
@@ -281,19 +276,64 @@ class _NagarjunaWaiterAppState extends State<NagarjunaWaiterApp>
     final orderId = _pendingPushOrderId;
     if (orderId == null) return;
     _pendingPushOrderId = null;
-    setState(() {
-      _selectedTable = null;
-      _trackedOrderId = orderId;
-      _trackedOrderNumber = 'Order';
-    });
+    unawaited(_showOrderReady(orderId, openOrder: true));
+  }
+
+  Future<void> _showOrderReady(int orderId, {required bool openOrder}) async {
+    if (!mounted ||
+        !_isAuthenticated ||
+        isFromPreviousRestaurantDay(_orderActivity[orderId])) {
+      return;
+    }
+    final userId = widget.authRepository.currentUserId;
+    try {
+      final order = await widget.orderRepository.getOrderStatus(orderId);
+      if (!mounted ||
+          !_isAuthenticated ||
+          userId != widget.authRepository.currentUserId) {
+        return;
+      }
+      final activity = order.firstKnownActivityAt;
+      final cachedActivity = _orderActivity[orderId];
+      if (activity != null &&
+          (cachedActivity == null || activity.isBefore(cachedActivity))) {
+        _orderActivity[orderId] = activity;
+      }
+      if (isFromPreviousRestaurantDay(_orderActivity[orderId])) return;
+      if (openOrder) {
+        setState(() {
+          _selectedTable = null;
+          _trackedOrderId = orderId;
+          _trackedOrderNumber = order.orderNumber;
+        });
+      } else if (order.orderStatus != 'completed' &&
+          order.orderStatus != 'cancelled') {
+        _scaffoldMessengerKey.currentState?.showSnackBar(
+          const SnackBar(content: Text('A kitchen ticket is ready')),
+        );
+      }
+    } on Object {
+      // The alert does not change the current screen if the order is unavailable.
+    }
   }
 
   void _trackSubmittedOrder(OrderConfirmation order) {
+    unawaited(_rememberHistoryOrders([order.id]));
     setState(() {
       _selectedTable = null;
       _trackedOrderId = order.id;
       _trackedOrderNumber = order.orderNumber;
     });
+  }
+
+  Future<void> _rememberHistoryOrders(Iterable<int> ids) async {
+    final userId = widget.authRepository.currentUserId;
+    if (userId == null) return;
+    try {
+      await widget.pendingDraftStore.rememberCancellationOrders(userId, ids);
+    } catch (_) {
+      // A local history index failure must not interrupt order entry.
+    }
   }
 
   Future<bool> _recoverPendingAddition() async {
@@ -313,6 +353,9 @@ class _NagarjunaWaiterAppState extends State<NagarjunaWaiterApp>
 
   Future<void> _selectTable(RestaurantTable table) async {
     if (await _recoverPendingAddition() || !mounted) return;
+    if (isFromPreviousRestaurantDay(_orderActivity[table.activeOrderId])) {
+      return;
+    }
     setState(() => _selectedTable = table);
   }
 
@@ -328,6 +371,9 @@ class _NagarjunaWaiterAppState extends State<NagarjunaWaiterApp>
 
   Future<void> _editOrderInMenu(RestaurantTable table) async {
     if (await _recoverPendingAddition() || !mounted) return;
+    if (isFromPreviousRestaurantDay(_orderActivity[table.activeOrderId])) {
+      return;
+    }
     setState(() {
       _trackedOrderId = null;
       _trackedOrderNumber = null;
@@ -383,19 +429,18 @@ class _NagarjunaWaiterAppState extends State<NagarjunaWaiterApp>
         onSignOut: _signOut,
       );
     }
-    if (_showCancellationApprovals) {
-      return CancellationApprovalScreen(
+    if (_showCancellationHistory) {
+      return CancellationHistoryScreen(
         repository: widget.orderRepository,
+        store: widget.pendingDraftStore,
+        userId: widget.authRepository.currentUserId!,
+        canViewOrders: _canViewOrders,
+        floorRepository: _hasFloorTableAccess
+            ? widget.floorTableRepository
+            : null,
         onBack: _hasFloorTableAccess
-            ? () => setState(() => _showCancellationApprovals = false)
+            ? () => setState(() => _showCancellationHistory = false)
             : _signOut,
-        onSessionExpired: _expireSession,
-      );
-    }
-    if (!_hasFloorTableAccess && _canApproveCancellations) {
-      return CancellationApprovalScreen(
-        repository: widget.orderRepository,
-        onBack: _signOut,
         onSessionExpired: _expireSession,
       );
     }
@@ -405,7 +450,9 @@ class _NagarjunaWaiterAppState extends State<NagarjunaWaiterApp>
     final selectedTable = _selectedTable;
     if (selectedTable != null) {
       return MenuComposerScreen(
+        userId: widget.authRepository.currentUserId!,
         table: selectedTable,
+        activeOrderActivity: _orderActivity[selectedTable.activeOrderId],
         repository: widget.menuRepository,
         orderRepository: widget.orderRepository,
         pendingDraftStore: widget.pendingDraftStore,
@@ -423,6 +470,7 @@ class _NagarjunaWaiterAppState extends State<NagarjunaWaiterApp>
         key: ValueKey(trackedOrderId),
         orderId: trackedOrderId,
         orderNumber: _trackedOrderNumber ?? 'Order',
+        firstKnownActivity: _orderActivity[trackedOrderId],
         repository: widget.orderRepository,
         pendingDraftStore: widget.pendingDraftStore,
         userId: widget.authRepository.currentUserId!,
@@ -442,13 +490,15 @@ class _NagarjunaWaiterAppState extends State<NagarjunaWaiterApp>
     }
     return FloorTableScreen(
       repository: widget.floorTableRepository,
+      orderRepository: widget.orderRepository,
+      orderActivity: _orderActivity,
       onSignOut: _signOut,
       onSessionExpired: _expireSession,
       onTableSelected: _selectTable,
       onTrackOrder: _trackTableOrder,
-      canApproveCancellations: _canApproveCancellations,
-      onOpenCancellationApprovals: () =>
-          setState(() => _showCancellationApprovals = true),
+      onActiveOrdersSeen: (ids) => unawaited(_rememberHistoryOrders(ids)),
+      onOpenCancellationHistory: () =>
+          setState(() => _showCancellationHistory = true),
     );
   }
 
@@ -527,7 +577,7 @@ class _NoMobileAccessScreen extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               const Text(
-                'Ask your manager to assign a waiter or cancellation-approval role, then sign in again.',
+                'Ask your manager to assign a waiter role, then sign in again.',
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 20),

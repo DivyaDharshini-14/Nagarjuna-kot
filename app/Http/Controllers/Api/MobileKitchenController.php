@@ -10,6 +10,7 @@ use App\Models\MenuItem;
 use App\Models\StockTransaction;
 use App\Models\User;
 use App\Services\OrderService;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -243,10 +244,14 @@ class MobileKitchenController extends Controller
                 ->where('is_active', true)
                 ->with('kitchen:id,name')])
             ->orderBy('name')
-            ->get()
-            ->map(fn (MenuItem $item) => $this->stockPayload($item));
+            ->orderBy('id')
+            ->paginate(50, ['*'], 'page', $this->requestedStockPage($request));
 
-        return response()->json(['data' => ['items' => $items, 'can_manage_stock' => $user->hasPermission('menu-item.stock-adjustment')]]);
+        return response()->json(['data' => [
+            'items' => $items->getCollection()->map(fn (MenuItem $item) => $this->stockPayload($item)),
+            'pagination' => $this->stockPaginationPayload($items),
+            'can_manage_stock' => $user->hasPermission('menu-item.stock-adjustment'),
+        ]]);
     }
 
     public function adjustStock(Request $request, MenuItem $menuItem): JsonResponse
@@ -310,21 +315,43 @@ class MobileKitchenController extends Controller
             ->where('menu_item_id', $menuItem->id)
             ->with('user:id,name')
             ->latest()
-            ->limit(50)
-            ->get()
-            ->map(fn (StockTransaction $transaction) => [
-                'id' => $transaction->id,
-                'type' => $transaction->transaction_type,
-                'quantity' => $transaction->quantity,
-                'quantity_delta' => $transaction->quantity_delta,
-                'stock_before' => $transaction->stock_before,
-                'stock_after' => $transaction->stock_after,
-                'reason' => $transaction->reason,
-                'user' => $transaction->user?->name ?? 'Former staff account',
-                'created_at' => $transaction->created_at?->toIso8601String(),
-            ]);
+            ->orderByDesc('id')
+            ->paginate(50, ['*'], 'page', $this->requestedStockPage($request));
+        $records = $transactions->getCollection()->map(fn (StockTransaction $transaction) => [
+            'id' => $transaction->id,
+            'type' => $transaction->transaction_type,
+            'quantity' => $transaction->quantity,
+            'quantity_delta' => $transaction->quantity_delta,
+            'stock_before' => $transaction->stock_before,
+            'stock_after' => $transaction->stock_after,
+            'reason' => $transaction->reason,
+            'user' => $transaction->user?->name ?? 'Former staff account',
+            'created_at' => $transaction->created_at?->toIso8601String(),
+        ]);
 
-        return response()->json(['data' => ['transactions' => $transactions]]);
+        return response()->json(['data' => [
+            'transactions' => $records,
+            'pagination' => $this->stockPaginationPayload($transactions),
+        ]]);
+    }
+
+    private function requestedStockPage(Request $request): int
+    {
+        $validated = $request->validate([
+            'page' => ['sometimes', 'integer', 'min:1', 'max:2147483647'],
+        ]);
+
+        return (int) ($validated['page'] ?? 1);
+    }
+
+    private function stockPaginationPayload(LengthAwarePaginator $page): array
+    {
+        return [
+            'current_page' => $page->currentPage(),
+            'last_page' => $page->lastPage(),
+            'per_page' => $page->perPage(),
+            'total' => $page->total(),
+        ];
     }
 
     public function setAvailability(Request $request, MenuItem $menuItem): JsonResponse
@@ -438,6 +465,7 @@ class MobileKitchenController extends Controller
                 'name' => $user->branch->name,
                 'code' => $user->branch->code,
             ],
+            'can_view_stock' => $user->hasPermission('menu-item.view'),
             'can_manage_stock' => $user->hasPermission('menu-item.stock-adjustment'),
         ];
     }

@@ -5,16 +5,19 @@ import 'package:flutter/material.dart';
 import '../../../app/app_theme.dart';
 import '../../../core/network/mobile_api_client.dart';
 import '../../../core/network/mobile_order_live_connection.dart';
+import '../../../core/restaurant_day.dart';
 import '../../tables/domain/floor_table.dart';
 import '../data/mobile_order_repository.dart';
 import '../data/pending_order_draft_store.dart';
 import '../domain/order_status.dart';
+import 'cancellation_record_text.dart';
 
 class OrderProgressScreen extends StatefulWidget {
   const OrderProgressScreen({
     super.key,
     required this.orderId,
     required this.orderNumber,
+    this.firstKnownActivity,
     required this.repository,
     required this.pendingDraftStore,
     required this.userId,
@@ -31,6 +34,7 @@ class OrderProgressScreen extends StatefulWidget {
 
   final int orderId;
   final String orderNumber;
+  final DateTime? firstKnownActivity;
   final MobileOrderRepository repository;
   final PendingOrderDraftStore pendingDraftStore;
   final int userId;
@@ -54,6 +58,7 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
 
   Timer? _pollTimer;
   OrderStatusSnapshot? _snapshot;
+  DateTime? _firstKnownActivity;
   String? _refreshError;
   bool _isLoading = true;
   bool _isRefreshing = false;
@@ -65,6 +70,21 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
   PendingQuantityAddition? _pendingAddition;
   bool _restoringAddition = true;
   String? _additionRestoreError;
+  String? _unconfirmedCancellation;
+  bool _checkingCancellation = true;
+  bool _cancellationReadFailed = false;
+  bool _cancellationOrderRemembered = false;
+
+  bool get _previousDay =>
+      isFromPreviousRestaurantDay(widget.firstKnownActivity) ||
+      isFromPreviousRestaurantDay(_firstKnownActivity);
+
+  bool get _canAddItems => widget.canAddItems && !_previousDay;
+
+  bool get _hasUnreviewedCancellation =>
+      _checkingCancellation ||
+      _cancellationReadFailed ||
+      _unconfirmedCancellation != null;
 
   bool get _hasUnresolvedAddition =>
       _restoringAddition ||
@@ -77,6 +97,7 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
     WidgetsBinding.instance.addObserver(this);
     _refresh();
     unawaited(_restoreQuantityAddition());
+    unawaited(_loadUnconfirmedCancellation());
     _connectLive();
     _pollTimer = Timer.periodic(_refreshInterval, (_) {
       if (_isInForeground && !_isTerminal(_snapshot?.orderStatus)) {
@@ -137,11 +158,21 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
       final latest = await widget.repository.getOrderStatus(widget.orderId);
       if (!mounted) return;
       setState(() {
+        final activity = latest.firstKnownActivityAt;
+        final cached = _firstKnownActivity;
+        if (activity != null && (cached == null || activity.isBefore(cached))) {
+          _firstKnownActivity = activity;
+        }
         _snapshot = latest;
         _isLoading = false;
         _refreshError = null;
       });
-      if (previous != null) _announceNewReadyItems(previous, latest);
+      if (previous != null && !_previousDay) {
+        _announceNewReadyItems(previous, latest);
+      }
+      if (latest.items.any((item) => item.cancellations.isNotEmpty)) {
+        unawaited(_rememberCancellationOrder());
+      }
       if (_isTerminal(latest.orderStatus)) widget.liveConnection.disconnect();
     } on ApiException catch (error) {
       if (!mounted) return;
@@ -170,15 +201,29 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
     }
   }
 
+  Future<void> _rememberCancellationOrder() async {
+    if (_cancellationOrderRemembered) return;
+    _cancellationOrderRemembered = true;
+    try {
+      await widget.pendingDraftStore.rememberCancellationOrder(
+        widget.userId,
+        widget.orderId,
+      );
+    } catch (_) {
+      _cancellationOrderRemembered = false;
+    }
+  }
+
   void _announceNewReadyItems(
     OrderStatusSnapshot previous,
     OrderStatusSnapshot latest,
   ) {
     final previousStatuses = {
-      for (final item in previous.items) item.id: item.status.toLowerCase(),
+      for (final item in previous.items)
+        item.id: item.effectiveStatus.toLowerCase(),
     };
     for (final item in latest.items) {
-      if (item.status.toLowerCase() == 'ready' &&
+      if (item.effectiveStatus.toLowerCase() == 'ready' &&
           previousStatuses[item.id] != 'ready') {
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
@@ -194,10 +239,20 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
       status == 'completed' || status == 'cancelled';
 
   bool _canCompleteOrder(OrderStatusSnapshot snapshot) {
-    if (!widget.canEditOrders || _hasUnresolvedAddition) return false;
+    if (!widget.canEditOrders ||
+        _hasUnresolvedAddition ||
+        _hasUnreviewedCancellation ||
+        _isModifying) {
+      return false;
+    }
     final orderStatus = snapshot.orderStatus.trim().toLowerCase();
     if (orderStatus != 'ready' && orderStatus != 'served') return false;
-    if (snapshot.items.any((item) => item.pendingCancellationQuantity > 0)) {
+    if (snapshot.items.any(
+      (item) =>
+          item.pendingCancellationQuantity > 0 ||
+          (!item.isFullyCancelled &&
+              item.effectiveStatus.trim().toLowerCase() != 'served'),
+    )) {
       return false;
     }
     if (snapshot.tickets.isEmpty) return false;
@@ -208,7 +263,7 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
   }
 
   Future<void> _completeOrder(OrderStatusSnapshot snapshot) async {
-    if (_isCompleting || !_canCompleteOrder(snapshot)) return;
+    if (_isCompleting || _isCancelling || !_canCompleteOrder(snapshot)) return;
 
     final confirmed = await showDialog<bool>(
       context: context,
@@ -231,6 +286,13 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
       ),
     );
     if (confirmed != true || !mounted) return;
+    final latest = _snapshot;
+    if (_isCompleting ||
+        _isCancelling ||
+        latest == null ||
+        !_canCompleteOrder(latest)) {
+      return;
+    }
 
     setState(() => _isCompleting = true);
     try {
@@ -269,6 +331,7 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
 
   Future<void> _cancelOrder({OrderItemProgress? item}) async {
     if (!widget.canCancelOrders ||
+        _hasUnreviewedCancellation ||
         _hasUnresolvedAddition ||
         _isCancelling ||
         _isModifying ||
@@ -283,43 +346,15 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
         maxQuantity: item?.cancellableQuantity,
       ),
     );
-    if (cancellation == null || !mounted) return;
-
-    setState(() => _isCancelling = true);
-    try {
-      final message = await widget.repository.requestCancellation(
-        orderId: widget.orderId,
-        reason: cancellation.reason,
-        cancelAll: item == null,
-        items: item == null
-            ? const []
-            : [
-                {
-                  'order_item_id': item.id,
-                  'quantity': cancellation.quantity ?? item.cancellableQuantity,
-                },
-              ],
-      );
-      await _refresh();
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(message)));
-      }
-    } on ApiException catch (error) {
-      if (mounted && error.requiresSignIn) {
-        await widget.onSessionExpired();
-      } else if (mounted) {
-        _showCompletionError(error.message);
-      }
-    } on ApiTransportException catch (error) {
-      if (mounted) _showCompletionError(error.message);
-    } catch (_) {
-      if (mounted) {
-        _showCompletionError('Could not cancel this order. Please try again.');
-      }
-    } finally {
-      if (mounted) setState(() => _isCancelling = false);
+    if (cancellation == null || !mounted || item?.isFullyCancelled == true) {
+      return;
     }
+
+    await _submitCancellation(
+      reason: cancellation.reason,
+      item: item,
+      quantity: cancellation.quantity ?? item?.cancellableQuantity,
+    );
   }
 
   Future<void> _adjustItemQuantity(OrderItemProgress selectedItem) async {
@@ -348,10 +383,11 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
     );
     if (activeQuantity == 0) return;
     final canIncrease =
-        widget.canAddItems &&
-        snapshot.tableId != null &&
-        item.menuItemId != null;
-    final canDecrease = widget.canCancelOrders && item.cancellableQuantity > 0;
+        _canAddItems && snapshot.tableId != null && item.menuItemId != null;
+    final canDecrease =
+        widget.canCancelOrders &&
+        !_hasUnreviewedCancellation &&
+        item.cancellableQuantity > 0;
     if (!canIncrease && !canDecrease) return;
 
     final adjustment = await showDialog<_QuantityAdjustmentDraft>(
@@ -366,6 +402,7 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
     if (adjustment == null || !mounted) return;
 
     if (adjustment.isAddition) {
+      if (!_canAddItems) return;
       final addition = PendingQuantityAddition(
         orderId: snapshot.id,
         tableId: snapshot.tableId!,
@@ -397,41 +434,150 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
       return;
     }
 
-    setState(() => _isModifying = true);
+    await _submitCancellation(
+      reason: adjustment.reason!,
+      item: item,
+      quantity: adjustment.quantity,
+    );
+  }
+
+  Future<void> _loadUnconfirmedCancellation() async {
+    setState(() => _checkingCancellation = true);
     try {
-      final successMessage = await widget.repository.requestCancellation(
-        orderId: snapshot.id,
-        reason: adjustment.reason!,
-        cancelAll: false,
-        items: [
-          {'order_item_id': item.id, 'quantity': adjustment.quantity},
-        ],
+      final saved = await widget.pendingDraftStore.readUnconfirmedCancellation(
+        widget.userId,
+        widget.orderId,
       );
-      await _refresh();
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(successMessage)));
-      }
-    } on ApiException catch (error) {
       if (!mounted) return;
-      if (error.requiresSignIn) {
-        await widget.onSessionExpired();
-      } else {
-        await _refresh(quiet: true);
-        if (mounted) _showCompletionError(error.message);
-      }
-    } on ApiTransportException catch (error) {
-      await _refresh(quiet: true);
-      if (mounted) _showCompletionError(error.message);
+      setState(() {
+        _unconfirmedCancellation = saved;
+        _cancellationReadFailed = false;
+      });
     } catch (_) {
+      if (mounted) setState(() => _cancellationReadFailed = true);
+    } finally {
+      if (mounted) setState(() => _checkingCancellation = false);
+    }
+  }
+
+  Future<void> _submitCancellation({
+    required String reason,
+    OrderItemProgress? item,
+    int? quantity,
+  }) async {
+    if (!widget.canCancelOrders ||
+        _hasUnreviewedCancellation ||
+        _hasUnresolvedAddition ||
+        _isCancelling ||
+        _isCompleting ||
+        _isModifying ||
+        _isTerminal(_snapshot?.orderStatus)) {
+      return;
+    }
+    final orderId = widget.orderId;
+    final userId = widget.userId;
+    final store = widget.pendingDraftStore;
+    final target = item == null
+        ? 'Entire order'
+        : '$quantity portions of ${item.name}';
+    final description = '$target. Reason: $reason';
+    setState(() => _isCancelling = true);
+    try {
+      // Save the guard before sending. A restart cannot safely replay this API.
+      try {
+        await store.saveUnconfirmedCancellation(userId, orderId, description);
+      } catch (_) {
+        if (mounted) {
+          await _loadUnconfirmedCancellation();
+          if (mounted) {
+            _showCompletionError(
+              'Could not save the cancellation. Nothing was sent.',
+            );
+          }
+        }
+        return;
+      }
+      if (!mounted) return;
+      setState(() => _unconfirmedCancellation = description);
+      await _rememberCancellationOrder();
+      if (!mounted) return;
+
+      String message;
+      try {
+        message = await widget.repository.requestCancellation(
+          orderId: orderId,
+          reason: reason,
+          cancelAll: item == null,
+          items: item == null
+              ? const []
+              : [
+                  {'order_item_id': item.id, 'quantity': quantity!},
+                ],
+        );
+      } on ApiException catch (error) {
+        if (!const {401, 403, 404, 422}.contains(error.statusCode)) rethrow;
+        await store.clearUnconfirmedCancellation(userId, orderId);
+        if (!mounted) return;
+        setState(() => _unconfirmedCancellation = null);
+        if (error.requiresSignIn) {
+          await widget.onSessionExpired();
+        } else {
+          _showCompletionError(error.message);
+          await _refresh(quiet: true);
+        }
+        return;
+      }
+      await store.clearUnconfirmedCancellation(userId, orderId);
+      if (!mounted) return;
+      setState(() => _unconfirmedCancellation = null);
+      _showCompletionError(message);
       await _refresh(quiet: true);
+    } catch (_) {
       if (mounted) {
         _showCompletionError(
-          'Could not adjust this dish quantity. Refresh the order and retry.',
+          'Cancellation unconfirmed. Check the order history before sending another.',
         );
+        await _refresh(quiet: true);
       }
     } finally {
-      if (mounted) setState(() => _isModifying = false);
+      if (mounted) setState(() => _isCancelling = false);
+    }
+  }
+
+  Future<void> _acknowledgeCancellation() async {
+    if (_isCancelling || _unconfirmedCancellation == null) return;
+    final reviewed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Resolve unconfirmed cancellation'),
+        content: const Text(
+          'Confirm the outcome in the order history or with a manager before '
+          'clearing this notice. Clearing it does not send a cancellation.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Keep notice'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('I confirmed the outcome'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || reviewed != true || _isCancelling) return;
+    setState(() => _isCancelling = true);
+    try {
+      await widget.pendingDraftStore.clearUnconfirmedCancellation(
+        widget.userId,
+        widget.orderId,
+      );
+      if (mounted) setState(() => _unconfirmedCancellation = null);
+    } catch (_) {
+      if (mounted) _showCompletionError('Could not clear the saved notice.');
+    } finally {
+      if (mounted) setState(() => _isCancelling = false);
     }
   }
 
@@ -580,9 +726,7 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
 
   Future<void> _openOrderEditor(OrderStatusSnapshot snapshot) async {
     if (_hasUnresolvedAddition) return;
-    if (!widget.canAddItems &&
-        !widget.canEditOrders &&
-        !widget.canCancelOrders) {
+    if (!_canAddItems && !widget.canEditOrders && !widget.canCancelOrders) {
       return;
     }
     final action = await showModalBottomSheet<_EditOrderAction>(
@@ -592,15 +736,16 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
       backgroundColor: AppColors.canvas,
       builder: (_) => _EditOrderSheet(
         snapshot: snapshot,
-        canAddItems: widget.canAddItems,
+        canAddItems: _canAddItems,
         canEditInstructions: widget.canEditOrders,
-        canCancelItems: widget.canCancelOrders,
+        canCancelItems: widget.canCancelOrders && !_hasUnreviewedCancellation,
       ),
     );
     if (action == null || !mounted) return;
 
     switch (action.type) {
       case _EditOrderActionType.addItems:
+        if (!_canAddItems) return;
         final tableId = snapshot.tableId;
         if (tableId == null) {
           _showCompletionError('This order is missing its table information.');
@@ -631,6 +776,7 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
   Future<void> _markItemServed(OrderItemProgress item) async {
     if (!widget.canEditOrders ||
         _hasUnresolvedAddition ||
+        item.isFullyCancelled ||
         !item.canMarkServed ||
         _isModifying ||
         _isCancelling ||
@@ -679,18 +825,11 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
       appBar: AppBar(
         backgroundColor: AppColors.canvas,
         leading: IconButton(
-          onPressed: widget.onBack,
+          onPressed: _isCancelling ? null : widget.onBack,
           tooltip: 'Back to tables',
           icon: const Icon(Icons.arrow_back_rounded),
         ),
-        title: const Text('Order progress'),
-        actions: [
-          IconButton(
-            onPressed: _isRefreshing ? null : () => _refresh(),
-            tooltip: 'Refresh order status',
-            icon: const Icon(Icons.refresh_rounded),
-          ),
-        ],
+        title: Text(_previousDay ? 'Previous-day order' : 'Order progress'),
       ),
       body: _isLoading
           ? const Center(
@@ -709,6 +848,35 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
                 padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
                 children: [
                   _OrderHeader(snapshot: snapshot),
+                  if (_previousDay) ...[
+                    const SizedBox(height: 12),
+                    const Text(
+                      'This table can take a new order once the open order is completed or fully cancelled.',
+                    ),
+                  ],
+                  if (_cancellationReadFailed) ...[
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Could not check for an unconfirmed cancellation.',
+                    ),
+                    TextButton(
+                      onPressed: _checkingCancellation
+                          ? null
+                          : _loadUnconfirmedCancellation,
+                      child: const Text('Check saved cancellation'),
+                    ),
+                  ],
+                  if (_unconfirmedCancellation != null && !_isCancelling) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      'Cancellation unconfirmed. $_unconfirmedCancellation\n'
+                      'Refresh the order and check each affected dish’s cancellation history.',
+                    ),
+                    TextButton(
+                      onPressed: _acknowledgeCancellation,
+                      child: const Text('Resolve cancellation notice'),
+                    ),
+                  ],
                   if (_hasUnresolvedAddition) ...[
                     const SizedBox(height: 12),
                     Text(
@@ -742,7 +910,7 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
                       ),
                   ],
                   if (!_isTerminal(snapshot.orderStatus) &&
-                      (widget.canAddItems ||
+                      (_canAddItems ||
                           widget.canEditOrders ||
                           widget.canCancelOrders)) ...[
                     const SizedBox(height: 12),
@@ -759,6 +927,7 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
                     ),
                   ],
                   if (widget.canCancelOrders &&
+                      !_isTerminal(snapshot.orderStatus) &&
                       snapshot.items.any(
                         (item) => item.cancellableQuantity > 0,
                       )) ...[
@@ -766,6 +935,7 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
                     OutlinedButton.icon(
                       onPressed:
                           _hasUnresolvedAddition ||
+                              _hasUnreviewedCancellation ||
                               _isCancelling ||
                               _isModifying ||
                               _isCompleting
@@ -810,15 +980,6 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          const Text(
-                            'All active kitchen tickets are ready. Complete the order after the guests have left and the table is clear.',
-                            style: TextStyle(
-                              color: AppColors.mutedInk,
-                              fontSize: 12,
-                              height: 1.4,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
                           FilledButton.icon(
                             onPressed:
                                 _isCompleting || _isModifying || _isCancelling
@@ -871,7 +1032,9 @@ class _OrderProgressScreenState extends State<OrderProgressScreen>
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           _OrderItemCard(item: item),
-                          if (widget.canEditOrders && item.canMarkServed)
+                          if (widget.canEditOrders &&
+                              item.canMarkServed &&
+                              !item.isFullyCancelled)
                             Align(
                               alignment: Alignment.centerRight,
                               child: TextButton.icon(
@@ -1092,7 +1255,7 @@ class _OrderItemCard extends StatelessWidget {
                 for (final cancellation in item.cancellations) ...[
                   const SizedBox(height: 5),
                   Text(
-                    _cancellationHistory(cancellation),
+                    formatCancellationRecord(cancellation),
                     style: const TextStyle(
                       color: AppColors.mutedInk,
                       fontSize: 10,
@@ -1104,57 +1267,11 @@ class _OrderItemCard extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          _StatusPill(status: item.status),
+          _StatusPill(status: item.effectiveStatus),
         ],
       ),
     );
   }
-
-  String _cancellationHistory(ItemCancellationProgress cancellation) {
-    final lines = <String>[
-      '${cancellation.quantity}× cancellation ${_cancellationStatusLabel(cancellation.status)} · ${cancellation.reason}',
-    ];
-    final requestedBy = cancellation.requestedBy;
-    final decidedBy = cancellation.decidedBy;
-    final directlyApplied =
-        cancellation.status.toLowerCase() == 'approved' &&
-        requestedBy != null &&
-        requestedBy == decidedBy;
-    if (requestedBy != null && !directlyApplied) {
-      lines.add(
-        'Requested by $requestedBy${cancellation.requestedAt == null ? '' : ' · ${_formatDateTime(cancellation.requestedAt!)}'}',
-      );
-    }
-    if (decidedBy != null) {
-      lines.add(
-        '${directlyApplied ? 'Cancelled by' : 'Decided by'} $decidedBy${cancellation.decidedAt == null ? '' : ' · ${_formatDateTime(cancellation.decidedAt!)}'}',
-      );
-    }
-    if (cancellation.stockReversedQuantity > 0) {
-      lines.add(
-        '${cancellation.stockReversedQuantity} portion(s) returned to stock',
-      );
-    }
-    if (cancellation.wastageQuantity > 0) {
-      lines.add(
-        '${cancellation.wastageQuantity} portion(s) recorded as wastage',
-      );
-    }
-    final decisionNote = cancellation.decisionNote?.trim() ?? '';
-    if (decisionNote.isNotEmpty) lines.add('Decision: $decisionNote');
-    return lines.join('\n');
-  }
-
-  String _cancellationStatusLabel(String status) =>
-      switch (status.toLowerCase()) {
-        'approved' => 'completed',
-        'pending' => 'waiting for approval',
-        'rejected' => 'rejected',
-        _ => status.toLowerCase(),
-      };
-
-  String _formatDateTime(DateTime value) =>
-      '${value.day.toString().padLeft(2, '0')}/${value.month.toString().padLeft(2, '0')} ${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
 }
 
 class _TicketCard extends StatelessWidget {
@@ -1436,8 +1553,10 @@ class _EditableOrderItem extends StatelessWidget {
       0,
       item.quantity,
     );
-    final mayEditInstructions = canEditInstructions && item.canModify;
-    final mayCancel = canCancel && item.cancellableQuantity > 0;
+    final mayEditInstructions =
+        !item.isFullyCancelled && canEditInstructions && item.canModify;
+    final mayCancel =
+        !item.isFullyCancelled && canCancel && item.cancellableQuantity > 0;
     final mayAdjustQuantity =
         item.pendingCancellationQuantity == 0 &&
         activeQuantity > 0 &&
@@ -1462,7 +1581,7 @@ class _EditableOrderItem extends StatelessWidget {
                   style: const TextStyle(fontWeight: FontWeight.w700),
                 ),
               ),
-              _StatusPill(status: item.status),
+              _StatusPill(status: item.effectiveStatus),
             ],
           ),
           const SizedBox(height: 5),

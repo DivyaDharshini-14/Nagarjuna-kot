@@ -12,25 +12,18 @@ class KitchenBoardScreen extends StatefulWidget {
     required this.selectedKitchen,
     required this.tickets,
     required this.busyTicketId,
-    required this.isLoading,
+    required this.hasSnapshot,
     required this.isRefreshing,
     required this.error,
-    required this.refreshedAt,
     required this.boardView,
-    required this.liveConfigured,
-    required this.liveConnected,
     required this.onRefresh,
     required this.onKitchenChanged,
     required this.onBoardViewChanged,
     required this.onStatusChange,
     required this.onSignOut,
-    required this.soundEnabled,
-    required this.soundAllowed,
-    required this.soundBusy,
-    required this.onToggleSound,
     required this.currentPage,
     required this.lastPage,
-    required this.totalTickets,
+    required this.historyMayBeLimited,
     required this.onPageChanged,
     this.onStockControl,
   });
@@ -40,26 +33,19 @@ class KitchenBoardScreen extends StatefulWidget {
   final KitchenStation? selectedKitchen;
   final List<KotTicket> tickets;
   final String? busyTicketId;
-  final bool isLoading;
+  final bool hasSnapshot;
   final bool isRefreshing;
   final String? error;
-  final DateTime? refreshedAt;
   final String boardView;
-  final bool liveConfigured;
-  final bool liveConnected;
   final Future<void> Function() onRefresh;
   final Future<void> Function(KitchenStation? kitchen) onKitchenChanged;
   final Future<void> Function(String view) onBoardViewChanged;
   final Future<void> Function(KotTicket ticket, String status) onStatusChange;
   final Future<void> Function() onSignOut;
   final VoidCallback? onStockControl;
-  final bool soundEnabled;
-  final bool soundAllowed;
-  final bool soundBusy;
-  final VoidCallback onToggleSound;
   final int currentPage;
   final int lastPage;
-  final int totalTickets;
+  final bool historyMayBeLimited;
   final ValueChanged<int> onPageChanged;
 
   @override
@@ -67,30 +53,74 @@ class KitchenBoardScreen extends StatefulWidget {
 }
 
 class _KitchenBoardScreenState extends State<KitchenBoardScreen> {
-  String _filter = 'All';
+  static const _ticketsPerPage = 10;
+
+  final _searchController = TextEditingController();
+  final _scrollController = ScrollController();
+  String _activeFilter = 'All';
+  int _localPage = 1;
+
+  String get _filter => switch (widget.boardView) {
+    'completed' => 'Completed',
+    'cancelled' => 'Cancelled',
+    _ => _activeFilter,
+  };
+
+  String get _boardTitle => switch (widget.boardView) {
+    'completed' => 'Today’s completed tickets',
+    'cancelled' => 'Today’s cancellation history',
+    _ => 'Today’s kitchen tickets',
+  };
+
+  String get _searchQuery => _searchController.text.trim().toLowerCase();
+
+  Iterable<KotTicket> get _matchingTickets {
+    final query = _searchQuery;
+    return widget.tickets.where(
+      (ticket) => _matchesFilter(ticket) && _matchesSearch(ticket, query),
+    );
+  }
+
+  int _lastLocalPage(int count) =>
+      count == 0 ? 1 : (count - 1) ~/ _ticketsPerPage + 1;
 
   @override
   void didUpdateWidget(covariant KitchenBoardScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.boardView != widget.boardView) {
-      if (widget.boardView == 'completed') {
-        _filter = 'Completed';
-      } else if (widget.boardView == 'cancelled') {
-        _filter = 'Cancelled';
-      } else if (_filter == 'Completed' || _filter == 'Cancelled') {
-        _filter = 'All';
-      }
+    if (oldWidget.boardView != widget.boardView ||
+        oldWidget.selectedKitchen?.id != widget.selectedKitchen?.id ||
+        (oldWidget.lastPage > 1) != (widget.lastPage > 1)) {
+      _localPage = 1;
+    } else if (_localPage > 1 && oldWidget.tickets != widget.tickets) {
+      _localPage = _localPage.clamp(1, _lastLocalPage(_matchingTickets.length));
     }
   }
 
   @override
+  void dispose() {
+    _searchController.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final newCount = widget.tickets.where((t) => t.status == 'new').length;
-    final preparingCount = widget.tickets
-        .where((t) => t.status == 'accepted' || t.status == 'preparing')
-        .length;
-    final readyCount = widget.tickets.where((t) => t.status == 'ready').length;
-    final visibleTickets = widget.tickets.where(_matchesFilter).toList();
+    final matchingTickets = _matchingTickets.toList()
+      ..sort((a, b) {
+        final receivedOrder = (b.createdAt?.microsecondsSinceEpoch ?? -1)
+            .compareTo(a.createdAt?.microsecondsSinceEpoch ?? -1);
+        return receivedOrder == 0 ? b.id.compareTo(a.id) : receivedOrder;
+      });
+    final hasApiPages = widget.lastPage > 1;
+    final lastPage = hasApiPages
+        ? widget.lastPage
+        : _lastLocalPage(matchingTickets.length);
+    final currentPage = hasApiPages ? widget.currentPage : _localPage;
+    final visibleTickets = hasApiPages
+        ? matchingTickets
+        : matchingTickets
+              .skip((currentPage - 1) * _ticketsPerPage)
+              .take(_ticketsPerPage);
 
     return Scaffold(
       appBar: AppBar(
@@ -125,7 +155,10 @@ class _KitchenBoardScreenState extends State<KitchenBoardScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    widget.selectedKitchen?.name ?? 'All assigned kitchens',
+                    widget.selectedKitchen?.name ??
+                        (widget.kitchens.length == 1
+                            ? widget.kitchens.single.name
+                            : 'All assigned kitchens'),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -150,21 +183,6 @@ class _KitchenBoardScreenState extends State<KitchenBoardScreen> {
           ],
         ),
         actions: [
-          IconButton(
-            tooltip: !widget.soundAllowed
-                ? 'Sound disabled by branch settings'
-                : widget.soundEnabled
-                ? 'Turn new ticket sound off'
-                : 'Turn new ticket sound on',
-            onPressed: widget.soundBusy || !widget.soundAllowed
-                ? null
-                : widget.onToggleSound,
-            icon: Icon(
-              widget.soundEnabled
-                  ? Icons.volume_up_rounded
-                  : Icons.volume_off_rounded,
-            ),
-          ),
           if (widget.onStockControl != null)
             IconButton(
               tooltip: 'Prepared stock and availability',
@@ -172,35 +190,10 @@ class _KitchenBoardScreenState extends State<KitchenBoardScreen> {
               icon: const Icon(Icons.inventory_2_outlined),
             ),
           IconButton(
-            tooltip: 'Refresh tickets',
-            onPressed: widget.isRefreshing ? null : widget.onRefresh,
-            icon: widget.isRefreshing
-                ? const SizedBox.square(
-                    dimension: 19,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.refresh_rounded),
+            tooltip: 'Sign out',
+            onPressed: () => _confirmSignOut(context),
+            icon: const Icon(Icons.logout_rounded),
           ),
-          PopupMenuButton<String>(
-            tooltip: 'Account options',
-            icon: const Icon(Icons.more_vert_rounded),
-            onSelected: (value) {
-              if (value == 'signout') _confirmSignOut(context);
-            },
-            itemBuilder: (context) => const [
-              PopupMenuItem(
-                value: 'signout',
-                child: Row(
-                  children: [
-                    Icon(Icons.logout_rounded, size: 19),
-                    SizedBox(width: 10),
-                    Text('Sign out'),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(width: 6),
         ],
       ),
       body: SafeArea(
@@ -208,106 +201,57 @@ class _KitchenBoardScreenState extends State<KitchenBoardScreen> {
         child: RefreshIndicator(
           onRefresh: widget.onRefresh,
           child: ListView(
+            controller: _scrollController,
             physics: const AlwaysScrollableScrollPhysics(),
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             padding: const EdgeInsets.fromLTRB(18, 13, 18, 30),
             children: [
               Text(
-                'Kitchen board',
+                _boardTitle,
                 style: Theme.of(context).textTheme.headlineMedium,
               ),
               const SizedBox(height: 5),
-              Text(switch (_filter) {
-                'Completed' =>
-                  'Recently completed orders from your assigned kitchens.',
-                'Cancelled' => 'Orders and dishes with recorded cancellations.',
-                _ => 'Track incoming KOTs and move dishes through preparation.',
-              }, style: Theme.of(context).textTheme.bodyMedium),
-              const SizedBox(height: 18),
-              _stationPicker(),
-              const SizedBox(height: 10),
-              _LiveStatus(
-                configured: widget.liveConfigured,
-                connected: widget.liveConnected,
-              ),
-              const SizedBox(height: 15),
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final scale = MediaQuery.textScalerOf(context).scale(14) / 14;
-                  final columns = (constraints.maxWidth / (80 * scale + 9))
-                      .floor()
-                      .clamp(1, 3);
-                  final width =
-                      (constraints.maxWidth - 9 * (columns - 1)) / columns;
-                  return Wrap(
-                    spacing: 9,
-                    runSpacing: 9,
-                    children: [
-                      SizedBox(
-                        width: width,
-                        child: _SummaryTile(
-                          label: 'NEW',
-                          count: newCount,
-                          color: KitchenColors.orange,
-                          icon: Icons.notifications_active_outlined,
-                        ),
-                      ),
-                      SizedBox(
-                        width: width,
-                        child: _SummaryTile(
-                          label: 'PREPARING',
-                          count: preparingCount,
-                          color: KitchenColors.amber,
-                          icon: Icons.soup_kitchen_outlined,
-                        ),
-                      ),
-                      SizedBox(
-                        width: width,
-                        child: _SummaryTile(
-                          label: 'READY',
-                          count: readyCount,
-                          color: KitchenColors.green,
-                          icon: Icons.task_alt_rounded,
-                        ),
-                      ),
-                    ],
-                  );
-                },
-              ),
-              const SizedBox(height: 20),
+              if (widget.historyMayBeLimited)
+                Text(
+                  widget.selectedKitchen == null && widget.kitchens.length > 1
+                      ? 'History uses the latest 100 records returned. Select a station to check its own history.'
+                      : 'History uses the latest 100 records returned.',
+                ),
+              if (widget.kitchens.length > 1) ...[
+                const SizedBox(height: 14),
+                _stationPicker(),
+              ],
+              const SizedBox(height: 12),
               _filterBar(),
-              if (widget.boardView != 'active')
-                KitchenPageControls(
-                  currentPage: widget.currentPage,
-                  lastPage: widget.lastPage,
-                  total: widget.totalTickets,
-                  loading: widget.isRefreshing,
-                  onPageChanged: widget.onPageChanged,
-                ),
+              if (widget.kitchens.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                _searchField(context),
+              ],
               const SizedBox(height: 10),
-              if (widget.error != null)
-                _ConnectionBanner(message: widget.error!),
-              if (widget.refreshedAt != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 10, left: 3),
-                  child: Text(
-                    'Updated ${_timeLabel(widget.refreshedAt!)}',
-                    style: const TextStyle(
-                      color: KitchenColors.muted,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              if (widget.isLoading)
-                const Padding(
-                  padding: EdgeInsets.only(top: 55),
-                  child: Center(child: CircularProgressIndicator()),
-                )
-              else if (widget.kitchens.isEmpty)
+              if (widget.kitchens.isEmpty)
                 const _EmptyState(
                   icon: Icons.store_mall_directory_outlined,
                   title: 'No kitchen stations yet',
                   message: 'Ask a manager to assign an active kitchen station to your account.',
+                )
+              else if (widget.error case final error?)
+                _TicketLoadError(
+                  message: error,
+                  showingPreviousTickets: visibleTickets.isNotEmpty,
+                  onRetry: widget.isRefreshing ? null : widget.onRefresh,
+                )
+              else if (!widget.hasSnapshot)
+                const Padding(
+                  padding: EdgeInsets.only(top: 55),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (visibleTickets.isEmpty && _searchQuery.isNotEmpty)
+                _EmptyState(
+                  icon: Icons.search_off_rounded,
+                  title: 'No matching tickets',
+                  message: hasApiPages
+                      ? 'Try another page, search, or filter.'
+                      : 'Try another search or change the filters.',
                 )
               else if (visibleTickets.isEmpty)
                 _EmptyState(
@@ -316,70 +260,55 @@ class _KitchenBoardScreenState extends State<KitchenBoardScreen> {
                       : Icons.restaurant_menu_rounded,
                   title: _emptyTitle,
                   message: _emptyMessage,
-                )
-              else
-                ...visibleTickets.map(
-                  (ticket) => Padding(
-                    padding: const EdgeInsets.only(bottom: 13),
-                    child: _TicketCard(
-                      ticket: ticket,
-                      isBusy: widget.busyTicketId == '${ticket.id}',
-                      onStatusChange: (status) =>
-                          widget.onStatusChange(ticket, status),
-                    ),
+                ),
+              ...visibleTickets.map(
+                (ticket) => Padding(
+                  key: ValueKey(ticket.id),
+                  padding: const EdgeInsets.only(bottom: 13),
+                  child: _TicketCard(
+                    ticket: ticket,
+                    kitchenName: widget.selectedKitchen == null
+                        ? _kitchenName(ticket)
+                        : null,
+                    isBusy: widget.busyTicketId == '${ticket.id}',
+                    updateInProgress: widget.busyTicketId != null,
+                    onStatusChange: (status) =>
+                        widget.onStatusChange(ticket, status),
                   ),
                 ),
+              ),
             ],
           ),
         ),
       ),
+      bottomNavigationBar: lastPage > 1
+          ? Material(
+              child: SafeArea(
+                top: false,
+                minimum: const EdgeInsets.symmetric(horizontal: 18),
+                child: KitchenPageControls(
+                  currentPage: currentPage,
+                  lastPage: lastPage,
+                  total: hasApiPages ? null : matchingTickets.length,
+                  loading: hasApiPages && widget.isRefreshing,
+                  onPageChanged: _changePage,
+                ),
+              ),
+            )
+          : null,
     );
   }
 
-  Widget _stationPicker() {
-    if (widget.kitchens.length <= 1) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          color: KitchenColors.card,
-          borderRadius: BorderRadius.circular(15),
-          border: Border.all(color: KitchenColors.line),
-        ),
-        child: Row(
-          children: [
-            const Icon(
-              Icons.restaurant_rounded,
-              color: KitchenColors.green,
-              size: 20,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    widget.selectedKitchen?.name ?? 'All assigned stations',
-                    style: const TextStyle(fontWeight: FontWeight.w800),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    widget.selectedKitchen == null
-                        ? 'ALL ASSIGNED'
-                        : 'ACTIVE STATION',
-                    style: const TextStyle(
-                      color: KitchenColors.muted,
-                      fontSize: 9,
-                      letterSpacing: 0.7,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      );
+  void _changePage(int page) {
+    if (widget.lastPage > 1) {
+      widget.onPageChanged(page);
+    } else {
+      setState(() => _localPage = page);
     }
+    if (_scrollController.hasClients) _scrollController.jumpTo(0);
+  }
+
+  Widget _stationPicker() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -463,49 +392,96 @@ class _KitchenBoardScreenState extends State<KitchenBoardScreen> {
     );
   }
 
-  Widget _filterBar() => SingleChildScrollView(
-    scrollDirection: Axis.horizontal,
-    child: Row(
-      children:
-          [
-            'All',
-            'New',
-            'Accepted',
-            'Preparing',
-            'Ready',
-            'Cancelled',
-            'Completed',
-          ].map((filter) {
-            final selected = filter == _filter;
-            return Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: ChoiceChip(
-                label: Text(filter),
-                selected: selected,
-                showCheckmark: false,
-                onSelected: (_) {
-                  setState(() => _filter = filter);
-                  final view = switch (filter) {
-                    'Completed' => 'completed',
-                    'Cancelled' => 'cancelled',
-                    _ => 'active',
-                  };
-                  widget.onBoardViewChanged(view);
-                },
-                selectedColor: KitchenColors.ink,
-                backgroundColor: Colors.transparent,
-                side: BorderSide(
-                  color: selected ? KitchenColors.ink : KitchenColors.line,
-                ),
-                labelStyle: TextStyle(
-                  color: selected ? Colors.white : KitchenColors.ink,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            );
-          }).toList(),
+  Widget _filterBar() => Wrap(
+    spacing: 8,
+    crossAxisAlignment: WrapCrossAlignment.center,
+    children: [
+      for (final filter in const [
+        'All',
+        'New',
+        'Accepted',
+        'Preparing',
+        'Ready',
+      ])
+        _activeFilterChip(filter),
+      PopupMenuButton<String>(
+        tooltip: 'Ticket history',
+        initialValue: widget.boardView,
+        onSelected: widget.onBoardViewChanged,
+        itemBuilder: (context) => const [
+          PopupMenuItem(
+            value: 'cancelled',
+            child: Text('Cancellation history'),
+          ),
+          PopupMenuItem(value: 'completed', child: Text('Completed tickets')),
+        ],
+        child: const Chip(
+          avatar: Icon(Icons.history_rounded, size: 18),
+          label: Text('History'),
+        ),
+      ),
+    ],
+  );
+
+  Widget _activeFilterChip(String filter) {
+    final selected = widget.boardView == 'active' && _activeFilter == filter;
+    return ChoiceChip(
+      label: Text(filter),
+      selected: selected,
+      showCheckmark: false,
+      onSelected: (_) {
+        if (!selected) {
+          setState(() {
+            _activeFilter = filter;
+            _localPage = 1;
+          });
+        }
+        widget.onBoardViewChanged('active');
+      },
+      selectedColor: KitchenColors.ink,
+      backgroundColor: Colors.transparent,
+      side: BorderSide(
+        color: selected ? KitchenColors.ink : KitchenColors.line,
+      ),
+      labelStyle: TextStyle(
+        color: selected ? Colors.white : KitchenColors.ink,
+        fontWeight: FontWeight.w700,
+      ),
+    );
+  }
+
+  Widget _searchField(BuildContext context) => TextField(
+    controller: _searchController,
+    autocorrect: false,
+    enableSuggestions: false,
+    textInputAction: TextInputAction.search,
+    onChanged: (_) => setState(() => _localPage = 1),
+    onTapOutside: (_) => FocusScope.of(context).unfocus(),
+    decoration: InputDecoration(
+      labelText: 'Search tickets',
+      hintText: 'KOT, order, table, or dish',
+      prefixIcon: const Icon(Icons.search_rounded),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      suffixIcon: _searchController.text.isEmpty
+          ? null
+          : IconButton(
+              tooltip: 'Clear search',
+              onPressed: () => setState(() {
+                _searchController.clear();
+                _localPage = 1;
+              }),
+              icon: const Icon(Icons.close_rounded),
+            ),
     ),
   );
+
+  bool _matchesSearch(KotTicket ticket, String query) {
+    if (query.isEmpty) return true;
+    return ticket.number.toLowerCase().contains(query) ||
+        ticket.orderNumber.toLowerCase().contains(query) ||
+        _tableLabel(ticket.tableName).toLowerCase().contains(query) ||
+        ticket.dishes.any((dish) => dish.name.toLowerCase().contains(query));
+  }
 
   bool _matchesFilter(KotTicket ticket) => switch (_filter) {
     'New' => ticket.status == 'new',
@@ -519,6 +495,13 @@ class _KitchenBoardScreenState extends State<KitchenBoardScreen> {
       ticket.orderStatus == 'completed' || ticket.status == 'served',
     _ => true,
   };
+
+  String? _kitchenName(KotTicket ticket) {
+    for (final kitchen in widget.kitchens) {
+      if (kitchen.id == ticket.kitchenId) return kitchen.name;
+    }
+    return null;
+  }
 
   String get _emptyTitle => switch (_filter) {
     'New' => 'No new tickets',
@@ -535,9 +518,9 @@ class _KitchenBoardScreenState extends State<KitchenBoardScreen> {
     'Accepted' => 'New tickets will appear here after a kitchen accepts them.',
     'Preparing' => 'Tickets in preparation will appear here.',
     'Ready' => 'Tickets marked ready will be shown in this queue.',
-    'Cancelled' => 'Cancellation updates for this kitchen will appear here.',
-    'Completed' => 'Orders completed by the waiter will appear here.',
-    _ => 'There are no active KOT tickets for your assigned kitchen stations.',
+    'Cancelled' => 'Today’s tickets with cancelled dishes will appear here.',
+    'Completed' => 'Today’s completed tickets will appear here.',
+    _ => 'There are no active tickets from today for your assigned stations.',
   };
 
   Future<void> _confirmSignOut(BuildContext context) async {
@@ -565,120 +548,29 @@ class _KitchenBoardScreenState extends State<KitchenBoardScreen> {
   }
 }
 
-class _SummaryTile extends StatelessWidget {
-  const _SummaryTile({
-    required this.label,
-    required this.count,
-    required this.color,
-    required this.icon,
-  });
-
-  final String label;
-  final int count;
-  final Color color;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.fromLTRB(10, 12, 10, 11),
-    decoration: BoxDecoration(
-      color: KitchenColors.card,
-      borderRadius: BorderRadius.circular(17),
-      border: Border.all(color: KitchenColors.line),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Wrap(
-          spacing: 8,
-          runSpacing: 4,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            Icon(icon, color: color, size: 16),
-            Text(
-              '$count',
-              style: TextStyle(
-                color: color,
-                fontSize: 19,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Text(
-          label,
-          style: const TextStyle(
-            color: KitchenColors.muted,
-            fontSize: 9,
-            letterSpacing: 0.55,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
-class _LiveStatus extends StatelessWidget {
-  const _LiveStatus({required this.configured, required this.connected});
-
-  final bool configured;
-  final bool connected;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = !configured
-        ? KitchenColors.muted
-        : connected
-        ? KitchenColors.green
-        : const Color(0xFF9A6A17);
-    final icon = !configured
-        ? Icons.sync_rounded
-        : connected
-        ? Icons.wifi_rounded
-        : Icons.wifi_off_rounded;
-    final label = !configured
-        ? 'Auto refresh · every 12 seconds'
-        : connected
-        ? 'Live kitchen updates connected'
-        : 'Reconnecting · auto refresh is active';
-    return Row(
-      children: [
-        Icon(icon, color: color, size: 15),
-        const SizedBox(width: 6),
-        Expanded(
-          child: Text(
-            label,
-            style: TextStyle(
-              color: color,
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 class _TicketCard extends StatelessWidget {
   const _TicketCard({
     required this.ticket,
+    required this.kitchenName,
     required this.isBusy,
+    required this.updateInProgress,
     required this.onStatusChange,
   });
 
   final KotTicket ticket;
+  final String? kitchenName;
   final bool isBusy;
+  final bool updateInProgress;
   final ValueChanged<String> onStatusChange;
 
   @override
   Widget build(BuildContext context) {
     final color = _statusColor(ticket.status);
     final action = _nextAction(ticket.status);
-    final elapsed = DateTime.now().difference(ticket.createdAt);
-    final age = _durationLabel(elapsed);
+    final receivedAt = ticket.createdAt;
+    final age = receivedAt == null
+        ? null
+        : _durationLabel(DateTime.now().difference(receivedAt));
     return Card(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -701,12 +593,17 @@ class _TicketCard extends StatelessWidget {
                       ticket.number,
                       style: const TextStyle(
                         color: KitchenColors.ink,
-                        fontSize: 18,
+                        fontSize: 16,
                         fontWeight: FontWeight.w900,
                         letterSpacing: -0.3,
                       ),
                     ),
                     const SizedBox(height: 5),
+                    if (kitchenName != null)
+                      Text(
+                        kitchenName!,
+                        style: Theme.of(context).textTheme.labelLarge,
+                      ),
                     Wrap(
                       spacing: 7,
                       crossAxisAlignment: WrapCrossAlignment.center,
@@ -732,14 +629,15 @@ class _TicketCard extends StatelessWidget {
                             fontWeight: FontWeight.w800,
                           ),
                         ),
-                        Text(
-                          'Received ${_receivedTimeLabel(ticket.createdAt)}',
-                          style: const TextStyle(
-                            color: KitchenColors.muted,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
+                        if (receivedAt != null)
+                          Text(
+                            'Received ${_receivedTimeLabel(receivedAt)}',
+                            style: const TextStyle(
+                              color: KitchenColors.muted,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
-                        ),
                       ],
                     ),
                   ],
@@ -754,21 +652,22 @@ class _TicketCard extends StatelessWidget {
                       label: _statusName(ticket.status),
                       color: color,
                     ),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.schedule_rounded, color: color, size: 13),
-                        const SizedBox(width: 3),
-                        Text(
-                          age,
-                          style: TextStyle(
-                            color: color,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
+                    if (age != null)
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.schedule_rounded, color: color, size: 13),
+                          const SizedBox(width: 3),
+                          Text(
+                            age,
+                            style: TextStyle(
+                              color: color,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
+                        ],
+                      ),
                   ],
                 ),
               ],
@@ -793,7 +692,7 @@ class _TicketCard extends StatelessWidget {
                 if (action != null) ...[
                   const SizedBox(height: 13),
                   FilledButton.icon(
-                    onPressed: isBusy
+                    onPressed: updateInProgress
                         ? null
                         : () => onStatusChange(action.status),
                     icon: isBusy
@@ -812,36 +711,6 @@ class _TicketCard extends StatelessWidget {
                           : KitchenColors.ink,
                     ),
                   ),
-                ] else if (ticket.status == 'ready') ...[
-                  const SizedBox(height: 13),
-                  Container(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFEAF4EE),
-                      borderRadius: BorderRadius.circular(13),
-                    ),
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.check_circle_rounded,
-                          color: KitchenColors.green,
-                          size: 18,
-                        ),
-                        SizedBox(width: 7),
-                        Flexible(
-                          child: Text(
-                            'Ready for service',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: KitchenColors.greenDark,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
                 ],
               ],
             ),
@@ -858,97 +727,60 @@ class _DishRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final foodColor = _foodTypeColor(dish.foodType);
+    final status = dish.displayStatus;
+    final isCancelled = status == 'cancelled';
+    final quantity = dish.activeQuantity;
+    final note = dish.note?.trim();
+    final String? cancellation = switch (status) {
+      'cancelled' =>
+        '${dish.cancelledQuantity > 0 ? dish.cancelledQuantity : dish.quantity} cancelled',
+      _ when dish.cancelledQuantity == 0 => null,
+      'ready' ||
+      'served' => '$quantity remaining · ${dish.cancelledQuantity} cancelled',
+      _ => 'Prepare $quantity · ${dish.cancelledQuantity} cancelled',
+    };
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 13),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            dish.name,
-            style: const TextStyle(
-              color: KitchenColors.ink,
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
+            isCancelled ? dish.name : '$quantity× ${dish.name}',
+            style: TextStyle(
+              color: isCancelled ? KitchenColors.muted : KitchenColors.ink,
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
             ),
           ),
-          const SizedBox(height: 6),
-          Wrap(
-            spacing: 9,
-            runSpacing: 6,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              Container(
-                constraints: const BoxConstraints(minWidth: 29, minHeight: 29),
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF0EFE9),
-                  borderRadius: BorderRadius.circular(9),
-                ),
-                child: Text(
-                  '${dish.activeQuantity}×',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: KitchenColors.ink,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-              Container(
-                width: 10,
-                height: 10,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(3),
-                  border: Border.all(color: foodColor, width: 1.4),
-                ),
-                alignment: Alignment.center,
-                child: Container(
-                  width: 4,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: foodColor,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-              ),
-              if (dish.foodType != null && dish.foodType!.isNotEmpty)
-                Text(
-                  dish.foodType!.toUpperCase(),
-                  style: TextStyle(
-                    color: foodColor,
-                    fontSize: 8,
-                    letterSpacing: 0.4,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              _StatusPill(
-                label: _statusName(dish.displayStatus),
-                color: _statusColor(dish.displayStatus),
-              ),
-            ],
-          ),
-          if (dish.cancelledQuantity > 0) ...[
-            const SizedBox(height: 3),
+          if (note != null && note.isNotEmpty) ...[
+            const SizedBox(height: 4),
             Text(
-              '${dish.cancelledQuantity} cancelled',
+              note,
               style: const TextStyle(
-                color: KitchenColors.red,
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-          if (dish.note != null && dish.note!.trim().isNotEmpty) ...[
-            const SizedBox(height: 3),
-            Text(
-              dish.note!,
-              style: const TextStyle(
-                color: KitchenColors.orange,
-                fontSize: 12,
+                color: Color(0xFF76520F),
+                fontSize: 15,
                 fontWeight: FontWeight.w600,
                 height: 1.3,
               ),
+            ),
+          ],
+          if (cancellation != null) ...[
+            const SizedBox(height: 5),
+            Text(
+              cancellation,
+              style: const TextStyle(
+                color: KitchenColors.red,
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+          if (!isCancelled) ...[
+            const SizedBox(height: 6),
+            _StatusPill(
+              label: _statusName(status),
+              color: _statusColor(status),
             ),
           ],
         ],
@@ -997,7 +829,7 @@ class _NoteBanner extends StatelessWidget {
                 text,
                 style: const TextStyle(
                   color: Color(0xFF76520F),
-                  fontSize: 12,
+                  fontSize: 14,
                   height: 1.35,
                 ),
               ),
@@ -1033,9 +865,16 @@ class _StatusPill extends StatelessWidget {
   );
 }
 
-class _ConnectionBanner extends StatelessWidget {
-  const _ConnectionBanner({required this.message});
+class _TicketLoadError extends StatelessWidget {
+  const _TicketLoadError({
+    required this.message,
+    required this.showingPreviousTickets,
+    required this.onRetry,
+  });
+
   final String message;
+  final bool showingPreviousTickets;
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -1046,24 +885,30 @@ class _ConnectionBanner extends StatelessWidget {
       borderRadius: BorderRadius.circular(12),
       border: Border.all(color: KitchenColors.red.withValues(alpha: 0.22)),
     ),
-    child: Row(
+    child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Icon(
-          Icons.cloud_off_outlined,
-          color: KitchenColors.red,
-          size: 17,
+        Text(
+          showingPreviousTickets
+              ? 'Couldn’t refresh tickets'
+              : 'Couldn’t load tickets',
+          style: Theme.of(context).textTheme.titleMedium
+              ?.copyWith(color: KitchenColors.red),
         ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            'Connection issue · $message',
-            style: const TextStyle(
-              color: KitchenColors.red,
-              fontSize: 12,
-              height: 1.35,
-            ),
+        const SizedBox(height: 4),
+        Text(
+          message,
+          style: const TextStyle(color: KitchenColors.ink, fontSize: 14),
+        ),
+        if (showingPreviousTickets)
+          const Text(
+            'Showing tickets from the last successful refresh.',
+            style: TextStyle(color: KitchenColors.ink, fontSize: 14),
           ),
+        const SizedBox(height: 4),
+        OutlinedButton(
+          onPressed: onRetry,
+          child: Text(onRetry == null ? 'Retrying…' : 'Retry'),
         ),
       ],
     ),
@@ -1124,7 +969,7 @@ _TicketAction? _nextAction(String status) => switch (status) {
     Icons.play_arrow_rounded,
   ),
   'preparing' => const _TicketAction(
-    'Mark as ready',
+    'Mark ticket ready',
     'ready',
     Icons.check_circle_outline_rounded,
   ),
@@ -1150,26 +995,8 @@ String _statusName(String status) => switch (status) {
   _ => status,
 };
 
-Color _foodTypeColor(String? type) {
-  final value = (type ?? '').toLowerCase();
-  if (value.contains('non') ||
-      value.contains('chicken') ||
-      value.contains('meat')) {
-    return const Color(0xFFB63A31);
-  }
-  if (value.contains('egg')) return const Color(0xFFBE821B);
-  return KitchenColors.green;
-}
-
-String _timeLabel(DateTime time) {
-  final difference = DateTime.now().difference(time);
-  if (difference.inSeconds < 30) return 'just now';
-  if (difference.inMinutes < 1) return 'less than a minute ago';
-  return '${difference.inMinutes} min ago';
-}
-
 String _receivedTimeLabel(DateTime time) {
-  final local = time.toLocal();
+  final local = kitchenRestaurantTime(time);
   String two(int value) => value.toString().padLeft(2, '0');
   return '${two(local.day)}/${two(local.month)}/${local.year} ${two(local.hour)}:${two(local.minute)}';
 }

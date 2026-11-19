@@ -5,14 +5,14 @@ class KitchenPageControls extends StatelessWidget {
     super.key,
     required this.currentPage,
     required this.lastPage,
-    required this.total,
+    this.total,
     required this.loading,
     required this.onPageChanged,
   });
 
   final int currentPage;
   final int lastPage;
-  final int total;
+  final int? total;
   final bool loading;
   final ValueChanged<int> onPageChanged;
 
@@ -28,7 +28,7 @@ class KitchenPageControls extends StatelessWidget {
       ),
       Expanded(
         child: Text(
-          'Page $currentPage of $lastPage · $total records',
+          'Page $currentPage of $lastPage${total == null ? '' : ' · $total records'}',
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.bodySmall,
         ),

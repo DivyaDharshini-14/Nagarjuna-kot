@@ -112,10 +112,6 @@ class _KitchenSignInScreenState extends State<KitchenSignInScreen> {
                     'Kitchen staff sign in',
                     style: Theme.of(context).textTheme.headlineMedium,
                   ),
-                  const SizedBox(height: 10),
-                  const Text(
-                    'Use your restaurant staff account to view and update kitchen tickets.',
-                  ),
                   const SizedBox(height: 28),
                   Card(
                     child: Padding(
@@ -125,16 +121,6 @@ class _KitchenSignInScreenState extends State<KitchenSignInScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            const Text(
-                              'STAFF ACCESS',
-                              style: TextStyle(
-                                color: KitchenColors.green,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: 1.2,
-                              ),
-                            ),
-                            const SizedBox(height: 19),
                             TextFormField(
                               controller: _email,
                               keyboardType: TextInputType.emailAddress,
@@ -227,28 +213,6 @@ class _KitchenSignInScreenState extends State<KitchenSignInScreen> {
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 18),
-                  const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.shield_outlined,
-                        size: 15,
-                        color: KitchenColors.muted,
-                      ),
-                      SizedBox(width: 7),
-                      Flexible(
-                        child: Text(
-                          'Kitchen access is limited to your assigned stations and branch.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: KitchenColors.muted,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ),
-                    ],
                   ),
                 ],
               ),

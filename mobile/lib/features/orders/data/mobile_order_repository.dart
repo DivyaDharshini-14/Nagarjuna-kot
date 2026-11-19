@@ -3,7 +3,6 @@ import 'dart:math';
 import '../../../core/network/mobile_api_client.dart';
 import '../../menu/domain/menu.dart';
 import '../domain/order_confirmation.dart';
-import '../domain/cancellation_request.dart';
 import '../domain/order_status.dart';
 
 abstract interface class MobileOrderRepository {
@@ -51,14 +50,6 @@ abstract interface class MobileOrderRepository {
     required int orderId,
     required int orderItemId,
     required String? instructions,
-  });
-
-  Future<List<CancellationRequest>> pendingCancellations();
-
-  Future<void> decideCancellation({
-    required String batch,
-    required bool approve,
-    String? decisionNote,
   });
 }
 
@@ -259,6 +250,9 @@ class ApiMobileOrderRepository implements MobileOrderRepository {
       updatedAt: order['updated_at'] is String
           ? DateTime.tryParse(order['updated_at'] as String)
           : null,
+      createdAt: order['created_at'] is String
+          ? DateTime.tryParse(order['created_at'] as String)
+          : null,
     );
   }
 
@@ -304,35 +298,6 @@ class ApiMobileOrderRepository implements MobileOrderRepository {
     await api.patch(
       'mobile/orders/$orderId/items/$orderItemId/instructions',
       body: {'special_instructions': instructions},
-    );
-  }
-
-  @override
-  Future<List<CancellationRequest>> pendingCancellations() async {
-    final response = await api.get('mobile/cancellation-requests');
-    final data = response['data'];
-    final rawRequests = data is Map<String, dynamic> ? data['requests'] : null;
-    if (rawRequests is! List) {
-      throw const ApiException(
-        502,
-        'The server did not return cancellation requests.',
-      );
-    }
-    return rawRequests
-        .whereType<Map<String, dynamic>>()
-        .map(CancellationRequest.fromJson)
-        .toList(growable: false);
-  }
-
-  @override
-  Future<void> decideCancellation({
-    required String batch,
-    required bool approve,
-    String? decisionNote,
-  }) async {
-    await api.post(
-      'mobile/cancellation-requests/$batch/${approve ? 'approve' : 'reject'}',
-      body: approve ? const {} : {'decision_note': decisionNote ?? ''},
     );
   }
 

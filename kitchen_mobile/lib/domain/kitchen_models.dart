@@ -1,19 +1,36 @@
+const _restaurantUtcOffset = Duration(hours: 5, minutes: 30);
+
+DateTime kitchenRestaurantTime(DateTime instant) =>
+    instant.toUtc().add(_restaurantUtcOffset);
+
+DateTime kitchenDayStart(DateTime instant) {
+  final restaurantTime = kitchenRestaurantTime(instant);
+  return DateTime.utc(
+    restaurantTime.year,
+    restaurantTime.month,
+    restaurantTime.day,
+  ).subtract(_restaurantUtcOffset);
+}
+
 class KitchenAccount {
   const KitchenAccount({
     required this.name,
     required this.branchName,
+    this.id,
     this.canViewStock = false,
     this.canManageStock = false,
     this.soundAllowed = true,
   });
 
   final String name;
+  final int? id;
   final String branchName;
   final bool canViewStock;
   final bool canManageStock;
   final bool soundAllowed;
 
   factory KitchenAccount.fromJson(Map<String, dynamic> json) => KitchenAccount(
+    id: (json['id'] as num?)?.toInt(),
     name: json['name'] as String? ?? 'Kitchen staff',
     branchName:
         (json['branch'] as Map<String, dynamic>?)?['name'] as String? ??
@@ -189,6 +206,7 @@ class KotDish {
 class KotTicket {
   const KotTicket({
     required this.id,
+    this.kitchenId,
     required this.number,
     required this.status,
     required this.createdAt,
@@ -201,9 +219,10 @@ class KotTicket {
   });
 
   final int id;
+  final int? kitchenId;
   final String number;
   final String status;
-  final DateTime createdAt;
+  final DateTime? createdAt;
   final String orderNumber;
   final String orderStatus;
   final String tableName;
@@ -211,17 +230,21 @@ class KotTicket {
   final String? kitchenNote;
   final List<KotDish> dishes;
 
+  bool isFromKitchenDay(DateTime dayStart) {
+    final receivedAt = createdAt;
+    return receivedAt != null && kitchenDayStart(receivedAt) == dayStart;
+  }
+
   factory KotTicket.fromJson(Map<String, dynamic> json) {
     final order = json['order'] as Map<String, dynamic>? ?? const {};
     final table = order['table'] as Map<String, dynamic>? ?? const {};
     final items = json['items'] as List<dynamic>? ?? const [];
     return KotTicket(
       id: (json['id'] as num).toInt(),
+      kitchenId: (json['kitchen_id'] as num?)?.toInt(),
       number: json['kot_number'] as String? ?? 'KOT',
       status: json['ticket_status'] as String? ?? 'new',
-      createdAt:
-          DateTime.tryParse(json['created_at'] as String? ?? '')?.toLocal() ??
-          DateTime.now(),
+      createdAt: DateTime.tryParse(json['created_at'] as String? ?? ''),
       orderNumber: order['order_number'] as String? ?? 'Order',
       orderStatus: order['status'] as String? ?? 'active',
       tableName: table['name'] as String? ?? 'Takeaway',
