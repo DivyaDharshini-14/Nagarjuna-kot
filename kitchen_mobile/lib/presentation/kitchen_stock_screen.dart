@@ -12,11 +12,13 @@ class KitchenStockScreen extends StatefulWidget {
     required this.repository,
     required this.canManageStock,
     required this.onBack,
+    this.userId,
   });
 
   final KitchenRepository repository;
   final bool canManageStock;
   final VoidCallback onBack;
+  final int? userId;
 
   @override
   State<KitchenStockScreen> createState() => _KitchenStockScreenState();
@@ -44,13 +46,16 @@ class _KitchenStockScreenState extends State<KitchenStockScreen> {
       _page = page ?? _page;
     });
     try {
-      final page = await widget.repository.getStockPage(page: _page);
+      var result = await widget.repository.getStockPage(page: _page);
+      if (result.currentPage > result.lastPage) {
+        result = await widget.repository.getStockPage(page: result.lastPage);
+      }
       if (!mounted) return;
       setState(() {
-        _items = page.items;
-        _page = page.currentPage;
-        _lastPage = page.lastPage;
-        _total = page.total;
+        _items = result.items;
+        _page = result.currentPage;
+        _lastPage = result.lastPage;
+        _total = result.total;
         _loading = false;
       });
     } on KitchenApiException catch (error) {
@@ -75,33 +80,99 @@ class _KitchenStockScreenState extends State<KitchenStockScreen> {
   }
 
   Future<void> _adjust(KitchenStockItem item, String type) async {
-    final result =
-        await showDialog<({int quantity, String reason, String direction})>(
-          context: context,
-          builder: (_) => _StockAdjustmentDialog(
-            title: _adjustmentTitle(type, item.name),
-            allowDirection: type == 'manual_adjustment',
-          ),
-        );
-    if (result == null || !mounted) return;
-
+    if (_busyItems.contains(item.id)) return;
+    final userId = widget.userId;
+    final store = widget.repository.tokens;
     setState(() => _busyItems.add(item.id));
     try {
-      final updated = await widget.repository.adjustStock(
-        menuItemId: item.id,
-        type: type,
-        quantity: result.quantity,
-        reason: result.reason,
-        direction: type == 'manual_adjustment' ? result.direction : null,
-      );
+      if (userId != null) {
+        final saved = await store.readUnconfirmedStock(userId, item.id);
+        if (!mounted) return;
+        if (saved != null) {
+          await _reviewUnconfirmedStock(item, saved);
+          return;
+        }
+      }
+      final result =
+          await showDialog<({int quantity, String reason, String direction})>(
+            context: context,
+            builder: (_) => _StockAdjustmentDialog(
+              title: _adjustmentTitle(type, item.name),
+              allowDirection: type == 'manual_adjustment',
+            ),
+          );
+      if (result == null || !mounted) return;
+
+      if (userId != null) {
+        await store.saveUnconfirmedStock(
+          userId,
+          item.id,
+          '${_adjustmentTitle(type, item.name)} • ${result.quantity} portions'
+          '${type == 'manual_adjustment' ? ' • ${result.direction}' : ''}'
+          '\n${result.reason}',
+        );
+      }
+      if (!mounted) return;
+      KitchenStockItem updated;
+      try {
+        updated = await widget.repository.adjustStock(
+          menuItemId: item.id,
+          type: type,
+          quantity: result.quantity,
+          reason: result.reason,
+          direction: type == 'manual_adjustment' ? result.direction : null,
+        );
+      } on KitchenApiException catch (error) {
+        if (!const {400, 401, 403, 404, 422}.contains(error.statusCode)) {
+          rethrow;
+        }
+        if (userId != null) await store.clearUnconfirmedStock(userId, item.id);
+        _message(error.message);
+        return;
+      }
+      if (userId != null) await store.clearUnconfirmedStock(userId, item.id);
       _replaceItem(updated);
       _message('Stock movement recorded.');
-    } on KitchenApiException catch (error) {
-      _message(error.message);
-    } on KitchenApiTransportException catch (error) {
-      _message(error.message);
+    } catch (_) {
+      _message(
+        'Could not confirm the stock movement. Check stock history before submitting it again.',
+      );
     } finally {
       if (mounted) setState(() => _busyItems.remove(item.id));
+    }
+  }
+
+  Future<void> _reviewUnconfirmedStock(
+    KitchenStockItem item,
+    String saved,
+  ) async {
+    await _showHistory(item);
+    if (!mounted) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Unconfirmed stock movement'),
+        content: Text(
+          '$saved\n\nConfirm the outcome in stock history or with a manager before clearing this notice.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Keep notice'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('I confirmed the outcome'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      await widget.repository.tokens.clearUnconfirmedStock(
+        widget.userId!,
+        item.id,
+      );
+      if (mounted) await _load();
     }
   }
 
@@ -169,7 +240,7 @@ class _KitchenStockScreenState extends State<KitchenStockScreen> {
         : null,
     appBar: AppBar(
       leading: IconButton(
-        onPressed: widget.onBack,
+        onPressed: _busyItems.isEmpty ? widget.onBack : null,
         icon: const Icon(Icons.arrow_back_rounded),
       ),
       toolbarHeight: 36 + MediaQuery.textScalerOf(context).scale(20),
@@ -178,13 +249,6 @@ class _KitchenStockScreenState extends State<KitchenStockScreen> {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
-      actions: [
-        IconButton(
-          onPressed: _loading ? null : _load,
-          tooltip: 'Refresh stock',
-          icon: const Icon(Icons.refresh_rounded),
-        ),
-      ],
     ),
     body: _loading
         ? const Center(child: CircularProgressIndicator())
@@ -210,6 +274,7 @@ class _KitchenStockScreenState extends State<KitchenStockScreen> {
               onRefresh: _load,
               child: _items.isEmpty
                   ? ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
                       children: const [
                         SizedBox(height: 150),
                         Padding(
@@ -222,6 +287,7 @@ class _KitchenStockScreenState extends State<KitchenStockScreen> {
                       ],
                     )
                   : ListView.separated(
+                      physics: const AlwaysScrollableScrollPhysics(),
                       padding: const EdgeInsets.all(16),
                       itemCount: _items.length,
                       separatorBuilder: (_, _) => const SizedBox(height: 10),
@@ -495,7 +561,8 @@ class _StockHistoryDialogState extends State<_StockHistoryDialog> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              '${entry.type.replaceAll('_', ' ')} · ${entry.quantityDelta > 0 ? '+' : ''}${entry.quantityDelta}',
+                              '${entry.type.replaceAll('_', ' ')}'
+                              '${entry.quantity > 0 ? ' · ${entry.quantity} portion${entry.quantity == 1 ? '' : 's'}' : ''}',
                               style: const TextStyle(
                                 fontWeight: FontWeight.w700,
                               ),

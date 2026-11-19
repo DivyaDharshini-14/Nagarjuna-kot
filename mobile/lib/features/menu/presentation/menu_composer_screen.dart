@@ -9,6 +9,7 @@ import '../../../core/network/mobile_api_client.dart';
 import '../../../core/network/mobile_order_live_connection.dart';
 import '../../tables/domain/floor_table.dart';
 import '../data/menu_repository.dart';
+import '../../../core/restaurant_day.dart';
 import '../domain/menu.dart';
 import '../../orders/data/mobile_order_repository.dart';
 import '../../orders/data/pending_order_draft_store.dart';
@@ -18,9 +19,11 @@ class MenuComposerScreen extends StatefulWidget {
   const MenuComposerScreen({
     super.key,
     required this.table,
+    this.activeOrderActivity,
     required this.repository,
     required this.orderRepository,
     required this.pendingDraftStore,
+    required this.userId,
     required this.liveConnection,
     required this.resolveAssetUri,
     required this.onBack,
@@ -30,9 +33,11 @@ class MenuComposerScreen extends StatefulWidget {
   });
 
   final RestaurantTable table;
+  final DateTime? activeOrderActivity;
   final MenuRepository repository;
   final MobileOrderRepository orderRepository;
   final PendingOrderDraftStore pendingDraftStore;
+  final int userId;
   final MobileOrderLiveConnection liveConnection;
   final Uri? Function(String?) resolveAssetUri;
   final VoidCallback onBack;
@@ -61,6 +66,13 @@ class _MenuComposerScreenState extends State<MenuComposerScreen> {
   CartDraft? _pendingDraft;
   int? _pendingOrderId;
   bool _draftRestoreAttempted = false;
+  bool _legacySubmissionNeedsReview = false;
+
+  bool get _canEditCart =>
+      _draftRestoreAttempted &&
+      !_legacySubmissionNeedsReview &&
+      !_retryPending &&
+      !_isSubmitting;
   Timer? _menuRefreshTimer;
   int? _connectedMenuBranchId;
   bool _menuRequestInFlight = false;
@@ -153,8 +165,8 @@ class _MenuComposerScreenState extends State<MenuComposerScreen> {
         );
       }
       if (!_draftRestoreAttempted) {
-        _draftRestoreAttempted = true;
         await _restorePendingDraft(snapshot);
+        if (mounted) setState(() => _draftRestoreAttempted = true);
       }
     } on ApiException catch (error) {
       if (!mounted) return;
@@ -208,11 +220,8 @@ class _MenuComposerScreenState extends State<MenuComposerScreen> {
   int get _itemCount =>
       _cart.values.fold(0, (sum, line) => sum + line.quantity);
 
-  double get _cartTotal =>
-      _cart.values.fold(0, (sum, line) => sum + line.total);
-
   void _changeQuantity(MenuDish dish, int delta) {
-    if (_retryPending || _isSubmitting) return;
+    if (!_canEditCart) return;
     final current = _cart[dish.id];
     if (current == null && delta > 0) {
       if (!dish.isOrderable || dish.maximumQuantity == 0) return;
@@ -233,6 +242,7 @@ class _MenuComposerScreenState extends State<MenuComposerScreen> {
   }
 
   Future<void> _reviewCart() async {
+    if (!_canEditCart) return;
     final draft = await showModalBottomSheet<CartDraft>(
       context: context,
       isScrollControlled: true,
@@ -269,9 +279,22 @@ class _MenuComposerScreenState extends State<MenuComposerScreen> {
   }
 
   Future<void> _restorePendingDraft(MenuSnapshot snapshot) async {
-    final saved = await widget.pendingDraftStore.read();
-    if (!mounted || saved == null || saved['table_id'] != widget.table.id) {
+    final saved = await widget.pendingDraftStore.read(
+      widget.userId,
+      widget.table.id,
+    );
+    if (!mounted) return;
+    if (saved == null) {
+      final legacy = await widget.pendingDraftStore.hasLegacySubmission(
+        widget.table.id,
+      );
+      if (mounted) setState(() => _legacySubmissionNeedsReview = legacy);
       return;
+    }
+    if (saved['table_id'] != widget.table.id) {
+      throw const FormatException(
+        'The saved submission belongs to another table.',
+      );
     }
     final rawItems = saved['items'];
     final latestById = {for (final dish in snapshot.dishes) dish.id: dish};
@@ -295,9 +318,12 @@ class _MenuComposerScreenState extends State<MenuComposerScreen> {
     }
     final key = saved['idempotency_key'];
     final signature = saved['signature'];
-    if (lines.isEmpty || key is! String || signature is! String) {
-      await widget.pendingDraftStore.clear();
-      return;
+    if (lines.isEmpty ||
+        rawItems is! List ||
+        lines.length != rawItems.length ||
+        key is! String ||
+        signature is! String) {
+      throw const FormatException('The saved order submission is incomplete.');
     }
     final orderId = saved['order_id'];
     final draft = CartDraft(
@@ -326,6 +352,40 @@ class _MenuComposerScreenState extends State<MenuComposerScreen> {
     );
   }
 
+  Future<void> _reviewLegacySubmission() async {
+    final reviewed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Check the existing table order'),
+        content: const Text(
+          'An older app version saved an unconfirmed submission for this table. '
+          'Check the active order or confirm the outcome with a manager before placing another order.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Keep notice'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('I confirmed the outcome'),
+          ),
+        ],
+      ),
+    );
+    if (reviewed != true || !mounted) return;
+    try {
+      await widget.pendingDraftStore.clearLegacySubmission();
+      if (mounted) widget.onBack();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not clear the saved notice.')),
+        );
+      }
+    }
+  }
+
   String _signatureFor(CartDraft draft, {required int? targetOrderId}) {
     final items = [...draft.lines]
       ..sort((a, b) => a.dish.id.compareTo(b.dish.id));
@@ -349,14 +409,39 @@ class _MenuComposerScreenState extends State<MenuComposerScreen> {
     CartDraft draft, {
     bool reusePendingKey = false,
   }) async {
-    if (_isSubmitting || draft.lines.isEmpty) return;
+    if (!_draftRestoreAttempted ||
+        _legacySubmissionNeedsReview ||
+        _isSubmitting ||
+        draft.lines.isEmpty) {
+      return;
+    }
+    if (!reusePendingKey &&
+        isFromPreviousRestaurantDay(widget.activeOrderActivity)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Return to the tables to review the previous-day order.',
+          ),
+        ),
+      );
+      return;
+    }
     var targetOrderId = reusePendingKey && _pendingIdempotencyKey != null
         ? _pendingOrderId
         : widget.table.activeOrderId;
     var signature = _signatureFor(draft, targetOrderId: targetOrderId);
-    if (!reusePendingKey ||
-        _pendingSignature != signature ||
-        _pendingIdempotencyKey == null) {
+    if (reusePendingKey &&
+        (_pendingSignature != signature || _pendingIdempotencyKey == null)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'The saved order could not be matched. Check the table’s order before submitting again.',
+          ),
+        ),
+      );
+      return;
+    }
+    if (!reusePendingKey) {
       targetOrderId = widget.table.activeOrderId;
       signature = _signatureFor(draft, targetOrderId: targetOrderId);
       _pendingSignature = signature;
@@ -364,45 +449,46 @@ class _MenuComposerScreenState extends State<MenuComposerScreen> {
       _pendingOrderId = targetOrderId;
     }
     _pendingDraft = draft;
-    await widget.pendingDraftStore.write({
-      'table_id': widget.table.id,
-      'order_id': targetOrderId,
-      'idempotency_key': _pendingIdempotencyKey,
-      'signature': signature,
-      'guest_count': draft.guestCount,
-      'order_instructions': draft.orderInstructions,
-      'items': draft.lines
-          .map(
-            (line) => {
-              'menu_item_id': line.dish.id,
-              'quantity': line.quantity,
-              'special_instructions': line.note,
-              'menu_item': {
-                'id': line.dish.id,
-                'category_id': line.dish.categoryId,
-                'name': line.dish.name,
-                'code': line.dish.code,
-                'price': line.dish.price,
-                'menu_type': line.dish.menuType,
-                'availability': _availabilityValue(line.dish.availability),
-                'stock_tracking_enabled': line.dish.stockTrackingEnabled,
-                'stock_configured': line.dish.stockConfigured,
-                'is_orderable': line.dish.isOrderable,
-                'description': line.dish.description,
-                'image_path': line.dish.imagePath,
-                'prepared_stock_quantity': line.dish.preparedStockQuantity,
-              },
-            },
-          )
-          .toList(growable: false),
-    });
-
     setState(() {
       _isSubmitting = true;
       _retryPending = false;
     });
 
     try {
+      await widget.pendingDraftStore.write(widget.userId, widget.table.id, {
+        'table_id': widget.table.id,
+        'order_id': targetOrderId,
+        'idempotency_key': _pendingIdempotencyKey,
+        'signature': signature,
+        'guest_count': draft.guestCount,
+        'order_instructions': draft.orderInstructions,
+        'items': draft.lines
+            .map(
+              (line) => {
+                'menu_item_id': line.dish.id,
+                'quantity': line.quantity,
+                'special_instructions': line.note,
+                'menu_item': {
+                  'id': line.dish.id,
+                  'category_id': line.dish.categoryId,
+                  'name': line.dish.name,
+                  'code': line.dish.code,
+                  'price': line.dish.price,
+                  'menu_type': line.dish.menuType,
+                  'availability': _availabilityValue(line.dish.availability),
+                  'stock_tracking_enabled': line.dish.stockTrackingEnabled,
+                  'stock_configured': line.dish.stockConfigured,
+                  'is_orderable': line.dish.isOrderable,
+                  'description': line.dish.description,
+                  'image_path': line.dish.imagePath,
+                  'prepared_stock_quantity': line.dish.preparedStockQuantity,
+                },
+              },
+            )
+            .toList(growable: false),
+      });
+
+      if (!mounted) return;
       final confirmation = targetOrderId == null
           ? await widget.orderRepository.createOrder(
               tableId: widget.table.id,
@@ -419,7 +505,7 @@ class _MenuComposerScreenState extends State<MenuComposerScreen> {
               idempotencyKey: _pendingIdempotencyKey!,
             );
 
-      await widget.pendingDraftStore.clear();
+      await widget.pendingDraftStore.clear(widget.userId, widget.table.id);
       if (!mounted) return;
       setState(() {
         _cart.clear();
@@ -435,11 +521,18 @@ class _MenuComposerScreenState extends State<MenuComposerScreen> {
     } on ApiException catch (error) {
       if (!mounted) return;
       if (error.requiresSignIn) {
-        await widget.pendingDraftStore.clear();
         await widget.onSessionExpired();
         return;
       }
-      final uncertain = error.statusCode >= 500;
+      var uncertain = !const {400, 403, 404, 422}.contains(error.statusCode);
+      if (!uncertain) {
+        try {
+          await widget.pendingDraftStore.clear(widget.userId, widget.table.id);
+        } catch (_) {
+          uncertain = true;
+        }
+      }
+      if (!mounted) return;
       setState(() {
         _retryPending = uncertain;
         if (!uncertain) {
@@ -448,8 +541,6 @@ class _MenuComposerScreenState extends State<MenuComposerScreen> {
           _pendingDraft = null;
         }
       });
-      if (!uncertain) await widget.pendingDraftStore.clear();
-      if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(error.message)));
     } on ApiTransportException catch (error) {
@@ -534,11 +625,6 @@ class _MenuComposerScreenState extends State<MenuComposerScreen> {
                       ? 'The earlier request was already accepted; no duplicate was created.'
                       : 'Kitchen tickets were created for Table ${widget.table.name}.',
                 ),
-                const SizedBox(height: 12),
-                Text(
-                  'Reference total  ${_money(confirmation.totalAmount)}',
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
                 if (confirmation.kotTickets.isNotEmpty) ...[
                   const SizedBox(height: 16),
                   const Text(
@@ -563,7 +649,7 @@ class _MenuComposerScreenState extends State<MenuComposerScreen> {
         actions: [
           FilledButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Back to tables'),
+            child: const Text('View order progress'),
           ),
         ],
       ),
@@ -600,13 +686,6 @@ class _MenuComposerScreenState extends State<MenuComposerScreen> {
           ],
         ),
         actions: [
-          IconButton(
-            onPressed: _isLoading || _isSubmitting || _retryPending
-                ? null
-                : _loadMenu,
-            tooltip: 'Refresh menu and stock',
-            icon: const Icon(Icons.refresh_rounded),
-          ),
           IconButton(
             onPressed: _isSubmitting || _retryPending ? null : widget.onSignOut,
             tooltip: 'Sign out',
@@ -650,15 +729,15 @@ class _MenuComposerScreenState extends State<MenuComposerScreen> {
                     else
                       const Icon(Icons.shopping_bag_outlined, size: 19),
                     const SizedBox(width: 9),
-                    Text(
-                      _isSubmitting
-                          ? 'Sending order…'
-                          : _retryPending
-                          ? 'Retry same submission'
-                          : 'Review & ${widget.table.activeOrderId == null ? 'submit' : 'add'} $_itemCount ${_itemCount == 1 ? 'item' : 'items'}',
+                    Expanded(
+                      child: Text(
+                        _isSubmitting
+                            ? 'Sending order…'
+                            : _retryPending
+                            ? 'Retry same submission'
+                            : 'Review $_itemCount ${_itemCount == 1 ? 'item' : 'items'}',
+                      ),
                     ),
-                    const Spacer(),
-                    Text(_money(_cartTotal)),
                   ],
                 ),
               ),
@@ -689,6 +768,11 @@ class _MenuComposerScreenState extends State<MenuComposerScreen> {
                     '${snapshot.branchName}  ·  ${widget.table.seatingCapacity} seats',
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
+                  if (_legacySubmissionNeedsReview)
+                    TextButton(
+                      onPressed: _reviewLegacySubmission,
+                      child: const Text('Review unconfirmed submission'),
+                    ),
                   if (_retryPending) ...[
                     const SizedBox(height: 12),
                     Container(
@@ -784,7 +868,7 @@ class _MenuComposerScreenState extends State<MenuComposerScreen> {
                   return _DishCard(
                     dish: dish,
                     quantity: _cart[dish.id]?.quantity ?? 0,
-                    locked: _retryPending || _isSubmitting,
+                    locked: !_canEditCart,
                     imageUri: widget.resolveAssetUri(dish.imagePath),
                     onAdd: () => _changeQuantity(dish, 1),
                     onRemove: () => _changeQuantity(dish, -1),
@@ -1416,7 +1500,7 @@ class _CartReviewSheetState extends State<CartReviewSheet> {
                   ),
                 ],
               ),
-              if (widget.showGuestCount) ...[
+              if (widget.showGuestCount && widget.maxGuests > 1) ...[
                 const SizedBox(height: 6),
                 DropdownButtonFormField<int>(
                   initialValue: _guestCount,

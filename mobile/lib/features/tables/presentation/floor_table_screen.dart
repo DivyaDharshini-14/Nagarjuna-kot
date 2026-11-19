@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../../../app/app_theme.dart';
 import '../../../core/network/mobile_api_client.dart';
+import '../../../core/restaurant_day.dart';
+import '../../orders/data/mobile_order_repository.dart';
 import '../data/floor_table_repository.dart';
 import '../domain/floor_table.dart';
 
@@ -13,21 +15,25 @@ class FloorTableScreen extends StatefulWidget {
   const FloorTableScreen({
     super.key,
     required this.repository,
+    required this.orderRepository,
+    required this.orderActivity,
     required this.onSignOut,
     required this.onSessionExpired,
     required this.onTableSelected,
     required this.onTrackOrder,
-    required this.canApproveCancellations,
-    required this.onOpenCancellationApprovals,
+    required this.onOpenCancellationHistory,
+    this.onActiveOrdersSeen,
   });
 
   final FloorTableRepository repository;
+  final MobileOrderRepository orderRepository;
+  final Map<int, DateTime> orderActivity;
   final Future<void> Function() onSignOut;
   final Future<void> Function() onSessionExpired;
-  final ValueChanged<RestaurantTable> onTableSelected;
-  final ValueChanged<RestaurantTable> onTrackOrder;
-  final bool canApproveCancellations;
-  final VoidCallback onOpenCancellationApprovals;
+  final Future<void> Function(RestaurantTable) onTableSelected;
+  final Future<void> Function(RestaurantTable) onTrackOrder;
+  final VoidCallback onOpenCancellationHistory;
+  final ValueChanged<Iterable<int>>? onActiveOrdersSeen;
 
   @override
   State<FloorTableScreen> createState() => _FloorTableScreenState();
@@ -36,13 +42,13 @@ class FloorTableScreen extends StatefulWidget {
 class _FloorTableScreenState extends State<FloorTableScreen>
     with WidgetsBindingObserver {
   FloorTableSnapshot? _snapshot;
-  RestaurantTable? _selectedTable;
   int? _selectedFloorId;
   _TableFilter _filter = _TableFilter.all;
   bool _isLoading = true;
   String? _errorMessage;
   Timer? _refreshTimer;
   bool _isRefreshing = false;
+  bool _openingTable = false;
   bool _inForeground = true;
 
   @override
@@ -79,15 +85,10 @@ class _FloorTableScreenState extends State<FloorTableScreen>
     try {
       final snapshot = await widget.repository.loadAssignedFloorTables();
       if (!mounted) return;
+      widget.onActiveOrdersSeen?.call(snapshot.activeOrderIds);
+      await _checkActiveOrderDates(snapshot);
+      if (!mounted) return;
       final floorId = _selectedFloorId;
-      final tableId = _selectedTable?.id;
-      RestaurantTable? selectedTable;
-      for (final floor in snapshot.floors) {
-        if (floor.id != floorId) continue;
-        for (final table in floor.tables) {
-          if (table.id == tableId && table.canOpen) selectedTable = table;
-        }
-      }
       setState(() {
         _snapshot = snapshot;
         _selectedFloorId = snapshot.floors.isEmpty
@@ -95,7 +96,6 @@ class _FloorTableScreenState extends State<FloorTableScreen>
             : snapshot.floors.any((floor) => floor.id == floorId)
             ? floorId
             : snapshot.floors.first.id;
-        _selectedTable = selectedTable;
         _isLoading = false;
         _errorMessage = null;
       });
@@ -126,6 +126,37 @@ class _FloorTableScreenState extends State<FloorTableScreen>
     }
   }
 
+  Future<void> _checkActiveOrderDates(FloorTableSnapshot snapshot) async {
+    final ids = {
+      for (final id in snapshot.activeOrderIds)
+        if (!widget.orderActivity.containsKey(id)) id,
+    }.toList();
+
+    const batchSize = 6;
+    for (var index = 0; index < ids.length && mounted; index += batchSize) {
+      await Future.wait(
+        ids.skip(index).take(batchSize).map((id) async {
+          try {
+            final order = await widget.orderRepository.getOrderStatus(id);
+            final activity = order.firstKnownActivityAt;
+            if (!mounted || activity == null) return;
+            final cached = widget.orderActivity[id];
+            if (cached == null || activity.isBefore(cached)) {
+              widget.orderActivity[id] = activity;
+            }
+          } on ApiException catch (error) {
+            if (error.requiresSignIn) rethrow;
+          } on Object {
+            // Keep the server's table state if the order date is unavailable.
+          }
+        }),
+      );
+    }
+  }
+
+  bool _hasPreviousDayOrder(RestaurantTable? table) =>
+      isFromPreviousRestaurantDay(widget.orderActivity[table?.activeOrderId]);
+
   RestaurantFloor? get _selectedFloor {
     final floors = _snapshot?.floors ?? const <RestaurantFloor>[];
     for (final floor in floors) {
@@ -148,23 +179,38 @@ class _FloorTableScreenState extends State<FloorTableScreen>
   void _selectFloor(RestaurantFloor floor) {
     setState(() {
       _selectedFloorId = floor.id;
-      _selectedTable = null;
     });
   }
 
-  void _selectTable(RestaurantTable table) {
-    if (!table.canOpen) return;
-    setState(() => _selectedTable = table);
+  Future<void> _openTable(
+    RestaurantTable table, {
+    bool addItems = false,
+  }) async {
+    if (_openingTable || _errorMessage != null || !table.canOpen) return;
+    _openingTable = true;
+    try {
+      if (table.activeOrderId != null &&
+          (!addItems || _hasPreviousDayOrder(table))) {
+        await widget.onTrackOrder(table);
+      } else {
+        await widget.onTableSelected(table);
+      }
+    } on Object {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not open this table. Try again.'),
+          ),
+        );
+      }
+    } finally {
+      _openingTable = false;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final snapshot = _snapshot;
-    final canShowSelectionBar =
-        snapshot != null &&
-        snapshot.floors.isNotEmpty &&
-        !_isLoading &&
-        _errorMessage == null;
 
     return Scaffold(
       backgroundColor: AppColors.canvas,
@@ -181,16 +227,10 @@ class _FloorTableScreenState extends State<FloorTableScreen>
           ),
         ),
         actions: [
-          if (widget.canApproveCancellations)
-            IconButton(
-              onPressed: widget.onOpenCancellationApprovals,
-              tooltip: 'Cancellation approvals',
-              icon: const Icon(Icons.fact_check_outlined),
-            ),
           IconButton(
-            onPressed: _loadFloorTables,
-            tooltip: 'Refresh table status',
-            icon: const Icon(Icons.refresh_rounded),
+            onPressed: widget.onOpenCancellationHistory,
+            tooltip: 'Cancellation history',
+            icon: const Icon(Icons.history_rounded),
           ),
           IconButton(
             onPressed: widget.onSignOut,
@@ -229,17 +269,6 @@ class _FloorTableScreenState extends State<FloorTableScreen>
                 ],
               ),
       ),
-      bottomNavigationBar: canShowSelectionBar
-          ? _SelectionBar(
-              table: _selectedTable,
-              onContinue: _selectedTable == null
-                  ? null
-                  : () => widget.onTableSelected(_selectedTable!),
-              onTrackOrder: _selectedTable?.activeOrderId == null
-                  ? null
-                  : () => widget.onTrackOrder(_selectedTable!),
-            )
-          : null,
     );
   }
 
@@ -254,13 +283,6 @@ class _FloorTableScreenState extends State<FloorTableScreen>
     }
 
     final selectedFloor = _selectedFloor ?? snapshot.floors.first;
-    final allTables = snapshot.floors.expand((floor) => floor.tables).toList();
-    final availableCount = allTables
-        .where((table) => table.status == TableStatus.available)
-        .length;
-    final occupiedCount = allTables
-        .where((table) => table.status == TableStatus.occupied)
-        .length;
     final visibleTables = _visibleTables;
 
     return RefreshIndicator(
@@ -273,16 +295,6 @@ class _FloorTableScreenState extends State<FloorTableScreen>
             padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
             sliver: SliverToBoxAdapter(
               child: _PageHeader(branchName: snapshot.branchName),
-            ),
-          ),
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
-            sliver: SliverToBoxAdapter(
-              child: _TableSummary(
-                total: allTables.length,
-                available: availableCount,
-                occupied: occupiedCount,
-              ),
             ),
           ),
           SliverPadding(
@@ -300,10 +312,7 @@ class _FloorTableScreenState extends State<FloorTableScreen>
             sliver: SliverToBoxAdapter(
               child: _TableFilterRow(
                 filter: _filter,
-                onChanged: (filter) => setState(() {
-                  _filter = filter;
-                  _selectedTable = null;
-                }),
+                onChanged: (filter) => setState(() => _filter = filter),
                 count: visibleTables.length,
               ),
             ),
@@ -333,10 +342,18 @@ class _FloorTableScreenState extends State<FloorTableScreen>
                     ),
                     itemBuilder: (context, index) {
                       final table = visibleTables[index];
+                      final previousDayOrder = _hasPreviousDayOrder(table);
+                      final canOpen = table.canOpen && _errorMessage == null;
                       return _TableCard(
                         table: table,
-                        selected: _selectedTable?.id == table.id,
-                        onTap: table.canOpen ? () => _selectTable(table) : null,
+                        previousDayOrder: previousDayOrder,
+                        onTap: canOpen ? () => _openTable(table) : null,
+                        onAddItems:
+                            canOpen &&
+                                table.isOccupiedWithActiveOrder &&
+                                !previousDayOrder
+                            ? () => _openTable(table, addItems: true)
+                            : null,
                       );
                     },
                   );
@@ -366,7 +383,7 @@ class _PageHeader extends StatelessWidget {
         ),
         const SizedBox(height: 7),
         Text(
-          'Select a floor, then choose an available table to start an order.',
+          'Tap an available table to open the menu.',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         const SizedBox(height: 15),
@@ -402,105 +419,6 @@ class _PageHeader extends StatelessWidget {
         ),
       ],
     );
-  }
-}
-
-class _TableSummary extends StatelessWidget {
-  const _TableSummary({
-    required this.total,
-    required this.available,
-    required this.occupied,
-  });
-
-  final int total;
-  final int available;
-  final int occupied;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 17, horizontal: 12),
-      decoration: BoxDecoration(
-        color: AppColors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.line),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: _SummaryValue(value: '$total', label: 'TABLES'),
-          ),
-          const _SummaryDivider(),
-          Expanded(
-            child: _SummaryValue(
-              value: '$available',
-              label: 'AVAILABLE',
-              valueColor: const Color(0xFF2F7A50),
-            ),
-          ),
-          const _SummaryDivider(),
-          Expanded(
-            child: _SummaryValue(
-              value: '$occupied',
-              label: 'IN SERVICE',
-              valueColor: AppColors.terracotta,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SummaryValue extends StatelessWidget {
-  const _SummaryValue({
-    required this.value,
-    required this.label,
-    this.valueColor = AppColors.ink,
-  });
-
-  final String value;
-  final String label;
-  final Color valueColor;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text(
-          value,
-          style: TextStyle(
-            color: valueColor,
-            fontSize: 23,
-            height: 1.1,
-            fontWeight: FontWeight.w700,
-            letterSpacing: -0.5,
-          ),
-        ),
-        const SizedBox(height: 5),
-        FittedBox(
-          fit: BoxFit.scaleDown,
-          child: Text(
-            label,
-            style: const TextStyle(
-              color: AppColors.mutedInk,
-              fontSize: 9,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.8,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _SummaryDivider extends StatelessWidget {
-  const _SummaryDivider();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(width: 1, height: 34, color: AppColors.line);
   }
 }
 
@@ -651,25 +569,26 @@ class _FilterChip extends StatelessWidget {
 class _TableCard extends StatelessWidget {
   const _TableCard({
     required this.table,
-    required this.selected,
+    required this.previousDayOrder,
     required this.onTap,
+    required this.onAddItems,
   });
 
   final RestaurantTable table;
-  final bool selected;
+  final bool previousDayOrder;
   final VoidCallback? onTap;
+  final VoidCallback? onAddItems;
 
   @override
   Widget build(BuildContext context) {
     final statusColor = _statusColor(table.status);
-    final canOpen = table.canOpen;
+    final canOpen = onTap != null;
 
     return Semantics(
       label:
           'Table ${table.name}, ${table.seatingCapacity} seats, ${table.status.label}',
       button: canOpen,
       enabled: canOpen,
-      selected: selected,
       child: Material(
         color: AppColors.white,
         borderRadius: BorderRadius.circular(18),
@@ -680,10 +599,7 @@ class _TableCard extends StatelessWidget {
             padding: const EdgeInsets.all(15),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(18),
-              border: Border.all(
-                color: selected ? AppColors.terracotta : AppColors.line,
-                width: selected ? 1.6 : 1,
-              ),
+              border: Border.all(color: AppColors.line),
               color: canOpen ? AppColors.white : const Color(0xFFFBFAF8),
             ),
             child: Column(
@@ -704,11 +620,11 @@ class _TableCard extends StatelessWidget {
                         ),
                       ),
                     ),
-                    if (selected)
-                      const Icon(
-                        Icons.check_circle_rounded,
-                        color: AppColors.terracotta,
-                        size: 21,
+                    if (onAddItems != null)
+                      IconButton(
+                        tooltip: 'Add items to this order',
+                        onPressed: onAddItems,
+                        icon: const Icon(Icons.add_shopping_cart_rounded),
                       ),
                   ],
                 ),
@@ -731,8 +647,9 @@ class _TableCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                if (table.isOccupiedWithActiveOrder &&
-                    table.activeOrderNumber != null) ...[
+                if (previousDayOrder ||
+                    (table.isOccupiedWithActiveOrder &&
+                        table.activeOrderNumber != null)) ...[
                   const SizedBox(height: 4),
                   Row(
                     children: [
@@ -744,7 +661,9 @@ class _TableCard extends StatelessWidget {
                       const SizedBox(width: 5),
                       Expanded(
                         child: Text(
-                          table.activeOrderNumber!,
+                          previousDayOrder
+                              ? 'Previous-day order'
+                              : table.activeOrderNumber!,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
@@ -781,7 +700,7 @@ class _TableCard extends StatelessWidget {
                         ),
                       ),
                     ),
-                    if (table.isOccupiedWithActiveOrder)
+                    if (canOpen)
                       const Icon(
                         Icons.arrow_forward_rounded,
                         size: 17,
@@ -805,129 +724,6 @@ class _TableCard extends StatelessWidget {
     TableStatus.inactive => const Color(0xFF94968F),
     TableStatus.unknown => const Color(0xFF777A73),
   };
-}
-
-class _SelectionBar extends StatelessWidget {
-  const _SelectionBar({
-    required this.table,
-    required this.onContinue,
-    required this.onTrackOrder,
-  });
-
-  final RestaurantTable? table;
-  final VoidCallback? onContinue;
-  final VoidCallback? onTrackOrder;
-
-  @override
-  Widget build(BuildContext context) {
-    final canResume = table?.isOccupiedWithActiveOrder ?? false;
-
-    return SafeArea(
-      top: false,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(20, 14, 20, 12),
-        decoration: const BoxDecoration(
-          color: AppColors.white,
-          border: Border(top: BorderSide(color: AppColors.line)),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: table == null
-                  ? const Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          'No table selected',
-                          style: TextStyle(
-                            color: AppColors.ink,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 14,
-                          ),
-                        ),
-                        SizedBox(height: 3),
-                        Text(
-                          'Choose an available table to continue.',
-                          style: TextStyle(
-                            color: AppColors.mutedInk,
-                            fontSize: 11,
-                          ),
-                        ),
-                      ],
-                    )
-                  : Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          'Table ${table!.name}',
-                          style: const TextStyle(
-                            color: AppColors.ink,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 14,
-                          ),
-                        ),
-                        const SizedBox(height: 3),
-                        Text(
-                          canResume
-                              ? 'Active order ready'
-                              : 'Ready for a new order',
-                          style: const TextStyle(
-                            color: AppColors.mutedInk,
-                            fontSize: 11,
-                          ),
-                        ),
-                      ],
-                    ),
-            ),
-            const SizedBox(width: 12),
-            if (canResume) ...[
-              SizedBox(
-                width: 108,
-                child: FilledButton(
-                  onPressed: onTrackOrder,
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size.fromHeight(48),
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    textStyle: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  child: const Text('Track order'),
-                ),
-              ),
-              IconButton.filledTonal(
-                onPressed: onContinue,
-                tooltip: 'Add items to this order',
-                icon: const Icon(Icons.add_shopping_cart_rounded, size: 19),
-              ),
-            ] else
-              FilledButton(
-                onPressed: onContinue,
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size(132, 48),
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                  textStyle: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text('Continue'),
-                    SizedBox(width: 6),
-                    Icon(Icons.arrow_forward_rounded, size: 16),
-                  ],
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
 }
 
 class _LoadingState extends StatelessWidget {

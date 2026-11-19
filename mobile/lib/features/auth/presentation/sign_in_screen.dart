@@ -104,8 +104,6 @@ class _SignInScreenState extends State<SignInScreen> {
                           onSubmit: _submit,
                         ),
                       ),
-                      const SizedBox(height: 2),
-                      const _SecurityNote(),
                     ],
                   ),
                 ),
@@ -125,9 +123,6 @@ class _WelcomePanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final headlineStyle = Theme.of(context).textTheme.headlineMedium
-        ?.copyWith(color: AppColors.white, fontSize: compact ? 27 : 30);
-
     return ClipRRect(
       borderRadius: BorderRadius.circular(26),
       child: DecoratedBox(
@@ -142,24 +137,8 @@ class _WelcomePanel extends StatelessWidget {
           children: [
             const Positioned(top: -78, right: -62, child: _OrbitDecoration()),
             Padding(
-              padding: EdgeInsets.fromLTRB(24, compact ? 20 : 24, 24, 34),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const _BrandLockup(),
-                  SizedBox(height: compact ? 28 : 38),
-                  Text('Welcome back.', style: headlineStyle),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Sign in with your staff account to start service.',
-                    style: TextStyle(
-                      color: Color(0xFFD0D0C9),
-                      fontSize: 14,
-                      height: 1.45,
-                    ),
-                  ),
-                ],
-              ),
+              padding: EdgeInsets.fromLTRB(24, compact ? 20 : 24, 24, 42),
+              child: const _BrandLockup(),
             ),
           ],
         ),
@@ -218,22 +197,6 @@ class _BrandLockup extends StatelessWidget {
                 ),
               ),
             ],
-          ),
-        ),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-          decoration: BoxDecoration(
-            border: Border.all(color: const Color(0xFF555850)),
-            borderRadius: BorderRadius.circular(30),
-          ),
-          child: const Text(
-            'STAFF',
-            style: TextStyle(
-              color: Color(0xFFD7D8D1),
-              fontSize: 9,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 1.1,
-            ),
           ),
         ),
       ],
@@ -311,7 +274,7 @@ class _SignInCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                'STAFF SIGN IN',
+                'Waiter sign in',
                 style: Theme.of(context).textTheme.labelMedium
                     ?.copyWith(color: AppColors.terracotta, letterSpacing: 1.1),
               ),
@@ -381,29 +344,6 @@ class _SignInCard extends StatelessWidget {
                         ],
                       ),
               ),
-              const SizedBox(height: 18),
-              const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.shield_outlined,
-                    size: 15,
-                    color: AppColors.mutedInk,
-                  ),
-                  SizedBox(width: 7),
-                  Flexible(
-                    child: Text(
-                      'Your account controls your restaurant access.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: AppColors.mutedInk,
-                        fontSize: 12,
-                        height: 1.4,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
             ],
           ),
         ),
@@ -463,39 +403,6 @@ class _ErrorNotice extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _SecurityNote extends StatelessWidget {
-  const _SecurityNote();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 0, 14, 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(
-            Icons.lock_outline_rounded,
-            size: 14,
-            color: AppColors.mutedInk,
-          ),
-          const SizedBox(width: 7),
-          Flexible(
-            child: Text(
-              'Authorized restaurant staff only  ·  Need access? Ask your manager.',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: AppColors.mutedInk,
-                fontSize: 11,
-                height: 1.4,
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }

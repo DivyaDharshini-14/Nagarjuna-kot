@@ -26,6 +26,9 @@ class OrderItemProgress {
   final bool canMarkServed;
   final List<ItemCancellationProgress> cancellations;
   final String? instructions;
+
+  bool get isFullyCancelled => quantity > 0 && cancelledQuantity >= quantity;
+  String get effectiveStatus => isFullyCancelled ? 'cancelled' : status;
 }
 
 class ItemCancellationProgress {
@@ -76,6 +79,7 @@ class OrderStatusSnapshot {
     required this.items,
     required this.tickets,
     required this.updatedAt,
+    this.createdAt,
   });
 
   final int id;
@@ -86,4 +90,20 @@ class OrderStatusSnapshot {
   final List<OrderItemProgress> items;
   final List<KitchenTicketProgress> tickets;
   final DateTime? updatedAt;
+  final DateTime? createdAt;
+
+  DateTime? get firstKnownActivityAt {
+    if (createdAt != null) return createdAt;
+    var earliest = updatedAt;
+    for (final item in items) {
+      for (final cancellation in item.cancellations) {
+        final requested = cancellation.requestedAt;
+        if (requested != null &&
+            (earliest == null || requested.isBefore(earliest))) {
+          earliest = requested;
+        }
+      }
+    }
+    return earliest;
+  }
 }

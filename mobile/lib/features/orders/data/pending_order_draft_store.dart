@@ -6,25 +6,101 @@ class PendingOrderDraftStore {
   PendingOrderDraftStore({FlutterSecureStorage? storage})
     : _storage = storage ?? const FlutterSecureStorage();
 
-  static const _key = 'pending_order_submission_v1';
   final FlutterSecureStorage _storage;
+  static const _legacySubmissionKey = 'pending_order_submission_v1';
+  Future<void> _cancellationIndexWrites = Future.value();
 
-  Future<Map<String, dynamic>?> read() async {
-    final value = await _storage.read(key: _key);
-    if (value == null || value.isEmpty) return null;
-    try {
-      final decoded = jsonDecode(value);
-      return decoded is Map<String, dynamic> ? decoded : null;
-    } on FormatException {
-      await clear();
-      return null;
-    }
+  String _cancellationHistoryKey(int userId) =>
+      'cancellation_history_order_ids_v1_$userId';
+
+  Future<List<int>> cancellationOrderIds(int userId) async {
+    await _cancellationIndexWrites;
+    return _readCancellationOrderIds(userId);
   }
 
-  Future<void> write(Map<String, Object?> value) =>
-      _storage.write(key: _key, value: jsonEncode(value));
+  Future<List<int>> _readCancellationOrderIds(int userId) async {
+    final value = await _storage.read(key: _cancellationHistoryKey(userId));
+    if (value == null) return [];
+    return (jsonDecode(value) as List).whereType<int>().toList();
+  }
 
-  Future<void> clear() => _storage.delete(key: _key);
+  /// Stores references only. Cancellation details always come from the API.
+  Future<void> rememberCancellationOrder(int userId, int orderId) =>
+      rememberCancellationOrders(userId, [orderId]);
+
+  Future<void> rememberCancellationOrders(int userId, Iterable<int> orderIds) {
+    final observed = orderIds.toSet();
+    if (observed.isEmpty) return Future.value();
+    final write = _cancellationIndexWrites.then((_) async {
+      final ids = await _readCancellationOrderIds(userId);
+      final newIds = observed.difference(ids.toSet());
+      if (newIds.isEmpty) return;
+      await _storage.write(
+        key: _cancellationHistoryKey(userId),
+        value: jsonEncode([...newIds, ...ids]),
+      );
+    });
+    _cancellationIndexWrites = write.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return write;
+  }
+
+  Future<bool> hasLegacySubmission(int tableId) async {
+    final value = await _storage.read(key: _legacySubmissionKey);
+    if (value == null) return false;
+    final decoded = jsonDecode(value);
+    return decoded is Map<String, dynamic> && decoded['table_id'] == tableId;
+  }
+
+  Future<void> clearLegacySubmission() =>
+      _storage.delete(key: _legacySubmissionKey);
+
+  String _submissionKey(int userId, int tableId) =>
+      'pending_order_submission_v2_${userId}_$tableId';
+
+  Future<Map<String, dynamic>?> read(int userId, int tableId) async {
+    final value = await _storage.read(key: _submissionKey(userId, tableId));
+    if (value == null || value.isEmpty) return null;
+    final decoded = jsonDecode(value);
+    if (decoded is! Map<String, dynamic>) {
+      throw const FormatException('Invalid saved order submission.');
+    }
+    return decoded;
+  }
+
+  Future<void> write(int userId, int tableId, Map<String, Object?> value) =>
+      _storage.write(
+        key: _submissionKey(userId, tableId),
+        value: jsonEncode(value),
+      );
+
+  Future<void> clear(int userId, int tableId) =>
+      _storage.delete(key: _submissionKey(userId, tableId));
+
+  String _cancellationKey(int userId, int orderId) =>
+      'unconfirmed_cancellation_v1_${userId}_$orderId';
+
+  Future<String?> readUnconfirmedCancellation(int userId, int orderId) =>
+      _storage.read(key: _cancellationKey(userId, orderId));
+
+  Future<void> saveUnconfirmedCancellation(
+    int userId,
+    int orderId,
+    String description,
+  ) async {
+    if (await readUnconfirmedCancellation(userId, orderId) != null) {
+      throw StateError('A cancellation still needs review.');
+    }
+    await _storage.write(
+      key: _cancellationKey(userId, orderId),
+      value: description,
+    );
+  }
+
+  Future<void> clearUnconfirmedCancellation(int userId, int orderId) =>
+      _storage.delete(key: _cancellationKey(userId, orderId));
 
   String _additionKey(int userId) => 'pending_quantity_addition_v1_$userId';
 
