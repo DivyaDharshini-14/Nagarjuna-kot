@@ -21,6 +21,9 @@ class KotController extends Controller
 
     public function index(Request $request): View
     {
+        // Requirement: Default to today's (present date) data. If a specific date is selected in the calendar, filter by that date.
+        $selectedDate = $request->filled('date') ? $request->date : now()->toDateString();
+
         $kots = KotTicket::query()
             ->with(['kitchen', 'order.table', 'order.waiter', 'items.menuItem']);
 
@@ -34,8 +37,8 @@ class KotController extends Controller
             $kots->where('ticket_status', $request->status);
         }
 
-        if ($request->filled('date')) {
-            $kots->whereDate('created_at', $request->date);
+        if ($selectedDate && $selectedDate !== 'all') {
+            $kots->whereDate('created_at', $selectedDate);
         }
 
         $kots = $kots
@@ -60,7 +63,7 @@ class KotController extends Controller
             ? Kitchen::where('branch_id', $branchId)->where('is_active', true)->orderBy('name')->get()
             : Kitchen::where('is_active', true)->orderBy('name')->get();
 
-        return view('kots.index', compact('kots', 'kitchens'));
+        return view('kots.index', compact('kots', 'kitchens', 'selectedDate'));
     }
 
     public function updateStatus(Request $request, KotTicket $kot): RedirectResponse
@@ -132,7 +135,7 @@ class KotController extends Controller
     private function renderDisplay(Kitchen $kitchen, ?string $displayToken = null): View
     {
         $tickets = KotTicket::where('kitchen_id', $kitchen->id)
-
+            ->whereDate('created_at', now()->toDateString())
             ->whereIn('ticket_status', ['new', 'accepted', 'preparing', 'ready'])
             ->with(['order.table', 'order.waiter', 'items.menuItem'])
             ->orderByRaw("

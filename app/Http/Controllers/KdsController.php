@@ -30,60 +30,69 @@ class KdsController extends Controller
      */
     public function index(Request $request): View
     {
+        $selectedDate = $request->input('date', now()->toDateString());
         $query = Kitchen::query()->where('is_active', true);
         $this->applyBranchScope($query);
 
         $kitchens = $query->with(['branch', 'company'])
             ->withCount([
-                'kotTickets as new_count' => fn ($q) => $q->where('ticket_status', 'accepted'),
-                'kotTickets as preparing_count' => fn ($q) => $q->where('ticket_status', 'preparing'),
-                'kotTickets as ready_count' => fn ($q) => $q->where('ticket_status', 'ready'),
+                'kotTickets as new_count' => fn ($q) => $q->where('ticket_status', 'accepted')->whereDate('created_at', $selectedDate),
+                'kotTickets as preparing_count' => fn ($q) => $q->where('ticket_status', 'preparing')->whereDate('created_at', $selectedDate),
+                'kotTickets as ready_count' => fn ($q) => $q->where('ticket_status', 'ready')->whereDate('created_at', $selectedDate),
             ])
             ->orderBy('name')
             ->get();
 
-        return view('kds.index', compact('kitchens'));
+        return view('kds.index', compact('kitchens', 'selectedDate'));
     }
 
     /**
      * Dedicated Kitchen Display Screen (TV) for a specific kitchen.
      * Redirects to the required URL format: /kds/{branchCode}/{kitchenCode}
      */
-    public function screen(Kitchen $kitchen): RedirectResponse|View
+    public function screen(Request $request, Kitchen $kitchen): RedirectResponse|View
     {
         $this->authorizeKitchenAccess($kitchen);
+        $selectedDate = $request->input('date', now()->toDateString());
 
         $kitchen->loadMissing('branch');
         if (! app()->runningUnitTests() && $kitchen->branch && $kitchen->branch->code && $kitchen->code) {
-            return redirect()->to('/' . $kitchen->branch->code . '/' . $kitchen->code);
+            $redirectUrl = '/' . $kitchen->branch->code . '/' . $kitchen->code;
+            if ($request->filled('date') && $request->date !== now()->toDateString()) {
+                $redirectUrl .= '?date=' . urlencode($request->date);
+            }
+            return redirect()->to($redirectUrl);
         }
 
         $allKitchens = Kitchen::query()->where('is_active', true)->with('branch');
         $this->applyBranchScope($allKitchens);
         $allKitchens = $allKitchens->orderBy('name')->get();
 
-        return view('kds.screen', compact('kitchen', 'allKitchens'));
+        return view('kds.screen', compact('kitchen', 'allKitchens', 'selectedDate'));
     }
 
     /**
      * Master Screen displaying all kitchens combined.
      */
-    public function screenAll(): View
+    public function screenAll(Request $request): View
     {
+        $selectedDate = $request->input('date', now()->toDateString());
         $allKitchens = Kitchen::query()->where('is_active', true)->with('branch');
         $this->applyBranchScope($allKitchens);
         $allKitchens = $allKitchens->orderBy('name')->get();
 
         $kitchen = null;
-        return view('kds.screen', compact('kitchen', 'allKitchens'));
+        return view('kds.screen', compact('kitchen', 'allKitchens', 'selectedDate'));
     }
 
     /**
      * Dedicated Kitchen Display Screen (TV) by dynamic Branch & Kitchen codes:
      * e.g. base_url/branch_code/kitchen_code (e.g. /IND-01/B1 or /branch1/biryani)
      */
-    public function screenByCode(string $branchCode, string $kitchenCode): View
+    public function screenByCode(Request $request, string $branchCode, string $kitchenCode): View
     {
+        $selectedDate = $request->input('date', now()->toDateString());
+
         $branchQuery = Branch::whereRaw('LOWER(code) = ?', [strtolower($branchCode)])
             ->orWhereRaw('LOWER(name) = ?', [strtolower($branchCode)])
             ->orWhere('id', is_numeric($branchCode) ? (int) $branchCode : 0);
@@ -98,7 +107,7 @@ class KdsController extends Controller
         if (strtolower($kitchenCode) === 'all') {
             $kitchen = null;
             $allKitchens = Kitchen::where('branch_id', $branch->id)->where('is_active', true)->with('branch')->orderBy('name')->get();
-            return view('kds.screen', compact('kitchen', 'allKitchens'));
+            return view('kds.screen', compact('kitchen', 'allKitchens', 'selectedDate'));
         }
 
         $kitchen = Kitchen::where('branch_id', $branch->id)
@@ -115,7 +124,7 @@ class KdsController extends Controller
 
         $allKitchens = Kitchen::where('branch_id', $branch->id)->where('is_active', true)->with('branch')->orderBy('name')->get();
 
-        return view('kds.screen', compact('kitchen', 'allKitchens'));
+        return view('kds.screen', compact('kitchen', 'allKitchens', 'selectedDate'));
     }
 
     /**
@@ -128,6 +137,9 @@ class KdsController extends Controller
      */
     public function feed(Request $request, ?Kitchen $kitchen = null): JsonResponse
     {
+        // Requirement: Default to today's (present date) data. If a specific date is selected in KOT Monitoring calendar, display that date.
+        $selectedDate = $request->input('date', now()->toDateString());
+
         $kitchenId = null;
         if ($kitchen && $kitchen->id) {
             $this->authorizeKitchenAccess($kitchen);
@@ -142,9 +154,10 @@ class KdsController extends Controller
             }
         }
 
-        // Active tickets query for KDS: accepted, preparing, ready
+        // Active tickets query for KDS: accepted, preparing, ready - filtered by selected date (default present date)
         $query = KotTicket::query()
             ->whereIn('ticket_status', ['accepted', 'preparing', 'ready'])
+            ->whereDate('created_at', $selectedDate)
             ->with([
                 'kitchen',
                 'order.table',
@@ -248,12 +261,13 @@ class KdsController extends Controller
                 'branch_name' => 'All Stations',
             ],
             'server_time' => $now->format('H:i:s'),
-            'server_date' => $now->format('D, d M Y'),
+            'server_date' => Carbon::parse($selectedDate)->format('D, d M Y'),
+            'filter_date' => $selectedDate,
             'counts' => [
                 'new' => $newTickets->count(),
                 'preparing' => $preparingTickets->count(),
                 'ready' => $readyTickets->count(),
-                'total_active' => $tickets->count(),
+                'total_active' => $newTickets->count() + $preparingTickets->count() + $readyTickets->count(),
             ],
             'new_tickets' => $newTickets,
             'preparing_tickets' => $preparingTickets,

@@ -14,15 +14,38 @@ class CancellationRequestController extends Controller
 
     public function index(Request $request): View
     {
-        $query = ItemCancellation::query()
-            ->with(['order.table', 'order.waiter', 'orderItem.menuItem', 'requester'])
-            ->where('status', 'pending');
-        $user = $request->user();
-        if ($user->company_id) $query->where('company_id', $user->company_id);
-        if ($user->branch_id) $query->where('branch_id', $user->branch_id);
+        // Requirement: Default to today's (present date) data. If a specific date is selected in the calendar, filter by that date.
+        $selectedDate = $request->filled('date') ? $request->date : now()->toDateString();
 
-        $requests = $query->latest()->get()->groupBy('request_batch');
-        return view('cancellations.index', compact('requests'));
+        $query = ItemCancellation::query()
+            ->with(['order.table', 'order.waiter', 'orderItem.menuItem', 'requester', 'decider']);
+
+        $user = $request->user();
+        if ($user?->company_id) {
+            $query->where('company_id', $user->company_id);
+        }
+        if ($user?->branch_id) {
+            $query->where('branch_id', $user->branch_id);
+        }
+
+        if ($selectedDate && $selectedDate !== 'all') {
+            $query->whereDate('created_at', $selectedDate);
+        }
+
+        if ($request->filled('search')) {
+            $term = trim($request->search);
+            $query->where(function ($q) use ($term) {
+                $q->whereHas('order', fn ($o) => $o->where('order_number', 'like', "%{$term}%"))
+                    ->orWhereHas('orderItem.menuItem', fn ($m) => $m->where('name', 'like', "%{$term}%"))
+                    ->orWhereHas('requester', fn ($r) => $r->where('name', 'like', "%{$term}%"))
+                    ->orWhere('reason', 'like', "%{$term}%");
+            });
+        }
+
+        $totalCancelledQuantity = (clone $query)->sum('quantity');
+        $cancellations = $query->latest('created_at')->latest('id')->paginate(15)->withQueryString();
+
+        return view('cancellations.index', compact('cancellations', 'totalCancelledQuantity', 'selectedDate'));
     }
 
     public function approve(Request $request, string $batch): RedirectResponse

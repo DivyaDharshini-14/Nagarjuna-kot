@@ -774,15 +774,18 @@
                 timeEl.innerText = `${h}:${m} ${ampm}`;
             }
 
-            const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-            const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-            const dayStr = days[now.getDay()];
-            const dateNum = String(now.getDate()).padStart(2, '0');
-            const monthStr = months[now.getMonth()];
-            const yearStr = now.getFullYear();
+            const urlParams = new URLSearchParams(window.location.search);
+            if (!urlParams.get('date')) {
+                const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                const dayStr = days[now.getDay()];
+                const dateNum = String(now.getDate()).padStart(2, '0');
+                const monthStr = months[now.getMonth()];
+                const yearStr = now.getFullYear();
 
-            if (dateEl) {
-                dateEl.innerText = `${dayStr}, ${dateNum} ${monthStr} ${yearStr}`;
+                if (dateEl) {
+                    dateEl.innerText = `${dayStr}, ${dateNum} ${monthStr} ${yearStr}`;
+                }
             }
         }
         setInterval(refreshClock, 1000);
@@ -947,10 +950,20 @@
         // Real-time Feed Polling
         async function pullFeed() {
             try {
-                const url = activeKitchenId ? `/kds/${activeKitchenId}/feed` : `/kds/feed`;
+                const urlParams = new URLSearchParams(window.location.search);
+                const dateParam = urlParams.get('date');
+                let url = activeKitchenId ? `/kds/${activeKitchenId}/feed` : `/kds/feed`;
+                if (dateParam) {
+                    url += `?date=${encodeURIComponent(dateParam)}`;
+                }
                 const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
                 if (!res.ok) throw new Error('Network error');
                 const data = await res.json();
+
+                if (dateParam && data.server_date) {
+                    const dateEl = document.getElementById('liveDate');
+                    if (dateEl) dateEl.innerText = data.server_date;
+                }
 
                 const newTickets = data.new_tickets || [];
                 const prepTickets = data.preparing_tickets || [];
