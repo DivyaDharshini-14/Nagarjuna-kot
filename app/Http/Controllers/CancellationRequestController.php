@@ -18,7 +18,15 @@ class CancellationRequestController extends Controller
         $selectedDate = $request->filled('date') ? $request->date : now()->toDateString();
 
         $query = ItemCancellation::query()
-            ->with(['order.table', 'order.waiter', 'orderItem.menuItem', 'requester', 'decider']);
+            ->with([
+                'order.table',
+                'order.branch.kitchens',
+                'order.waiter',
+                'orderItem.menuItem.kitchenMenuItems.kitchen',
+                'orderItem.kotItems.ticket.kitchen',
+                'requester',
+                'decider',
+            ]);
 
         $user = $request->user();
         if ($user?->company_id) {
@@ -37,6 +45,8 @@ class CancellationRequestController extends Controller
             $query->where(function ($q) use ($term) {
                 $q->whereHas('order', fn ($o) => $o->where('order_number', 'like', "%{$term}%"))
                     ->orWhereHas('orderItem.menuItem', fn ($m) => $m->where('name', 'like', "%{$term}%"))
+                    ->orWhereHas('orderItem.kotItems.ticket.kitchen', fn ($k) => $k->where('name', 'like', "%{$term}%"))
+                    ->orWhereHas('orderItem.menuItem.kitchenMenuItems.kitchen', fn ($k) => $k->where('name', 'like', "%{$term}%"))
                     ->orWhereHas('requester', fn ($r) => $r->where('name', 'like', "%{$term}%"))
                     ->orWhere('reason', 'like', "%{$term}%");
             });

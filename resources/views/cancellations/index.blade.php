@@ -28,7 +28,7 @@
                         name="search"
                         value="{{ request('search') }}"
                         class="form-control border-start-0 ps-0"
-                        placeholder="Search order #, dish name, staff, reason..."
+                        placeholder="Search order #, dish, kitchen, staff, reason..."
                         style="border-radius: 0 8px 8px 0; border-color: #e2e8f0;"
                     >
                 </div>
@@ -57,11 +57,11 @@
                         <th class="py-3">Order #</th>
                         <th class="py-3">Table</th>
                         <th class="py-3">Cancelled Item</th>
+                        <th class="py-3">Kitchen</th>
                         <th class="py-3">Quantity</th>
                         <th class="py-3">Reason</th>
                         <th class="py-3">Requested By</th>
-                        <th class="py-3">Date & Time</th>
-                        <th class="pe-3 py-3 text-end">Status</th>
+                        <th class="pe-3 py-3 text-end">Date & Time</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -93,6 +93,11 @@
                                 @endif
                             </td>
                             <td>
+                                <span class="badge bg-warning-subtle text-dark border border-warning-subtle px-2.5 py-1 fw-semibold">
+                                    <i class="bi bi-fire text-danger me-1"></i>{{ $cancellation->kitchen_name }}
+                                </span>
+                            </td>
+                            <td>
                                 <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-2.5 py-1 fw-bold fs-6">
                                     {{ $cancellation->quantity }} ×
                                 </span>
@@ -113,28 +118,13 @@
                                     {{ $cancellation->requester?->designation ?? 'Staff' }}
                                 </span>
                             </td>
-                            <td>
+                            <td class="pe-3 text-end">
                                 <div class="small text-dark fw-medium">
                                     {{ $cancellation->created_at?->format('d M Y') }}
                                 </div>
                                 <div class="text-muted" style="font-size: 0.75rem;">
                                     {{ $cancellation->created_at?->format('h:i A') }}
                                 </div>
-                            </td>
-                            <td class="pe-3 text-end">
-                                @if(in_array(strtolower($cancellation->status), ['approved', 'cancelled']))
-                                    <span class="badge bg-danger px-2.5 py-1.5 rounded-pill">
-                                        <i class="bi bi-check-circle me-1"></i>Cancelled
-                                    </span>
-                                @elseif(strtolower($cancellation->status) === 'rejected')
-                                    <span class="badge bg-secondary px-2.5 py-1.5 rounded-pill">
-                                        Rejected
-                                    </span>
-                                @else
-                                    <span class="badge bg-warning text-dark px-2.5 py-1.5 rounded-pill">
-                                        {{ ucfirst($cancellation->status) }}
-                                    </span>
-                                @endif
                             </td>
                         </tr>
                     @empty
