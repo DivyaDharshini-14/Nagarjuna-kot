@@ -85,8 +85,8 @@
             @if(auth()->user()->hasPermission('order.approve'))
                 <li class="nav-item">
                     <a class="nav-link {{ request()->routeIs('cancellations.*') ? 'active' : '' }}" href="{{ route('cancellations.index') }}">
-                        <i class="bi bi-exclamation-octagon"></i>
-                        <span>Cancellation Requests</span>
+                        <i class="bi bi-clock-history"></i>
+                        <span>Cancellation History</span>
                     </a>
                 </li>
             @endif

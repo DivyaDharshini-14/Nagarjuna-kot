@@ -43,4 +43,22 @@ class ItemCancellation extends Model
     {
         return $this->belongsTo(User::class, 'decided_by');
     }
+
+    public function getKitchenNameAttribute(): string
+    {
+        if ($kotKitchen = $this->orderItem?->kotItems?->first()?->ticket?->kitchen?->name) {
+            return $kotKitchen;
+        }
+
+        if ($this->orderItem?->menuItem) {
+            $branchId = $this->branch_id ?? $this->order?->branch_id;
+            $mappings = $this->orderItem->menuItem->kitchenMenuItems;
+            $mapping = $branchId ? $mappings?->firstWhere('branch_id', $branchId) : $mappings?->first();
+            if ($mapping?->kitchen?->name) {
+                return $mapping->kitchen->name;
+            }
+        }
+
+        return $this->order?->branch?->kitchens?->first()?->name ?? '—';
+    }
 }
