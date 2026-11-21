@@ -48,26 +48,9 @@
                                 @endif
                             </div>
 
-                            {{-- Order count indicators --}}
-                            <div class="row g-2 text-center my-3">
-                                <div class="col-4">
-                                    <div class="p-2 rounded bg-danger-subtle border border-danger-subtle">
-                                        <div class="fs-4 fw-bold text-danger">{{ $k->new_count ?? 0 }}</div>
-                                        <div class="text-muted text-uppercase" style="font-size: 0.68rem; font-weight: 700;">New</div>
-                                    </div>
-                                </div>
-                                <div class="col-4">
-                                    <div class="p-2 rounded bg-warning-subtle border border-warning-subtle">
-                                        <div class="fs-4 fw-bold text-warning-emphasis">{{ $k->preparing_count ?? 0 }}</div>
-                                        <div class="text-muted text-uppercase" style="font-size: 0.68rem; font-weight: 700;">Preparing</div>
-                                    </div>
-                                </div>
-                                <div class="col-4">
-                                    <div class="p-2 rounded bg-success-subtle border border-success-subtle">
-                                        <div class="fs-4 fw-bold text-success">{{ $k->ready_count ?? 0 }}</div>
-                                        <div class="text-muted text-uppercase" style="font-size: 0.68rem; font-weight: 700;">Ready</div>
-                                    </div>
-                                </div>
+                            <div class="p-2 rounded bg-success-subtle border border-success-subtle text-center my-3">
+                                <div class="fs-4 fw-bold text-success">{{ $k->active_count }}</div>
+                                <div class="text-muted text-uppercase small fw-bold">Active tickets</div>
                             </div>
                         </div>
 

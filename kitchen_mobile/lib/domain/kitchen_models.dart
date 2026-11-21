@@ -50,6 +50,7 @@ class KitchenPage<T> {
     this.lastPage = 1,
     required this.total,
     this.soundAllowed = true,
+    this.canManageStock,
   });
 
   final List<T> items;
@@ -57,6 +58,7 @@ class KitchenPage<T> {
   final int lastPage;
   final int total;
   final bool soundAllowed;
+  final bool? canManageStock;
 
   factory KitchenPage.fromData(
     Map<String, dynamic> data,
@@ -74,6 +76,7 @@ class KitchenPage<T> {
       lastPage: (pagination?['last_page'] as num?)?.toInt() ?? 1,
       total: (pagination?['total'] as num?)?.toInt() ?? items.length,
       soundAllowed: data['sound_allowed'] != false,
+      canManageStock: data['can_manage_stock'] as bool?,
     );
   }
 }
@@ -83,6 +86,7 @@ class KitchenStockItem {
     required this.id,
     required this.name,
     required this.code,
+    this.shortCode,
     required this.stockTrackingEnabled,
     required this.quantity,
     required this.availability,
@@ -92,6 +96,8 @@ class KitchenStockItem {
   final int id;
   final String name;
   final String code;
+  final String? shortCode;
+  String get displayName => shortCode ?? name;
   final bool stockTrackingEnabled;
   final int? quantity;
   final String availability;
@@ -103,6 +109,7 @@ class KitchenStockItem {
       id: (json['id'] as num).toInt(),
       name: json['name'] as String? ?? 'Dish',
       code: json['code'] as String? ?? '',
+      shortCode: json['short_code'] as String?,
       stockTrackingEnabled: json['stock_tracking_enabled'] == true,
       quantity: (json['prepared_stock_quantity'] as num?)?.toInt(),
       availability: json['availability'] as String? ?? 'available',
@@ -170,7 +177,9 @@ class KitchenStation {
 
 class KotDish {
   const KotDish({
+    required this.id,
     required this.name,
+    this.shortCode,
     required this.quantity,
     this.cancelledQuantity = 0,
     required this.status,
@@ -178,7 +187,10 @@ class KotDish {
     required this.foodType,
   });
 
+  final int id;
   final String name;
+  final String? shortCode;
+  String get displayName => shortCode ?? name;
   final int quantity;
   final int cancelledQuantity;
   final String status;
@@ -193,7 +205,9 @@ class KotDish {
     final menuItem = json['menu_item'] as Map<String, dynamic>? ?? const {};
     final menuType = menuItem['menu_type'] as Map<String, dynamic>? ?? const {};
     return KotDish(
+      id: (json['id'] as num).toInt(),
       name: menuItem['name'] as String? ?? 'Dish',
+      shortCode: menuItem['short_code'] as String?,
       quantity: (json['quantity'] as num?)?.toInt() ?? 1,
       cancelledQuantity: (json['cancelled_quantity'] as num?)?.toInt() ?? 0,
       status: json['item_status'] as String? ?? 'new',
@@ -222,6 +236,7 @@ class KotTicket {
   final int? kitchenId;
   final String number;
   final String status;
+  bool get isAccepted => status == 'accepted' || status == 'preparing';
   final DateTime? createdAt;
   final String orderNumber;
   final String orderStatus;

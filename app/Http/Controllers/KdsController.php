@@ -5,11 +5,9 @@ namespace App\Http\Controllers;
 use App\Http\Controllers\Concerns\ManagesTenantAccess;
 use App\Models\Branch;
 use App\Models\Kitchen;
-use App\Models\KitchenMenuItem;
 use App\Models\KotItem;
 use App\Models\KotTicket;
 use App\Models\MenuItem;
-use App\Services\OrderService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -19,10 +17,6 @@ use Illuminate\View\View;
 class KdsController extends Controller
 {
     use ManagesTenantAccess;
-
-    public function __construct(
-        protected OrderService $orderService
-    ) {}
 
     /**
      * KDS Screens List - Displays all kitchen stations with live counters.
@@ -36,9 +30,7 @@ class KdsController extends Controller
 
         $kitchens = $query->with(['branch', 'company'])
             ->withCount([
-                'kotTickets as new_count' => fn ($q) => $q->where('ticket_status', 'accepted')->whereDate('created_at', $selectedDate),
-                'kotTickets as preparing_count' => fn ($q) => $q->where('ticket_status', 'preparing')->whereDate('created_at', $selectedDate),
-                'kotTickets as ready_count' => fn ($q) => $q->where('ticket_status', 'ready')->whereDate('created_at', $selectedDate),
+                'kotTickets as active_count' => fn ($q) => $q->withPendingWork()->whereDate('created_at', $selectedDate),
             ])
             ->orderBy('name')
             ->get();
@@ -130,10 +122,6 @@ class KdsController extends Controller
     /**
      * Real-time JSON data feed for the KDS screen.
      * Filters by kitchen if specified, or returns all active tickets for master screen.
-     * - Accepted / New -> "New Orders" column
-     * - Preparing -> "Preparing Orders" column
-     * - Ready -> "Ready Orders" column
-     * - Served -> Excluded completely (Do not show served order!)
      */
     public function feed(Request $request, ?Kitchen $kitchen = null): JsonResponse
     {
@@ -154,14 +142,14 @@ class KdsController extends Controller
             }
         }
 
-        // Active tickets query for KDS: accepted, preparing, ready - filtered by selected date (default present date)
         $query = KotTicket::query()
-            ->whereIn('ticket_status', ['accepted', 'preparing', 'ready'])
+            ->withPendingWork()
             ->whereDate('created_at', $selectedDate)
             ->with([
                 'kitchen',
                 'order.table',
                 'order.waiter',
+                'items' => fn ($items) => $items->pending(),
                 'items.menuItem',
             ])
             ->orderBy('created_at', 'asc');
@@ -179,21 +167,9 @@ class KdsController extends Controller
         $formatTicket = function (KotTicket $t) use ($now) {
             $receivedAt = $t->order?->created_at ?? $t->created_at ?? $now;
 
-            // Requirement: "that duration should start from the second the kitchen staff accepted that order!!"
-            $startTime = $t->accepted_at ?? ($t->ticket_status === 'accepted' || $t->ticket_status === 'preparing' ? $t->updated_at ?? $t->created_at : null);
-
-            if ($t->ticket_status === 'ready') {
-                $elapsedSeconds = $t->duration_seconds ?? ($t->ready_at && $startTime ? abs((int) $t->ready_at->diffInSeconds($startTime)) : ($startTime ? abs((int) $t->updated_at->diffInSeconds($startTime)) : 0));
-                $isRunning = false;
-            } elseif ($t->ticket_status === 'accepted' || $t->ticket_status === 'preparing') {
-                // Accepted by kitchen staff: live duration ticks from accepted_at
-                $elapsedSeconds = $startTime ? max(0, abs((int) $now->diffInSeconds($startTime))) : 0;
-                $isRunning = true;
-            } else {
-                // Not yet accepted by kitchen staff: duration timer has not started
-                $elapsedSeconds = 0;
-                $isRunning = false;
-            }
+            $isAccepted = in_array($t->ticket_status, KotTicket::ACCEPTED_STATUSES, true);
+            $startTime = $t->accepted_at ?? ($isAccepted ? $t->updated_at ?? $t->created_at : null);
+            $elapsedSeconds = $startTime ? abs((int) $now->diffInSeconds($startTime)) : 0;
 
             // Extract numeric display (e.g. "1" from "KOT-20261106-K4-0001")
             if (preg_match('/-(\d+)$/', (string) $t->kot_number, $matches)) {
@@ -218,6 +194,7 @@ class KdsController extends Controller
                 'table_name' => $tableName,
                 'waiter_name' => $t->order?->waiter?->name ?? 'Staff',
                 'ticket_status' => $t->ticket_status,
+                'order_status' => $t->order?->status,
                 'special_instructions' => $t->order?->special_instructions,
                 'notes' => $t->notes,
                 'order_received_time' => $receivedAt->format('h:i A'),
@@ -226,27 +203,18 @@ class KdsController extends Controller
                 'created_at_iso' => $receivedAt->toIso8601String(),
                 'accepted_at_iso' => $t->accepted_at?->toIso8601String(),
                 'elapsed_seconds' => $elapsedSeconds,
-                'is_running' => $isRunning,
+                'is_running' => $isAccepted,
                 'items' => $t->items->map(fn (KotItem $item) => [
                     'id' => $item->id,
                     'dish_name' => $item->menuItem?->name ?? 'Dish',
                     'dish_code' => $item->menuItem?->code,
-                    'quantity' => (int) $item->quantity,
+                    'short_code' => $item->menuItem?->short_code,
+                    'quantity' => $item->quantity - $item->cancelled_quantity,
                     'special_instructions' => $item->special_instructions,
                     'item_status' => $item->item_status,
                 ])->values()->all(),
             ];
         };
-
-        // User requirement:
-        // "once he accept the order then only it'll comes under new orders and that duration should start from there!!!!"
-        // "Accepted means thats a new order!!! section!!"
-        // "Preparing means the order is being preparing section"
-        // "ready means ready oders section!!"
-        // "Do not show served order!!!"
-        $newTickets = $tickets->filter(fn ($t) => $t->ticket_status === 'accepted')->map($formatTicket)->values();
-        $preparingTickets = $tickets->filter(fn ($t) => $t->ticket_status === 'preparing')->map($formatTicket)->values();
-        $readyTickets = $tickets->filter(fn ($t) => $t->ticket_status === 'ready')->map($formatTicket)->values();
 
         return response()->json([
             'kitchen' => $kitchen && $kitchen->id ? [
@@ -264,59 +232,9 @@ class KdsController extends Controller
             'server_date' => Carbon::parse($selectedDate)->format('D, d M Y'),
             'filter_date' => $selectedDate,
             'counts' => [
-                'new' => $newTickets->count(),
-                'preparing' => $preparingTickets->count(),
-                'ready' => $readyTickets->count(),
-                'total_active' => $newTickets->count() + $preparingTickets->count() + $readyTickets->count(),
+                'total_active' => $tickets->count(),
             ],
-            'new_tickets' => $newTickets,
-            'preparing_tickets' => $preparingTickets,
-            'ready_tickets' => $readyTickets,
-        ]);
-    }
-
-    /**
-     * Update preparation status for an entire KOT ticket.
-     */
-    public function updateTicketStatus(Request $request, KotTicket $kot): JsonResponse
-    {
-        $this->authorizeKotAccess($kot);
-
-        $validated = $request->validate([
-            'status' => ['required', 'string', 'in:new,accepted,preparing,ready,served,cancelled'],
-        ]);
-
-        $this->orderService->updateKotTicketStatus($kot, $validated['status']);
-
-        return response()->json([
-            'success' => true,
-            'message' => "KOT #{$kot->kot_number} updated to {$validated['status']}.",
-            'ticket_id' => $kot->id,
-            'new_status' => $validated['status'],
-        ]);
-    }
-
-    /**
-     * Update status for a single item within a KOT ticket.
-     */
-    public function updateItemStatus(Request $request, KotItem $item): JsonResponse
-    {
-        $ticket = $item->ticket;
-        abort_unless($ticket, 404);
-        $this->authorizeKotAccess($ticket);
-
-        $validated = $request->validate([
-            'status' => ['required', 'string', 'in:new,accepted,preparing,ready,served,cancelled'],
-        ]);
-
-        $this->orderService->updateKotItemStatus($item, $validated['status']);
-
-        return response()->json([
-            'success' => true,
-            'message' => "Item status updated to {$validated['status']}.",
-            'item_id' => $item->id,
-            'item_status' => $validated['status'],
-            'ticket_status' => $ticket->fresh()->ticket_status,
+            'active_tickets' => $tickets->map($formatTicket)->values(),
         ]);
     }
 
@@ -342,6 +260,7 @@ class KdsController extends Controller
                 'id' => $item->id,
                 'name' => $item->name,
                 'code' => $item->code,
+                'short_code' => $item->short_code,
                 'category_name' => $item->category?->name ?? 'General',
                 'menu_type' => $item->menuType?->name ?? 'Food',
                 'is_available' => strtolower((string) ($item->availability ?? 'available')) !== 'sold_out',
@@ -414,19 +333,6 @@ class KdsController extends Controller
 
         if ($this->locksBranch()) {
             abort_unless((int) $kitchen->branch_id === (int) $this->actor()->branch_id, 403);
-        }
-    }
-
-    protected function authorizeKotAccess(KotTicket $kot): void
-    {
-        if ($this->isSuperAdmin()) {
-            return;
-        }
-
-        abort_unless((int) $kot->company_id === (int) $this->actor()->company_id, 403);
-
-        if ($this->locksBranch()) {
-            abort_unless((int) $kot->branch_id === (int) $this->actor()->branch_id, 403);
         }
     }
 }

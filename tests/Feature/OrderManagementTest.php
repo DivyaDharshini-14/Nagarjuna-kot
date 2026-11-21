@@ -18,6 +18,7 @@ use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 class OrderManagementTest extends TestCase
@@ -319,6 +320,41 @@ class OrderManagementTest extends TestCase
         $biryaniApiResponse->assertOk();
         $biryaniApiResponse->assertJsonFragment(['name' => 'Chicken Biryani']);
         $biryaniApiResponse->assertJsonMissing(['name' => 'Veg Fried Rice']);
+    }
+
+    public function test_readiness_is_calculated_across_kitchen_tickets(): void
+    {
+        $response = $this->actingAs($this->waiter)->postJson(route('api.orders.store'), [
+            'table_id' => $this->table->id,
+            'items' => [
+                ['menu_item_id' => $this->chickenBiryani->id, 'quantity' => 1],
+                ['menu_item_id' => $this->friedRice->id, 'quantity' => 1],
+            ],
+        ])->assertCreated();
+
+        $order = Order::findOrFail($response->json('order.id'));
+        [$first, $second] = $order->kotTickets()->with('items')->orderBy('id')->get()->all();
+
+        $cook = User::factory()->create([
+            'company_id' => $this->company->id,
+            'branch_id' => $this->branch->id,
+            'is_active' => true,
+        ]);
+        $cook->roles()->attach(Role::where('slug', 'kitchen-staff')->firstOrFail());
+        $cook->kitchens()->attach([$this->biryaniKitchen->id, $this->chineseKitchen->id]);
+
+        Sanctum::actingAs($cook, ['kitchen:mobile']);
+        $this->patchJson(route('api.kitchen-mobile.kot-tickets.status', $first), ['status' => 'accepted'])->assertOk();
+        $this->patchJson(route('api.kitchen-mobile.kot-items.ready', $first->items->sole()))->assertOk();
+
+        $this->assertSame('partially_ready', $order->fresh()->status);
+        $this->actingAs($this->manager, 'web')->getJson(route('kds.feed.all'))->assertJsonCount(1, 'active_tickets')
+            ->assertJsonPath('active_tickets.0.id', $second->id);
+
+        Sanctum::actingAs($cook, ['kitchen:mobile']);
+        $this->patchJson(route('api.kitchen-mobile.kot-tickets.status', $second), ['status' => 'accepted'])->assertOk();
+        $this->patchJson(route('api.kitchen-mobile.kot-items.ready', $second->items->sole()))->assertOk();
+        $this->assertSame('ready', $order->fresh()->status);
     }
 
     public function test_admin_has_full_orders_and_kot_management_access(): void

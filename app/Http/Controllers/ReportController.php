@@ -50,7 +50,7 @@ class ReportController extends Controller
         $totalOrders = $summaryQuery->count();
         $totalRevenue = (clone $query)->whereNotIn('status', ['cancelled'])->sum('total_amount');
         $completedCount = (clone $query)->whereIn('status', ['served', 'completed'])->count();
-        $inProgressCount = (clone $query)->whereIn('status', ['new', 'accepted', 'preparing', 'ready', 'confirmed', 'pending'])->count();
+        $inProgressCount = (clone $query)->whereIn('status', ['new', 'accepted', 'preparing', 'partially_ready', 'ready', 'confirmed', 'pending'])->count();
         $cancelledCount = (clone $query)->where('status', 'cancelled')->count();
 
         // Paginated results for the report table

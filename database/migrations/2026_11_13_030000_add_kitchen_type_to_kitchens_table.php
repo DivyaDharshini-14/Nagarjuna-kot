@@ -8,8 +8,18 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('kitchens', function (Blueprint $table) {
-            $table->string('kitchen_type', 100)->nullable()->after('code');
+        $existingColumn = collect(Schema::getColumns('kitchens'))->firstWhere('name', 'kitchen_type');
+
+        if ($existingColumn && $existingColumn['nullable']) {
+            return;
+        }
+
+        Schema::table('kitchens', function (Blueprint $table) use ($existingColumn) {
+            $column = $table->string('kitchen_type', 100)->nullable()->after('code');
+
+            if ($existingColumn) {
+                $column->change();
+            }
         });
     }
 

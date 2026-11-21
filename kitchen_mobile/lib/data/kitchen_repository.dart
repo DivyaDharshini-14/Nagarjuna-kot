@@ -57,11 +57,15 @@ class KitchenRepository {
     return KitchenPage.fromData(data, 'tickets', KotTicket.fromJson);
   }
 
-  Future<void> updateStatus(int ticketId, String status) async {
+  Future<void> acceptTicket(int ticketId) async {
     await api.patch(
       '/kitchen-mobile/kot-tickets/$ticketId/status',
-      body: {'status': status},
+      body: {'status': 'accepted'},
     );
+  }
+
+  Future<void> markItemReady(int itemId) async {
+    await api.patch('/kitchen-mobile/kot-items/$itemId/ready', body: const {});
   }
 
   Future<List<KitchenStockItem>> getStockItems() async =>

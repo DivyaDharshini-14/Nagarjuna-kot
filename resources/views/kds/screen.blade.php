@@ -3,7 +3,6 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{{ $kitchen ? $kitchen->name . ' – Kitchen Display Screen' : 'Kitchen Display System (KDS)' }} | Nagarjuna</title>
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -19,10 +18,6 @@
             --brand-green-light: #167a3f;
             --col-new-header: #146c36;
             --col-new-border: #146c36;
-            --col-prep-header: #e09015;
-            --col-prep-border: #e09015;
-            --col-ready-header: #249645;
-            --col-ready-border: #249645;
             --card-border: #e2edd5;
             --text-main: #111827;
         }
@@ -245,7 +240,7 @@
         /* 3-COLUMNS BOARD - FILLS REMAINING HEIGHT WITH ZERO SCROLL */
         .board-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
+            grid-template-columns: 1fr;
             gap: 16px;
             align-items: stretch;
             flex: 1;
@@ -269,12 +264,6 @@
         .col-new-orders {
             border: 2.5px solid var(--col-new-border);
         }
-        .col-prep-orders {
-            border: 2.5px solid var(--col-prep-border);
-        }
-        .col-ready-orders {
-            border: 2.5px solid var(--col-ready-border);
-        }
 
         /* COLUMN HEADERS */
         .col-header {
@@ -293,12 +282,6 @@
         .col-header-new {
             background: var(--col-new-header);
         }
-        .col-header-prep {
-            background: var(--col-prep-header);
-        }
-        .col-header-ready {
-            background: var(--col-ready-header);
-        }
 
         .col-header-icon {
             width: 28px;
@@ -309,8 +292,9 @@
         /* CARDS CONTAINER */
         .cards-list {
             padding: 10px 12px;
-            display: flex;
-            flex-direction: column;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 400px), 1fr));
+            align-content: start;
             gap: 12px;
             flex: 1;
             min-height: 0;
@@ -396,8 +380,8 @@
 
         .dish-row-compact {
             display: grid;
-            grid-template-columns: 1fr auto;
-            align-items: baseline;
+            grid-template-columns: minmax(0, 1fr) auto;
+            align-items: center;
             gap: 10px;
             font-size: 0.94rem;
             font-weight: 700;
@@ -406,9 +390,7 @@
         }
 
         .dish-name-compact {
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
+            overflow-wrap: anywhere;
         }
 
         .dish-qty-compact {
@@ -474,57 +456,10 @@
             flex-shrink: 0;
         }
 
-        /* PREPARING DURATION CAPSULE (AMBER) */
-        .timer-capsule-prep {
-            background-color: #f59e0b;
-            color: #111827;
-            font-size: 0.98rem;
-            font-weight: 900;
-            border-radius: 24px;
-            padding: 6px 8px;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 6px;
-            width: 106px;
-            box-sizing: border-box;
-            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
-            white-space: nowrap;
-        }
-        .timer-capsule-prep svg {
-            width: 16px;
-            height: 16px;
-            fill: #111827;
-            flex-shrink: 0;
-        }
 
-        /* READY DURATION CAPSULE (GREEN - FROZEN) */
-        .timer-capsule-ready {
-            background-color: #16a34a;
-            color: #ffffff;
-            font-size: 0.98rem;
-            font-weight: 900;
-            border-radius: 24px;
-            padding: 6px 8px;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 6px;
-            width: 106px;
-            box-sizing: border-box;
-            box-shadow: 0 2px 6px rgba(22, 163, 74, 0.25);
-            white-space: nowrap;
-        }
-        .timer-capsule-ready svg {
-            width: 16px;
-            height: 16px;
-            fill: #ffffff;
-            flex-shrink: 0;
-        }
 
         /* TABULAR NUMBERS (ZERO JITTER / JUMPING) */
-        .live-card-timer,
-        .total-duration-val {
+        .live-card-timer {
             font-variant-numeric: tabular-nums;
             font-feature-settings: "tnum";
             font-family: 'Outfit', 'Roboto Mono', ui-monospace, SFMono-Regular, monospace;
@@ -637,26 +572,8 @@
                 </div>
                 <div class="summary-items-grid">
                     <div class="summary-stat-group">
-                        <span class="summary-stat-label">
-                            <i class="bi bi-circle-fill text-danger" style="font-size: 0.6rem;"></i> New
-                        </span>
-                        <span class="summary-stat-num" id="sumNew">0</span>
-                    </div>
-                    <div class="summary-stat-group">
-                        <span class="summary-stat-label">
-                            <!-- Golden Chef Hat Icon -->
-                            <svg viewBox="0 0 24 24" width="14" height="14" fill="#e09015">
-                                <path d="M19 10a3 3 0 0 0-2.2-2.9 4 4 0 0 0-7.6 0A3 3 0 0 0 5 10a3 3 0 0 0 1 2.2V17h12v-4.8a3 3 0 0 0 1-2.2zM7 19h10v2H7z"/>
-                            </svg>
-                            Preparing
-                        </span>
-                        <span class="summary-stat-num" id="sumPrep">0</span>
-                    </div>
-                    <div class="summary-stat-group">
-                        <span class="summary-stat-label">
-                            <i class="bi bi-check-circle-fill text-success" style="font-size: 0.8rem;"></i> Ready
-                        </span>
-                        <span class="summary-stat-num" id="sumReady">0</span>
+                        <span class="summary-stat-label">Active tickets</span>
+                        <span class="summary-stat-num" id="activeCount">0</span>
                     </div>
                 </div>
             </div>
@@ -689,9 +606,8 @@
             </div>
         </header>
 
-        <!-- 3-COLUMNS BOARD (MATCHING MOCKUP) -->
+        <!-- ACTIVE KITCHEN ORDERS -->
         <main class="board-grid">
-            <!-- COLUMN 1: NEW ORDERS (ACCEPTED / NEW) -->
             <div class="board-column col-new-orders">
                 <div class="col-header col-header-new">
                     <!-- Bell with little yellow rays -->
@@ -701,40 +617,13 @@
                         <!-- White Bell -->
                         <path d="M15,4 C15.6,4 16,4.4 16,5 L16,6 C19.3,6.5 22,9.4 22,13 L22,19 L24,21 L24,22 L6,22 L6,21 L8,19 L8,13 C8,9.4 10.7,6.5 14,6 L14,5 C14,4.4 14.4,4 15,4 Z M12,23 L18,23 C18,24.7 16.7,26 15,26 C13.3,26 12,24.7 12,23 Z" fill="#ffffff"/>
                     </svg>
-                    <span>New Orders (<span id="countNew">0</span>)</span>
+                    <span>Active Orders</span>
                 </div>
-                <div class="cards-list" id="newCardsContainer">
+                <div class="cards-list" id="activeCards">
                     <!-- Rendered dynamically -->
                 </div>
             </div>
 
-            <!-- COLUMN 2: PREPARING ORDERS -->
-            <div class="board-column col-prep-orders">
-                <div class="col-header col-header-prep">
-                    <!-- Chef Hat Icon -->
-                    <svg class="col-header-icon" viewBox="0 0 24 24" fill="#ffffff">
-                        <path d="M19 10a3 3 0 0 0-2.2-2.9 4 4 0 0 0-7.6 0A3 3 0 0 0 5 10a3 3 0 0 0 1 2.2V17h12v-4.8a3 3 0 0 0 1-2.2zM7 19h10v2H7z"/>
-                    </svg>
-                    <span>Preparing Orders (<span id="countPrep">0</span>)</span>
-                </div>
-                <div class="cards-list" id="prepCardsContainer">
-                    <!-- Rendered dynamically -->
-                </div>
-            </div>
-
-            <!-- COLUMN 3: READY ORDERS -->
-            <div class="board-column col-ready-orders">
-                <div class="col-header col-header-ready">
-                    <!-- Checkmark in Circle -->
-                    <svg class="col-header-icon" viewBox="0 0 24 24" fill="#ffffff">
-                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
-                    </svg>
-                    <span>Ready Orders (<span id="countReady">0</span>)</span>
-                </div>
-                <div class="cards-list" id="readyCardsContainer">
-                    <!-- Rendered dynamically -->
-                </div>
-            </div>
         </main>
 
         <!-- FULLSCREEN EXPAND ACTION (ONLY EXPAND ICON AS REQUESTED) -->
@@ -756,7 +645,15 @@
 
         let soundEnabled = true;
         let audioContext = null;
-        let knownIds = new Set();
+        let knownIds;
+        let feedGeneration = 0;
+        const activeCards = document.getElementById('activeCards');
+
+        function escapeHtml(value) {
+            const el = document.createElement('span');
+            el.textContent = String(value ?? '');
+            return el.innerHTML.replaceAll('"', '&quot;').replaceAll("'", '&#39;');
+        }
 
         // Live Real-Time Clock & Date (updates every second)
         function refreshClock() {
@@ -856,7 +753,7 @@
         }, 1000);
 
         // Generate EXACT KOT Card HTML matching user design (image)
-        function buildCardHtml(ticket, stage) {
+        function buildCardHtml(ticket) {
             // Extract readable number from kot_number or kot_display_number
             let kotNum = ticket.kot_display_number || ticket.kot_number;
 
@@ -871,77 +768,50 @@
                 tableStr = `Table ${rawTable}`;
             }
 
-            // Duration Capsule
-            // Requirement: "duration should start from the second the kitchen staff accepted that order!!"
-            let durationHtml = '';
-            const sec = parseInt(ticket.elapsed_seconds || 0, 10);
-            const timeFormatted = formatSecs(sec);
-            const isLive = Boolean(ticket.is_running);
-            const timerClass = isLive ? 'live-card-timer' : 'static-card-timer';
+            const sec = Number(ticket.elapsed_seconds) || 0;
+            const durationHtml = ticket.is_running
+                ? `<div class="timer-capsule-exact" title="Live duration">
+                        <i class="bi bi-stopwatch"></i>
+                        <span class="live-card-timer" data-sec="${sec}">${formatSecs(sec)}</span>
+                    </div>`
+                : '';
 
-            if (stage === 'new') {
-                durationHtml = `
-                    <div class="timer-capsule-exact" title="${isLive ? 'Live Duration' : 'Awaiting Acceptance'}">
-                        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-                            <path d="M12 1a1 1 0 0 1 1 1v1.07A8.001 8.001 0 0 1 19.93 11H21a1 1 0 1 1 0 2h-1.07A8.001 8.001 0 0 1 12 21a8.001 8.001 0 0 1-7.93-8H3a1 1 0 1 1 0-2h1.07A8.001 8.001 0 0 1 11 3.07V2a1 1 0 0 1 1-1zm0 4a6 6 0 1 0 6 6 6 6 0 0 0-6-6zm0 2a1 1 0 0 1 1 1v2.586l1.707 1.707a1 1 0 0 1-1.414 1.414l-2-2A1 1 0 0 1 11 10.5V8a1 1 0 0 1 1-1z"/>
-                        </svg>
-                        <span class="${timerClass}" data-sec="${sec}">${timeFormatted}</span>
+            const dishesHtml = (ticket.items || []).map(item => {
+                const label = escapeHtml(item.short_code || item.dish_name);
+                return `
+                    <div class="dish-row-compact">
+                        <span class="dish-name-compact">${label}</span>
+                        <span class="dish-qty-compact">× ${item.quantity}</span>
                     </div>
+                    ${item.special_instructions ? `<div class="dish-note-pill">${escapeHtml(item.special_instructions)}</div>` : ''}
                 `;
-            } else if (stage === 'preparing') {
-                durationHtml = `
-                    <div class="timer-capsule-prep" title="Preparing Duration">
-                        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-                            <path d="M12 1a1 1 0 0 1 1 1v1.07A8.001 8.001 0 0 1 19.93 11H21a1 1 0 1 1 0 2h-1.07A8.001 8.001 0 0 1 12 21a8.001 8.001 0 0 1-7.93-8H3a1 1 0 1 1 0-2h1.07A8.001 8.001 0 0 1 11 3.07V2a1 1 0 0 1 1-1zm0 4a6 6 0 1 0 6 6 6 6 0 0 0-6-6zm0 2a1 1 0 0 1 1 1v2.586l1.707 1.707a1 1 0 0 1-1.414 1.414l-2-2A1 1 0 0 1 11 10.5V8a1 1 0 0 1 1-1z"/>
-                        </svg>
-                        <span class="${timerClass}" data-sec="${sec}">${timeFormatted}</span>
-                    </div>
-                `;
-            } else if (stage === 'ready') {
-                // STOPPED: total preparation duration frozen
-                durationHtml = `
-                    <div class="timer-capsule-ready" title="Total Duration">
-                        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-                            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
-                        </svg>
-                        <span class="total-duration-val">${timeFormatted}</span>
-                    </div>
-                `;
+            }).join('');
+
+            const specialNote = ticket.special_instructions?.trim()
+                ? `<div class="dish-note-pill mt-1">${escapeHtml(ticket.special_instructions)}</div>`
+                : '';
+            let statusHtml = '<span class="badge text-bg-secondary">New</span>';
+            if (ticket.order_status === 'partially_ready') {
+                statusHtml = '<span class="badge bg-warning text-dark">Partially Ready</span>';
+            } else if (ticket.is_running) {
+                statusHtml = '<span class="badge text-bg-success">Accepted</span>';
             }
 
-            // Dishes list rows (compact, matching image)
-            const dishesHtml = (ticket.items || []).map(item => `
-                <div class="dish-row-compact">
-                    <span class="dish-name-compact">${item.dish_name}</span>
-                    <span class="dish-qty-compact">× ${item.quantity}</span>
-                </div>
-                ${item.special_instructions ? `<div class="dish-note-pill">${item.special_instructions}</div>` : ''}
-            `).join('');
-
-            // Special instructions callout (shown only if present)
-            const specialNote = ticket.special_instructions && ticket.special_instructions.trim() !== ''
-                ? `<div class="dish-note-pill mt-1">${ticket.special_instructions}</div>`
-                : '';
-
-            // Order Received Time below duration
-            const receivedTimeHtml = ticket.order_received_time 
-                ? `<span class="received-time-text">${ticket.order_received_time}</span>` 
-                : '';
-
             return `
-                <div class="kot-order-card" id="card-${ticket.id}" title="${ticket.kot_number}">
+                <div class="kot-order-card" id="card-${ticket.id}" title="${escapeHtml(ticket.kot_number)}">
                     <div class="kot-badge-box">
                         <span class="kot-box-label">KOT</span>
-                        <span class="kot-box-number">${kotNum}</span>
-                        <span class="kot-box-table">${tableStr}</span>
+                        <span class="kot-box-number">${escapeHtml(kotNum)}</span>
+                        <span class="kot-box-table">${escapeHtml(tableStr)}</span>
                     </div>
                     <div class="kot-dishes-middle">
                         ${dishesHtml}
                         ${specialNote}
                     </div>
                     <div class="kot-right-column">
+                        ${statusHtml}
                         ${durationHtml}
-                        ${receivedTimeHtml}
+                        <span class="received-time-text">${escapeHtml(ticket.order_received_time)}</span>
                     </div>
                 </div>
             `;
@@ -949,6 +819,7 @@
 
         // Real-time Feed Polling
         async function pullFeed() {
+            const requestGeneration = ++feedGeneration;
             try {
                 const urlParams = new URLSearchParams(window.location.search);
                 const dateParam = urlParams.get('date');
@@ -959,73 +830,30 @@
                 const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
                 if (!res.ok) throw new Error('Network error');
                 const data = await res.json();
+                if (requestGeneration !== feedGeneration) return;
 
                 if (dateParam && data.server_date) {
                     const dateEl = document.getElementById('liveDate');
                     if (dateEl) dateEl.innerText = data.server_date;
                 }
 
-                const newTickets = data.new_tickets || [];
-                const prepTickets = data.preparing_tickets || [];
-                const readyTickets = data.ready_tickets || [];
+                const tickets = data.active_tickets || [];
+                document.getElementById('activeCount').innerText = tickets.length;
 
-                const countNew = data.counts?.new ?? 0;
-                const countPrep = data.counts?.preparing ?? 0;
-                const countReady = data.counts?.ready ?? 0;
-
-                // Update Header Summary Stats
-                document.getElementById('sumNew').innerText = countNew;
-                document.getElementById('sumPrep').innerText = countPrep;
-                document.getElementById('sumReady').innerText = countReady;
-
-                // Update Column Header Counts
-                document.getElementById('countNew').innerText = countNew;
-                document.getElementById('countPrep').innerText = countPrep;
-                document.getElementById('countReady').innerText = countReady;
-
-                // Audio alert on new order arrival
-                const currentNewIds = new Set(newTickets.map(t => t.id));
-                let hasNew = false;
-                for (let id of currentNewIds) {
-                    if (!knownIds.has(id)) {
-                        hasNew = true;
-                        break;
-                    }
-                }
-                if (hasNew && knownIds.size > 0) {
+                if (knownIds && tickets.some(ticket => !knownIds.has(ticket.id))) {
                     playAlertSound();
                 }
-                knownIds = new Set([...newTickets.map(t => t.id), ...prepTickets.map(t => t.id), ...readyTickets.map(t => t.id)]);
-
-                // Render Column 1: New Orders (Accepted / New)
-                const cNew = document.getElementById('newCardsContainer');
-                if (newTickets.length === 0) {
-                    cNew.innerHTML = '<div class="empty-column-state">No new orders waiting</div>';
-                } else {
-                    cNew.innerHTML = newTickets.map(t => buildCardHtml(t, 'new')).join('');
-                }
-
-                // Render Column 2: Preparing Orders (Preparing)
-                const cPrep = document.getElementById('prepCardsContainer');
-                if (prepTickets.length === 0) {
-                    cPrep.innerHTML = '<div class="empty-column-state">No orders in preparation</div>';
-                } else {
-                    cPrep.innerHTML = prepTickets.map(t => buildCardHtml(t, 'preparing')).join('');
-                }
-
-                // Render Column 3: Ready Orders (Ready)
-                const cReady = document.getElementById('readyCardsContainer');
-                if (readyTickets.length === 0) {
-                    cReady.innerHTML = '<div class="empty-column-state">No ready orders for pickup</div>';
-                } else {
-                    cReady.innerHTML = readyTickets.map(t => buildCardHtml(t, 'ready')).join('');
-                }
+                knownIds = new Set(tickets.map(ticket => ticket.id));
+                activeCards.innerHTML = tickets.length
+                    ? tickets.map(buildCardHtml).join('')
+                    : '<div class="empty-column-state">No active orders</div>';
 
                 // Clear network warning on successful fetch
                 const netPill = document.getElementById('networkPill');
                 if (netPill) netPill.style.display = 'none';
 
             } catch (err) {
+                if (requestGeneration !== feedGeneration) return;
                 console.error('Error fetching KDS feed:', err);
                 // Show network reconnection warning
                 const netPill = document.getElementById('networkPill');

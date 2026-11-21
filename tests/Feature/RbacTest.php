@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Branch;
 use App\Models\Company;
+use App\Models\MenuType;
 use App\Models\Permission;
 use App\Models\RestaurantTable;
 use App\Models\Role;
@@ -352,5 +353,33 @@ class RbacTest extends TestCase
         $this->actingAs($this->managerUser)->getJson(route('categories.options', ['company_id' => $this->company->id]))->assertOk();
         $this->actingAs($this->managerUser)->getJson(route('menu-types.options', ['company_id' => $this->company->id]))->assertOk();
         $this->actingAs($this->managerUser)->getJson(route('menu-items.options', ['branch_id' => $this->branchA->id]))->assertOk();
+    }
+
+    public function test_menu_type_options_follow_the_selected_branch(): void
+    {
+        $shared = MenuType::create(['company_id' => $this->company->id, 'name' => 'Drinks', 'is_active' => true]);
+        $veg = MenuType::create([
+            'company_id' => $this->company->id, 'branch_id' => $this->branchA->id, 'name' => 'Veg', 'is_active' => true,
+        ]);
+        $starters = MenuType::create([
+            'company_id' => $this->company->id, 'branch_id' => $this->branchB->id, 'name' => 'Starters', 'is_active' => true,
+        ]);
+        MenuType::create([
+            'company_id' => $this->company->id, 'branch_id' => $this->branchA->id, 'name' => 'Inactive', 'is_active' => false,
+        ]);
+
+        $indiranagar = route('menu-types.options', ['company_id' => $this->company->id, 'branch_id' => $this->branchA->id]);
+        $otherBranch = route('menu-types.options', ['company_id' => $this->company->id, 'branch_id' => $this->branchB->id]);
+        $indiranagarOptions = [
+            ['id' => $shared->id, 'label' => 'Drinks'],
+            ['id' => $veg->id, 'label' => 'Veg'],
+        ];
+
+        $this->actingAs($this->adminUser)->getJson($indiranagar)->assertOk()->assertExactJson($indiranagarOptions);
+        $this->getJson($otherBranch)->assertOk()->assertExactJson([
+            ['id' => $shared->id, 'label' => 'Drinks'],
+            ['id' => $starters->id, 'label' => 'Starters'],
+        ]);
+        $this->actingAs($this->managerUser)->getJson($otherBranch)->assertOk()->assertExactJson($indiranagarOptions);
     }
 }

@@ -11,6 +11,7 @@
                     $badgeClass = match($order->status) {
                         'confirmed' => 'bg-primary',
                         'preparing' => 'bg-warning text-dark',
+                        'partially_ready' => 'bg-warning text-dark',
                         'ready' => 'bg-info text-dark',
                         'served' => 'bg-success',
                         'completed' => 'bg-secondary',
@@ -18,7 +19,7 @@
                         default => 'bg-light text-dark border',
                     };
                 @endphp
-                <span class="badge {{ $badgeClass }} fs-6">{{ ucfirst($order->status) }}</span>
+                <span class="badge {{ $badgeClass }} fs-6">{{ Str::headline($order->status) }}</span>
             </div>
             <p class="text-muted small mb-0">
                 Created on {{ $order->created_at->format('M d, Y H:i') }} | Table: <strong>{{ $order->table?->name ?? '—' }}</strong> | Waiter: <strong>{{ $order->waiter?->name ?? '—' }}</strong>

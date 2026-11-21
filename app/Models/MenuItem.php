@@ -18,6 +18,7 @@ class MenuItem extends Model
         'menu_type_id',
         'name',
         'code',
+        'short_code',
         'selling_price',
         'image',
         'description',

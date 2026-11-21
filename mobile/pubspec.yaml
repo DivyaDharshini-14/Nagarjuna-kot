@@ -1,5 +1,5 @@
 name: nagarjuna_waiter
-description: "Waiter and captain app for the Nagarjuna KOT management system."
+description: "Temporary order-entry test client for the Nagarjuna KOT API."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev

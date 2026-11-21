@@ -21,7 +21,6 @@
         .kot-card.status-new { border-color: #dc3545; }
         .kot-card.status-accepted { border-color: #0dcaf0; }
         .kot-card.status-preparing { border-color: #ffc107; }
-        .kot-card.status-ready { border-color: #198754; }
         .kot-card.status-cancelled { border-color: #6c757d; opacity: .82; }
         .kds-header { background-color: #000; border-bottom: 2px solid #333; padding: 0.75rem 1.5rem; }
     </style>
@@ -35,8 +34,7 @@
         </div>
         <div class="d-flex align-items-center gap-3">
             <span class="badge bg-danger fs-6">{{ $tickets->where('ticket_status', 'new')->count() }} New</span>
-            <span class="badge bg-warning text-dark fs-6">{{ $tickets->where('ticket_status', 'preparing')->count() }} Preparing</span>
-            <span class="badge bg-success fs-6">{{ $tickets->where('ticket_status', 'ready')->count() }} Ready</span>
+            <span class="badge bg-info text-dark fs-6">{{ $tickets->count() }} Active</span>
             <span id="connection-status" class="badge bg-warning text-dark">Connecting…</span>
             <button id="sound-toggle" type="button" class="btn btn-outline-light btn-sm">Enable sound</button>
             @unless($displayToken)
@@ -48,6 +46,7 @@
     <main class="container-fluid py-4">
         <div class="row g-3">
             @forelse($tickets as $ticket)
+                @php($accepted = in_array($ticket->ticket_status, \App\Models\KotTicket::ACCEPTED_STATUSES, true))
                 <div class="col-md-6 col-lg-4 col-xl-3">
                     <div class="kot-card status-{{ $ticket->ticket_status }} p-3" data-created-at="{{ $ticket->created_at->timestamp }}">
                         <div class="d-flex justify-content-between align-items-start border-bottom border-secondary pb-2 mb-2">
@@ -57,9 +56,12 @@
                                 <span class="badge bg-info text-dark fs-6 mt-1">Table: {{ $ticket->order?->table?->name }}</span>
                             </div>
                             <div class="text-end">
-                                <span class="badge {{ $ticket->ticket_status === 'new' ? 'bg-danger' : ($ticket->ticket_status === 'preparing' ? 'bg-warning text-dark' : 'bg-success') }} fs-6 text-capitalize">
-                                    {{ $ticket->ticket_status }}
+                                <span class="badge {{ $accepted ? 'bg-info text-dark' : 'bg-danger' }} fs-6">
+                                    {{ $accepted ? 'Accepted' : 'New' }}
                                 </span>
+                                @if($ticket->order?->status === 'partially_ready')
+                                    <div class="badge bg-warning text-dark d-block mt-1">Partially Ready</div>
+                                @endif
                                 <div class="text-secondary small mt-1">{{ $ticket->created_at->format('H:i:s') }}</div>
                                 <div class="text-warning small mt-1">Waiting <span class="waiting-duration">—</span></div>
                             </div>
@@ -67,10 +69,10 @@
 
                         <ul class="list-unstyled mb-3">
                             @foreach($ticket->items as $dish)
-                                @php($remainingQuantity = max(0, $dish->quantity - $dish->cancelled_quantity))
+                                @php($dishLabel = $dish->menuItem?->short_code ?? $dish->menuItem?->name ?? 'Dish')
                                 <li class="d-flex justify-content-between align-items-start py-2 border-bottom border-dark">
                                     <div>
-                                        <div class="fs-5 fw-bold {{ $remainingQuantity === 0 ? 'text-secondary text-decoration-line-through' : 'text-light' }}">{{ $dish->menuItem?->name }}</div>
+                                        <div class="fs-5 fw-bold text-light">{{ $dishLabel }}</div>
                                         @if($dish->special_instructions)
                                             <div class="badge bg-danger text-wrap text-start mt-1">Note: {{ $dish->special_instructions }}</div>
                                         @endif
@@ -78,30 +80,11 @@
                                             <div class="badge bg-secondary mt-1">Cancelled: {{ $dish->cancelled_quantity }}</div>
                                         @endif
                                     </div>
-                                    <span class="badge bg-light text-dark fs-4 ms-2 px-3 py-1">{{ $remainingQuantity }}</span>
+                                    <span class="badge bg-light text-dark fs-5">{{ $dish->quantity - $dish->cancelled_quantity }}</span>
                                 </li>
                             @endforeach
                         </ul>
 
-                        <div class="d-grid gap-2">
-                            <form method="POST" action="{{ $displayToken ? route('kds.registered-status', [$displayToken, $ticket]) : route('kots.update-status', $ticket) }}">
-                                @csrf
-                                @method('PATCH')
-                                @if($ticket->ticket_status === 'new')
-                                    <input type="hidden" name="status" value="accepted">
-                                    <button class="btn btn-info w-100 fw-bold py-2 fs-6">ACCEPT TICKET</button>
-                                @elseif($ticket->ticket_status === 'accepted')
-                                    <input type="hidden" name="status" value="preparing">
-                                    <button class="btn btn-warning w-100 fw-bold py-2 fs-6">START PREPARING</button>
-                                @elseif($ticket->ticket_status === 'preparing')
-                                    <input type="hidden" name="status" value="ready">
-                                    <button class="btn btn-success w-100 fw-bold py-2 fs-6">MARK READY</button>
-                                @elseif($ticket->ticket_status === 'ready')
-                                    <input type="hidden" name="status" value="served">
-                                    <button class="btn btn-secondary w-100 fw-bold py-2 fs-6">DISPATCH / SERVED</button>
-                                @endif
-                            </form>
-                        </div>
                     </div>
                 </div>
             @empty

@@ -36,8 +36,8 @@
             <div class="col-md-2">
                 <select name="status" class="form-select">
                     <option value="">All statuses</option>
-                    @foreach(['pending', 'confirmed', 'preparing', 'ready', 'served', 'completed', 'cancelled'] as $st)
-                        <option value="{{ $st }}" @selected(request('status') === $st)>{{ ucfirst($st) }}</option>
+                    @foreach(['pending', 'confirmed', 'preparing', 'partially_ready', 'ready', 'served', 'completed', 'cancelled'] as $st)
+                        <option value="{{ $st }}" @selected(request('status') === $st)>{{ Str::headline($st) }}</option>
                     @endforeach
                 </select>
             </div>
@@ -114,6 +114,7 @@
                                         'pending' => 'bg-warning-subtle text-warning-emphasis border-warning-subtle',
                                         'confirmed' => 'bg-primary-subtle text-primary border-primary-subtle',
                                         'preparing' => 'bg-info-subtle text-info-emphasis border-info-subtle',
+                                        'partially_ready' => 'bg-warning-subtle text-warning-emphasis border-warning-subtle',
                                         'ready' => 'bg-success-subtle text-success border-success-subtle',
                                         'served' => 'bg-secondary-subtle text-secondary border-secondary-subtle',
                                         'completed' => 'bg-success text-white',
@@ -122,7 +123,7 @@
                                     };
                                 @endphp
                                 <span class="badge {{ $statusBadge }} rounded-pill px-2.5 py-1">
-                                    {{ ucfirst($order->status) }}
+                                    {{ Str::headline($order->status) }}
                                 </span>
                             </td>
                             <td>

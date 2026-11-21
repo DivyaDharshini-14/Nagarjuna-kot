@@ -89,18 +89,19 @@ class MenuTypeController extends Controller
 
     public function options(Request $request): JsonResponse
     {
-        $companyId = $request->input('company_id') ?: $this->actor()->company_id;
-        if (! $companyId) {
-            $companyId = Company::where('is_active', true)->value('id');
-        }
+        $selection = $request->validate([
+            'company_id' => ['nullable', 'integer', 'min:1'],
+            'branch_id' => ['nullable', 'integer', 'min:1'],
+        ]);
+        $companyId = $selection['company_id'] ?? $this->actor()->company_id;
+        $companyId ??= Company::where('is_active', true)->value('id');
+        $branchId = $selection['branch_id'] ?? null;
 
-        if ($companyId) {
-            $this->authorizeCompanyId((int) $companyId);
-        }
-
-        // Return only active menu types for dropdown selection
         return response()->json($this->optionPayload(
-            $this->menuTypeChoices($companyId ? (int) $companyId : null)
+            $this->menuTypeChoices(
+                $companyId === null ? null : (int) $companyId,
+                $branchId === null ? null : (int) $branchId,
+            )
         ));
     }
 

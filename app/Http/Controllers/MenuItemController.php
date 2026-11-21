@@ -13,6 +13,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
@@ -24,7 +25,7 @@ class MenuItemController extends Controller
     public function index(Request $request): View
     {
         $menuItems = $this->applyBranchScope(MenuItem::query()->with(['company', 'branch', 'category', 'menuType']));
-        $this->applySearch($menuItems, $request, ['name', 'code']);
+        $this->applySearch($menuItems, $request, ['name', 'code', 'short_code']);
         $this->applyStatus($menuItems, $request);
 
         $menuItems = $menuItems->orderBy('display_order')->orderBy('name')->paginate(10)->withQueryString();
@@ -230,6 +231,10 @@ class MenuItemController extends Controller
 
     private function validateMenuItem(Request $request, ?MenuItem $menuItem = null): array
     {
+        if (is_string($request->input('short_code'))) {
+            $request->merge(['short_code' => Str::upper($request->input('short_code'))]);
+        }
+
         // Prevent inactive menu types from being assigned to new menu items
         if (! $menuItem && $request->filled('menu_type_id')) {
             $selectedType = MenuType::query()->find($request->input('menu_type_id'));
@@ -285,6 +290,12 @@ class MenuItemController extends Controller
                 'max:30',
                 'regex:/^[A-Za-z0-9_-]+$/',
                 Rule::unique('menu_items', 'code')->where('branch_id', $request->input('branch_id'))->ignore($menuItem?->id),
+            ],
+            'short_code' => [
+                'nullable',
+                'string',
+                'max:30',
+                Rule::unique('menu_items', 'short_code')->where('branch_id', $request->input('branch_id'))->ignore($menuItem?->id),
             ],
             'selling_price' => ['required', 'numeric', 'min:0', 'max:99999999.99'],
             'image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
