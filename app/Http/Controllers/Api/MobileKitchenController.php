@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Events\MenuAvailabilityChanged;
 use App\Http\Controllers\Controller;
 use App\Models\Kitchen;
+use App\Models\KotItem;
 use App\Models\KotTicket;
 use App\Models\MenuItem;
 use App\Models\StockTransaction;
@@ -157,19 +158,18 @@ class MobileKitchenController extends Controller
             ->with([
                 'order:id,order_number,table_id,created_at,special_instructions,status',
                 'order.table:id,name',
-                'items:id,kot_ticket_id,menu_item_id,quantity,cancelled_quantity,special_instructions,item_status',
-                'items.menuItem:id,name,menu_type_id',
+                'items' => fn ($items) => $items->select('id', 'kot_ticket_id', 'menu_item_id', 'quantity', 'cancelled_quantity', 'special_instructions', 'item_status')
+                    ->when($view === 'active', fn ($items) => $items->whereNotIn('item_status', ['ready', 'served'])),
+                'items.menuItem:id,name,short_code,menu_type_id',
                 'items.menuItem.menuType:id,name',
             ]);
 
         if ($view === 'active') {
-            $query->whereHas('order', fn ($order) => $order->where('status', '<>', 'completed'))
-                ->where(function ($tickets) {
-                $tickets->whereIn('ticket_status', ['new', 'accepted', 'preparing', 'ready'])
-                    ->orWhere(fn ($cancelled) => $cancelled
-                        ->where('ticket_status', 'cancelled')
-                        ->where('updated_at', '>=', now()->subMinutes(15)));
-                })
+            $query->where(fn ($tickets) => $tickets->withPendingWork()
+                ->orWhere(fn ($cancelled) => $cancelled
+                    ->where('ticket_status', 'cancelled')
+                    ->where('updated_at', '>=', now()->subMinutes(15))
+                    ->whereHas('items', fn ($items) => $items->whereNotIn('item_status', ['ready', 'served']))))
                 ->orderBy('created_at');
         } elseif ($view === 'completed') {
             $query->where(fn ($tickets) => $tickets
@@ -190,42 +190,41 @@ class MobileKitchenController extends Controller
 
     public function updateTicketStatus(Request $request, KotTicket $ticket): JsonResponse
     {
-        $user = $request->user();
-        abort_unless(
-            (int) $ticket->company_id === (int) $user->company_id
-                && (int) $ticket->branch_id === (int) $user->branch_id,
-            404
-        );
-
-        $kitchen = Kitchen::query()->findOrFail($ticket->kitchen_id);
-        $this->authorizeKitchen($user, $kitchen);
+        $this->authorizeTicket($request->user(), $ticket);
 
         $validated = $request->validate([
             'status' => ['required', 'string', 'in:accepted,preparing,ready'],
         ]);
 
-        $current = $ticket->ticket_status;
         $next = $validated['status'];
-        $allowedTransitions = [
-            'new' => ['accepted'],
-            'accepted' => ['preparing'],
-            'preparing' => ['ready'],
-        ];
-
-        if ($current !== $next && ! in_array($next, $allowedTransitions[$current] ?? [], true)) {
-            return response()->json([
-                'message' => 'This ticket has changed. Refresh the kitchen board before updating it.',
-            ], 409);
-        }
-
-        $updated = $current === $next
-            ? $ticket->fresh(['order.table', 'items.menuItem.menuType'])
-            : $this->orderService->updateKotTicketStatus($ticket, $next);
+        $allowedFrom = match ($next) {
+            'accepted' => ['new'],
+            'preparing' => ['accepted'],
+            'ready' => ['preparing'],
+        };
+        $updated = $this->orderService->updateKotTicketStatus($ticket, $next, $allowedFrom);
 
         return response()->json([
             'message' => 'KOT ticket updated.',
             'data' => ['ticket' => $updated],
         ]);
+    }
+
+    public function markItemReady(Request $request, KotItem $item): JsonResponse
+    {
+        $this->authorizeTicket($request->user(), $item->ticket()->firstOrFail());
+
+        return response()->json([
+            'message' => 'Dish marked ready.',
+            'data' => ['item' => $this->orderService->markKotItemReady($item)],
+        ]);
+    }
+
+    private function authorizeTicket(User $user, KotTicket $ticket): void
+    {
+        abort_unless((int) $ticket->company_id === (int) $user->company_id
+            && (int) $ticket->branch_id === (int) $user->branch_id, 404);
+        $this->authorizeKitchen($user, Kitchen::query()->findOrFail($ticket->kitchen_id));
     }
 
     public function stock(Request $request): JsonResponse
@@ -413,6 +412,7 @@ class MobileKitchenController extends Controller
             'id' => $item->id,
             'name' => $item->name,
             'code' => $item->code,
+            'short_code' => $item->short_code,
             'stock_tracking_enabled' => (bool) $item->stock_tracking_enabled,
             'prepared_stock_quantity' => $item->prepared_stock_quantity,
             'availability' => $item->availability,

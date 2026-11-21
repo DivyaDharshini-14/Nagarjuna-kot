@@ -29,17 +29,24 @@
     </div>
 </div>
 <div class="row">
-    <div class="col-md-8 mb-3">
+    <div class="col-md-6 mb-3">
         <label class="form-label" for="name">Dish name</label>
         <input class="form-control @error('name') is-invalid @enderror" id="name" name="name" value="{{ old('name', $menuItem?->name) }}" required>
         @error('name')
             <div class="invalid-feedback">{{ $message }}</div>
         @enderror
     </div>
-    <div class="col-md-4 mb-3">
+    <div class="col-md-3 mb-3">
         <label class="form-label" for="code">Dish code</label>
         <input class="form-control @error('code') is-invalid @enderror" id="code" name="code" value="{{ old('code', $menuItem?->code) }}" required>
         @error('code')
+            <div class="invalid-feedback">{{ $message }}</div>
+        @enderror
+    </div>
+    <div class="col-md-3 mb-3">
+        <label class="form-label" for="short_code">Short Code</label>
+        <input class="form-control @error('short_code') is-invalid @enderror" id="short_code" name="short_code" maxlength="30" value="{{ old('short_code', $menuItem?->short_code) }}">
+        @error('short_code')
             <div class="invalid-feedback">{{ $message }}</div>
         @enderror
     </div>

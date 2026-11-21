@@ -1,6 +1,6 @@
 # Nagarjuna Kitchen Mobile
 
-This is a separate Android Flutter app for kitchen staff. It uses the Laravel API under `/api/v1/kitchen-mobile`; the waiter app remains in `mobile/` and the browser Kitchen Display System remains available.
+This Android Flutter app for kitchen staff uses the Laravel API under `/api/v1/kitchen-mobile`. Staff accept tickets and mark individual dishes ready here. The read-only browser Kitchen Display System reflects those changes. The app in `mobile/` is for temporary order-entry testing.
 
 Apply Laravel migrations through the project's normal deployment process before launching the app in another environment. The current development database already has the kitchen assignment and permission migrations.
 
@@ -54,7 +54,7 @@ The API remains the source of ticket data. The kitchen board opens on **All assi
 
 Kitchen accounts need the `kitchen-staff` or `kitchen-manager` role, an active company and branch, and the `kot.view` and `kot.edit` permissions. A manager must assign active kitchen stations to the account in the web user editor. Ticket reads and updates are restricted to those assigned stations. Without Reverb configuration, tickets refresh every 12 seconds. Firebase Cloud Messaging alerts staff about new and cancelled tickets while the app is in the background; foreground alerts refresh the board. Configure this app's Firebase Android registration and `android/app/google-services.json` before release.
 
-The kitchen board supports ticket acceptance, preparation, and ready status; each dish also shows its own current state and cancelled quantity. Separate filters let staff review active queues, recently completed orders, and orders or items with cancellation history. The history endpoints remain scoped to the staff member's assigned kitchens. The browser KDS continues to be the project's existing large-screen kitchen display.
+Accept a ticket, then use **Mark ready** on each dish. Ready dishes disappear from the active board. **Partially Ready** appears on the remaining ticket cards while the order still has unfinished dishes. The board shows each dish's Short Code when set in Item Master. Completed tickets and cancellation history are available from the history menu and are scoped to the staff member's assigned kitchens.
 
 ## Android release setup
 

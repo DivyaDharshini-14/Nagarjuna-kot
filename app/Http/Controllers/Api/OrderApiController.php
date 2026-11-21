@@ -212,8 +212,8 @@ class OrderApiController extends Controller
     public function kitchenKot(Kitchen $kitchen): JsonResponse
     {
         $tickets = KotTicket::where('kitchen_id', $kitchen->id)
-            ->whereIn('ticket_status', ['new', 'accepted', 'preparing', 'ready'])
-            ->with(['order.table', 'order.waiter', 'items.menuItem'])
+            ->withPendingWork()
+            ->with(['order.table', 'order.waiter', 'items' => fn ($items) => $items->pending(), 'items.menuItem'])
             ->latest()
             ->get();
 

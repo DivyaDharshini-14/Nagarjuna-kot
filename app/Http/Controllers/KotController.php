@@ -109,56 +109,12 @@ class KotController extends Controller
         return response()->json(['auth' => $key.':'.$signature]);
     }
 
-    public function registeredDisplayUpdateStatus(Request $request, string $displayToken, KotTicket $kot): RedirectResponse
-    {
-        $kitchen = $this->registeredKitchen($displayToken);
-        abort_unless((int) $kot->kitchen_id === (int) $kitchen->id, 404);
-        $validated = $request->validate([
-            'status' => ['required', 'string', 'in:accepted,preparing,ready,served'],
-        ]);
-        $allowedTransitions = [
-            'new' => ['accepted'],
-            'accepted' => ['preparing'],
-            'preparing' => ['ready'],
-            'ready' => ['served'],
-        ];
-        abort_unless(
-            $kot->ticket_status === $validated['status']
-                || in_array($validated['status'], $allowedTransitions[$kot->ticket_status] ?? [], true),
-            409,
-        );
-        $this->orderService->updateKotTicketStatus($kot, $validated['status']);
-
-        return redirect()->route('kds.registered-display', $displayToken);
-    }
-
     private function renderDisplay(Kitchen $kitchen, ?string $displayToken = null): View
     {
         $tickets = KotTicket::where('kitchen_id', $kitchen->id)
             ->whereDate('created_at', now()->toDateString())
-            ->whereIn('ticket_status', ['new', 'accepted', 'preparing', 'ready'])
-            ->with(['order.table', 'order.waiter', 'items.menuItem'])
-            ->orderByRaw("
-                CASE ticket_status
-                    WHEN 'new' THEN 1
-                    WHEN 'accepted' THEN 2
-                    WHEN 'preparing' THEN 3
-                    WHEN 'ready' THEN 4
-                    WHEN 'served' THEN 5
-                    WHEN 'cancelled' THEN 6
-                    ELSE 7
-                END ASC
-            ")
-            ->orderByDesc('created_at')
-            ->orderByDesc('id')
-
-            ->where(function ($query) {
-                $query->whereIn('ticket_status', ['new', 'accepted', 'preparing', 'ready'])
-                    ->orWhere(fn ($cancelled) => $cancelled
-                        ->where('ticket_status', 'cancelled')
-                        ->where('updated_at', '>=', now()->subMinutes(15)));
-            })
-            ->with(['order.table', 'order.waiter', 'items.menuItem', 'items.orderItem.cancellations'])
+            ->withPendingWork()
+            ->with(['order.table', 'items' => fn ($items) => $items->pending(), 'items.menuItem'])
             ->orderBy('created_at')
             ->get();
 

@@ -196,6 +196,132 @@ class MobileOrderStockAcceptanceTest extends TestCase
         $this->assertSame('cancelled', $ticket->fresh()->ticket_status);
     }
 
+    public function test_ready_dishes_leave_both_kitchen_boards_and_update_order_readiness(): void
+    {
+        $this->dish->update(['short_code' => 'PR']);
+        $secondDish = $this->dish->replicate();
+        $secondDish->fill(['name' => 'Mutton Fry', 'code' => 'MUTTON-FRY', 'short_code' => 'MF'])->save();
+        $this->mapDish($secondDish);
+
+        $payload = $this->orderPayload(1);
+        $payload['items'][] = ['menu_item_id' => $secondDish->id, 'quantity' => 1];
+        $orderId = $this->postJson('/api/v1/mobile/orders', $payload, [
+            'Idempotency-Key' => (string) Str::uuid(),
+        ])->assertCreated()->json('data.order.id');
+        $order = Order::findOrFail($orderId);
+        $ticket = $order->kotTickets()->firstOrFail();
+        [$first, $last] = $ticket->items()->orderBy('id')->get()->all();
+        $mobileFeed = '/api/v1/kitchen-mobile/kot';
+        $webFeed = route('kds.feed', $this->kitchen);
+        $displayToken = Str::random(64);
+        $this->kitchen->update(['display_token_hash' => hash('sha256', $displayToken)]);
+        $display = route('kds.registered-display', $displayToken);
+
+        $this->actingAs($this->manager, 'web');
+        $this->get(route('kds.branch.kitchen', [$this->branch->code, $this->kitchen->code]))
+            ->assertOk()->assertSee('Active Orders')->assertDontSee('data-ticket=', false)->assertDontSee('data-item=', false);
+        $this->get($display)->assertOk()->assertDontSee('<form', false);
+        $this->postJson("/kds/tickets/{$ticket->id}/status", ['status' => 'accepted'])->assertNotFound();
+        $this->postJson("/kds/items/{$first->id}/status", ['status' => 'ready'])->assertNotFound();
+        $this->patchJson("{$display}/tickets/{$ticket->id}/status", ['status' => 'accepted'])->assertNotFound();
+        $this->patchJson("{$display}/items/{$first->id}/ready")->assertNotFound();
+        $this->getJson($webFeed)->assertJsonCount(2, 'active_tickets.0.items')
+            ->assertJsonPath('active_tickets.0.ticket_status', 'new');
+
+        $this->useToken($this->cookToken);
+        $this->patchJson(route('api.kitchen-mobile.kot-tickets.status', $ticket), ['status' => 'accepted'])->assertOk();
+        $this->getJson($mobileFeed)->assertOk()
+            ->assertJsonPath('data.tickets.0.items.0.menu_item.short_code', 'PR');
+        $itemReady = route('api.kitchen-mobile.kot-items.ready', $first);
+        $this->patchJson($itemReady)->assertOk();
+        $this->patchJson($itemReady)->assertOk();
+        $this->getJson($mobileFeed)->assertOk()
+            ->assertJsonCount(1, 'data.tickets.0.items')
+            ->assertJsonPath('data.tickets.0.items.0.id', $last->id)
+            ->assertJsonPath('data.tickets.0.order.status', 'partially_ready');
+
+        $this->actingAs($this->manager, 'web');
+        $this->getJson($webFeed)->assertOk()
+            ->assertJsonCount(1, 'active_tickets.0.items')
+            ->assertJsonPath('active_tickets.0.items.0.short_code', 'MF')
+            ->assertJsonPath('active_tickets.0.order_status', 'partially_ready');
+
+        $this->get($display)->assertOk()->assertSee('Partially Ready')->assertSee('>MF</div>', false)
+            ->assertDontSee('>PR</div>', false)->assertDontSee('<form', false);
+
+        $this->useToken($this->cookToken);
+        $this->patchJson(route('api.kitchen-mobile.kot-items.ready', $last))->assertOk();
+        $this->getJson($mobileFeed)->assertOk()->assertJsonCount(0, 'data.tickets');
+        $this->assertSame('ready', $ticket->fresh()->ticket_status);
+        $this->assertSame('ready', $order->fresh()->status);
+
+        $this->actingAs($this->manager, 'web');
+        $this->get($display)->assertOk()->assertSee('No pending orders')->assertDontSee('>MF</div>', false);
+        $this->getJson($webFeed)->assertOk()->assertJsonCount(0, 'active_tickets');
+
+        $this->useToken($this->waiterToken);
+        $this->getJson("/api/v1/mobile/orders/{$orderId}")->assertOk()->assertJsonPath('data.order.status', 'ready');
+        $this->postJson("/api/v1/mobile/orders/{$orderId}/items", $this->orderPayload(1), [
+            'Idempotency-Key' => (string) Str::uuid(),
+        ])->assertOk()->assertJsonPath('data.order.status', 'partially_ready');
+    }
+
+    public function test_item_master_saves_and_validates_the_short_code(): void
+    {
+        $this->actingAs($this->manager, 'web');
+        $this->get(route('menu-items.create'))->assertOk()->assertSee('Short Code');
+        $item = [
+            'company_id' => $this->company->id,
+            'branch_id' => $this->branch->id,
+            'category_id' => $this->dish->category_id,
+            'menu_type_id' => $this->dish->menu_type_id,
+            'name' => 'Chicken Biryani',
+            'code' => 'BIRYANI-CHICKEN',
+            'short_code' => 'cb',
+            'selling_price' => 150,
+            'display_order' => 0,
+            'stock_tracking_enabled' => false,
+            'is_active' => true,
+        ];
+
+        $this->post(route('menu-items.store'), $item)->assertRedirect(route('menu-items.index'));
+        $chicken = MenuItem::where('code', $item['code'])->firstOrFail();
+        $this->assertSame('CB', $chicken->short_code);
+
+        $this->post(route('menu-items.store'), array_replace($item, ['code' => 'OTHER-BIRYANI', 'short_code' => 'Cb']))
+            ->assertSessionHasErrors('short_code');
+
+        $this->put(route('menu-items.update', $chicken), $item)->assertSessionHasNoErrors();
+        $this->put(route('menu-items.update', $chicken), array_replace($item, ['short_code' => 'chb']))
+            ->assertRedirect(route('menu-items.index'));
+        $this->assertSame('CHB', $chicken->fresh()->short_code);
+    }
+
+    public function test_cancelling_the_last_unfinished_dish_makes_the_order_ready(): void
+    {
+        $payload = $this->orderPayload(1);
+        $payload['items'][] = ['menu_item_id' => $this->dish->id, 'quantity' => 2];
+        $orderId = $this->postJson('/api/v1/mobile/orders', $payload, [
+            'Idempotency-Key' => (string) Str::uuid(),
+        ])->assertCreated()->json('data.order.id');
+        $order = Order::findOrFail($orderId);
+        $ticket = $order->kotTickets()->firstOrFail();
+        [$first, $last] = $ticket->items()->orderBy('id')->get()->all();
+
+        $this->useToken($this->cookToken);
+        $this->patchJson(route('api.kitchen-mobile.kot-tickets.status', $ticket), ['status' => 'accepted'])->assertOk();
+        $this->patchJson(route('api.kitchen-mobile.kot-items.ready', $first))->assertOk();
+
+        $this->useToken($this->waiterToken);
+        $this->postJson("/api/v1/mobile/orders/{$orderId}/cancellations", [
+            'reason' => 'Guest changed their mind',
+            'items' => [['order_item_id' => $last->order_item_id, 'quantity' => 2]],
+        ])->assertOk();
+
+        $this->assertSame('ready', $ticket->fresh()->ticket_status);
+        $this->assertSame('ready', $order->fresh()->status);
+    }
+
     public function test_pending_cancellation_does_not_restock_until_separate_manager_approval_and_cannot_be_approved_twice(): void
     {
         $this->branch->update(['cancellation_approval_required' => true]);

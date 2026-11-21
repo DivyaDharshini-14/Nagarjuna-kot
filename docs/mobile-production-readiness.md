@@ -1,17 +1,16 @@
 # Mobile production readiness
 
-The waiter and kitchen apps share the Laravel API at `/api/v1`, but use separate token abilities and separate Android application IDs. The project code now rejects insecure or placeholder release API URLs and refuses to produce unsigned Android release artifacts.
+The kitchen app and the client's existing ordering application use the Laravel API at `/api/v1`. The Flutter app in `mobile/` can exercise the order endpoints against staging. The kitchen app requires a secure API URL and a signed Android release build. See the [ordering API](../README.md#nagarjuna-order-integration).
 
 ## Required deployment values
 
 The following values belong to the owner or deployment environment and must not be committed to this repository:
 
-- The production API host with a valid HTTPS certificate, supplied to both apps as `https://<api-host>/api/v1`.
-- A separate approved Android upload keystore and ignored `android/key.properties` for each app. Preserve the keys and passwords in approved secret storage and backups.
-- When both signing files are present, the Gradle release checks reject identical keystore files for the waiter and kitchen apps.
-- Reverb app ID, key, and secret on Laravel; public Reverb host, port, scheme, and app key supplied to both Android builds. The API and Reverb hosts must be reachable by the Android devices.
+- The production API host with a valid HTTPS certificate at `https://<api-host>/api/v1`.
+- An approved kitchen-app Android upload keystore and ignored `android/key.properties`. Preserve the keys and passwords in approved secret storage and backups.
+- Reverb app ID, key, and secret on Laravel, plus the public Reverb host, port, scheme, and app key for the kitchen build.
 - Production database credentials, `APP_KEY`, `APP_URL`, mail provider settings, and queue/cache configuration in the hosting secret manager.
-- A Firebase project with a separate Android app registration for each application ID, each app's `google-services.json`, and a server service-account file mounted outside the repository. Set `FCM_PROJECT_ID` and `FCM_SERVICE_ACCOUNT_PATH` in Laravel's secret manager.
+- A Firebase project with the kitchen app's Android registration, its `google-services.json`, and a server service-account file mounted outside the repository. Set `FCM_PROJECT_ID` and `FCM_SERVICE_ACCOUNT_PATH` in Laravel's secret manager.
 
 ## Laravel deployment
 
@@ -23,10 +22,10 @@ The following values belong to the owner or deployment environment and must not 
 
 ## Build and acceptance gates
 
-- Register `com.nagarjuna.nagarjuna_waiter` and `com.nagarjuna.nagarjuna_kitchen` as separate Android apps in Firebase. Place each matching `google-services.json` under that app's `android/app/`; release Gradle tasks fail if the file is absent. Verify notification permission and channel settings on target devices.
-- For each app, configure its own Android upload signing file and build the obfuscated signed AAB using the commands in its README. Supply the production HTTPS API URL and TLS Reverb settings to both builds. Keep each build's `--split-debug-info` output with the release artifact.
-- Run both apps on the target Android devices against staging. Verify secure login/session restore/logout, branch and kitchen assignment boundaries, waiter order creation, KOT generation, kitchen transitions, per-dish ready-to-served changes, waiter status refresh, completed/cancelled kitchen history, order completion only after active tickets are ready/served and cancelled tickets are terminal, table release, duplicate-safe retry, network loss/recovery, expired sessions, screen sizes, and accessibility.
-- Confirm the kitchen board reports a live Reverb connection when configured and reconnects after interruption. Confirm the waiter order screen receives KOT status changes over its private order channel, reconnects after interruption or app resume, and retains polling as a fallback.
+- Register `com.nagarjuna.nagarjuna_kitchen` in Firebase. Place its `google-services.json` in `kitchen_mobile/android/app/`. Verify notification permission and channel settings on target devices.
+- Build the signed kitchen AAB using the commands in its README. Supply the production HTTPS API URL and TLS Reverb settings. Keep the build's `--split-debug-info` output with the release artifact.
+- Test order entry and duplicate-safe retries through the ordering API against staging. Set dish readiness in the kitchen app and verify that the read-only Kitchen Display reflects KOT routing, item short codes, and individual dish readiness. Verify the Partially Ready and Ready API values, kitchen assignments, ticket history, table release, network recovery, expired sessions, and accessibility.
+- Confirm the kitchen board reports a live Reverb connection when configured and reconnects after interruption.
 - The production domain, Firebase project/config files, upload keystores, Reverb deployment, and owner-run staging acceptance are deployment inputs; this workspace cannot supply or certify them.
 
 ## New workflow acceptance

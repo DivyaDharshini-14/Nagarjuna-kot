@@ -29,8 +29,6 @@ Route::get('/', function () {
 Route::get('/kds/{displayToken}', [KotController::class, 'registeredDisplay'])->name('kds.registered-display')->where('displayToken', '[A-Za-z0-9]{64}');
 Route::post('/kds/{displayToken}/broadcasting/auth', [KotController::class, 'registeredDisplayBroadcastAuth'])
     ->middleware('throttle:30,1')->name('kds.broadcasting.auth')->where('displayToken', '[A-Za-z0-9]{64}');
-Route::patch('/kds/{displayToken}/tickets/{kot}/status', [KotController::class, 'registeredDisplayUpdateStatus'])
-    ->name('kds.registered-status')->where('displayToken', '[A-Za-z0-9]{64}');
 
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthenticatedSessionController::class, 'create'])->name('login');
@@ -183,8 +181,6 @@ Route::middleware(['auth', 'account.active'])->group(function () {
     Route::get('/kds/{kitchen}/feed', [KdsController::class, 'feed'])->name('kds.feed')->whereNumber('kitchen')->middleware('permission:kot.view');
     Route::get('/kds/{kitchen}/dishes', [KdsController::class, 'menuDishes'])->name('kds.dishes')->whereNumber('kitchen')->middleware('permission:kot.view');
     Route::post('/kds/{kitchen}/dishes/{menuItem}/toggle-availability', [KdsController::class, 'toggleDishAvailability'])->name('kds.dishes.toggle')->middleware('permission:kot.edit');
-    Route::post('/kds/tickets/{kot}/status', [KdsController::class, 'updateTicketStatus'])->name('kds.tickets.update-status')->middleware('permission:kot.edit');
-    Route::post('/kds/items/{item}/status', [KdsController::class, 'updateItemStatus'])->name('kds.items.update-status')->middleware('permission:kot.edit');
 
     // Dedicated screen by ID (number only) - redirects to canonical /{branchCode}/{kitchenCode}
     Route::get('/kds/{kitchen}', [KdsController::class, 'screen'])->name('kds.screen')->whereNumber('kitchen')->middleware('permission:kot.view');

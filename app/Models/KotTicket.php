@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -10,6 +11,8 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class KotTicket extends Model
 {
     use SoftDeletes;
+
+    public const ACCEPTED_STATUSES = ['accepted', 'preparing'];
 
     protected $fillable = [
         'kot_number',
@@ -58,6 +61,12 @@ class KotTicket extends Model
     public function items(): HasMany
     {
         return $this->hasMany(KotItem::class);
+    }
+
+    public function scopeWithPendingWork(Builder $query): Builder
+    {
+        return $query->whereHas('order', fn ($order) => $order->whereNotIn('status', ['completed', 'cancelled']))
+            ->whereHas('items', fn ($items) => $items->pending());
     }
 }
 

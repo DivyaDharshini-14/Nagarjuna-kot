@@ -19,7 +19,8 @@ class KitchenBoardScreen extends StatefulWidget {
     required this.onRefresh,
     required this.onKitchenChanged,
     required this.onBoardViewChanged,
-    required this.onStatusChange,
+    required this.onAcceptTicket,
+    required this.onItemReady,
     required this.onSignOut,
     required this.currentPage,
     required this.lastPage,
@@ -40,7 +41,8 @@ class KitchenBoardScreen extends StatefulWidget {
   final Future<void> Function() onRefresh;
   final Future<void> Function(KitchenStation? kitchen) onKitchenChanged;
   final Future<void> Function(String view) onBoardViewChanged;
-  final Future<void> Function(KotTicket ticket, String status) onStatusChange;
+  final Future<void> Function(KotTicket ticket) onAcceptTicket;
+  final Future<void> Function(KotTicket ticket, KotDish dish) onItemReady;
   final Future<void> Function() onSignOut;
   final VoidCallback? onStockControl;
   final int currentPage;
@@ -272,8 +274,9 @@ class _KitchenBoardScreenState extends State<KitchenBoardScreen> {
                         : null,
                     isBusy: widget.busyTicketId == '${ticket.id}',
                     updateInProgress: widget.busyTicketId != null,
-                    onStatusChange: (status) =>
-                        widget.onStatusChange(ticket, status),
+                    isActive: widget.boardView == 'active',
+                    onAccept: () => widget.onAcceptTicket(ticket),
+                    onItemReady: (dish) => widget.onItemReady(ticket, dish),
                   ),
                 ),
               ),
@@ -396,13 +399,7 @@ class _KitchenBoardScreenState extends State<KitchenBoardScreen> {
     spacing: 8,
     crossAxisAlignment: WrapCrossAlignment.center,
     children: [
-      for (final filter in const [
-        'All',
-        'New',
-        'Accepted',
-        'Preparing',
-        'Ready',
-      ])
+      for (final filter in const ['All', 'New', 'Accepted'])
         _activeFilterChip(filter),
       PopupMenuButton<String>(
         tooltip: 'Ticket history',
@@ -480,14 +477,16 @@ class _KitchenBoardScreenState extends State<KitchenBoardScreen> {
     return ticket.number.toLowerCase().contains(query) ||
         ticket.orderNumber.toLowerCase().contains(query) ||
         _tableLabel(ticket.tableName).toLowerCase().contains(query) ||
-        ticket.dishes.any((dish) => dish.name.toLowerCase().contains(query));
+        ticket.dishes.any(
+          (dish) =>
+              dish.name.toLowerCase().contains(query) ||
+              dish.displayName.toLowerCase().contains(query),
+        );
   }
 
   bool _matchesFilter(KotTicket ticket) => switch (_filter) {
     'New' => ticket.status == 'new',
-    'Accepted' => ticket.status == 'accepted',
-    'Preparing' => ticket.status == 'preparing',
-    'Ready' => ticket.status == 'ready',
+    'Accepted' => ticket.isAccepted,
     'Cancelled' =>
       ticket.status == 'cancelled' ||
           ticket.dishes.any((dish) => dish.cancelledQuantity > 0),
@@ -506,8 +505,6 @@ class _KitchenBoardScreenState extends State<KitchenBoardScreen> {
   String get _emptyTitle => switch (_filter) {
     'New' => 'No new tickets',
     'Accepted' => 'No accepted tickets',
-    'Preparing' => 'Nothing in preparation',
-    'Ready' => 'No ready tickets',
     'Cancelled' => 'No cancelled items',
     'Completed' => 'No completed orders',
     _ => 'All caught up',
@@ -516,8 +513,6 @@ class _KitchenBoardScreenState extends State<KitchenBoardScreen> {
   String get _emptyMessage => switch (_filter) {
     'New' => 'New kitchen orders will appear here automatically.',
     'Accepted' => 'New tickets will appear here after a kitchen accepts them.',
-    'Preparing' => 'Tickets in preparation will appear here.',
-    'Ready' => 'Tickets marked ready will be shown in this queue.',
     'Cancelled' => 'Today’s tickets with cancelled dishes will appear here.',
     'Completed' => 'Today’s completed tickets will appear here.',
     _ => 'There are no active tickets from today for your assigned stations.',
@@ -554,19 +549,23 @@ class _TicketCard extends StatelessWidget {
     required this.kitchenName,
     required this.isBusy,
     required this.updateInProgress,
-    required this.onStatusChange,
+    required this.isActive,
+    required this.onAccept,
+    required this.onItemReady,
   });
 
   final KotTicket ticket;
   final String? kitchenName;
   final bool isBusy;
   final bool updateInProgress;
-  final ValueChanged<String> onStatusChange;
+  final bool isActive;
+  final VoidCallback onAccept;
+  final ValueChanged<KotDish> onItemReady;
 
   @override
   Widget build(BuildContext context) {
-    final color = _statusColor(ticket.status);
-    final action = _nextAction(ticket.status);
+    final status = isActive && ticket.isAccepted ? 'accepted' : ticket.status;
+    final color = _statusColor(status);
     final receivedAt = ticket.createdAt;
     final age = receivedAt == null
         ? null
@@ -648,10 +647,12 @@ class _TicketCard extends StatelessWidget {
                   runSpacing: 6,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    _StatusPill(
-                      label: _statusName(ticket.status),
-                      color: color,
-                    ),
+                    _StatusPill(label: _statusName(status), color: color),
+                    if (isActive && ticket.orderStatus == 'partially_ready')
+                      const _StatusPill(
+                        label: 'Partially Ready',
+                        color: KitchenColors.amber,
+                      ),
                     if (age != null)
                       Row(
                         mainAxisSize: MainAxisSize.min,
@@ -678,7 +679,22 @@ class _TicketCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                ...ticket.dishes.map((dish) => _DishRow(dish: dish)),
+                for (final dish in ticket.dishes)
+                  _DishRow(
+                    dish: dish,
+                    isActive: isActive,
+                    canMarkReady:
+                        isActive &&
+                        ticket.isAccepted &&
+                        const [
+                          'new',
+                          'accepted',
+                          'preparing',
+                        ].contains(dish.displayStatus),
+                    onMarkReady: updateInProgress
+                        ? null
+                        : () => onItemReady(dish),
+                  ),
                 if (ticket.kitchenNote != null &&
                     ticket.kitchenNote!.trim().isNotEmpty) ...[
                   const SizedBox(height: 5),
@@ -689,12 +705,10 @@ class _TicketCard extends StatelessWidget {
                   const SizedBox(height: 5),
                   _NoteBanner(label: 'ORDER NOTE', text: ticket.orderNote!),
                 ],
-                if (action != null) ...[
+                if (isActive && ticket.status == 'new') ...[
                   const SizedBox(height: 13),
                   FilledButton.icon(
-                    onPressed: updateInProgress
-                        ? null
-                        : () => onStatusChange(action.status),
+                    onPressed: updateInProgress ? null : onAccept,
                     icon: isBusy
                         ? const SizedBox.square(
                             dimension: 17,
@@ -703,13 +717,8 @@ class _TicketCard extends StatelessWidget {
                               color: Colors.white,
                             ),
                           )
-                        : Icon(action.icon),
-                    label: Text(isBusy ? 'Updating ticket…' : action.label),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: ticket.status == 'preparing'
-                          ? KitchenColors.green
-                          : KitchenColors.ink,
-                    ),
+                        : const Icon(Icons.done_rounded),
+                    label: Text(isBusy ? 'Updating ticket…' : 'Accept ticket'),
                   ),
                 ],
               ],
@@ -722,8 +731,16 @@ class _TicketCard extends StatelessWidget {
 }
 
 class _DishRow extends StatelessWidget {
-  const _DishRow({required this.dish});
+  const _DishRow({
+    required this.dish,
+    required this.isActive,
+    required this.canMarkReady,
+    required this.onMarkReady,
+  });
   final KotDish dish;
+  final bool isActive;
+  final bool canMarkReady;
+  final VoidCallback? onMarkReady;
 
   @override
   Widget build(BuildContext context) {
@@ -735,9 +752,7 @@ class _DishRow extends StatelessWidget {
       'cancelled' =>
         '${dish.cancelledQuantity > 0 ? dish.cancelledQuantity : dish.quantity} cancelled',
       _ when dish.cancelledQuantity == 0 => null,
-      'ready' ||
-      'served' => '$quantity remaining · ${dish.cancelledQuantity} cancelled',
-      _ => 'Prepare $quantity · ${dish.cancelledQuantity} cancelled',
+      _ => '$quantity remaining · ${dish.cancelledQuantity} cancelled',
     };
 
     return Padding(
@@ -746,7 +761,7 @@ class _DishRow extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            isCancelled ? dish.name : '$quantity× ${dish.name}',
+            isCancelled ? dish.displayName : '$quantity× ${dish.displayName}',
             style: TextStyle(
               color: isCancelled ? KitchenColors.muted : KitchenColors.ink,
               fontSize: 18,
@@ -776,7 +791,13 @@ class _DishRow extends StatelessWidget {
               ),
             ),
           ],
-          if (!isCancelled) ...[
+          if (canMarkReady)
+            OutlinedButton.icon(
+              onPressed: onMarkReady,
+              icon: const Icon(Icons.check_circle_outline_rounded),
+              label: const Text('Mark ready'),
+            ),
+          if (!isActive && !isCancelled) ...[
             const SizedBox(height: 6),
             _StatusPill(
               label: _statusName(status),
@@ -953,28 +974,6 @@ class _EmptyState extends StatelessWidget {
     ),
   );
 }
-
-class _TicketAction {
-  const _TicketAction(this.label, this.status, this.icon);
-  final String label;
-  final String status;
-  final IconData icon;
-}
-
-_TicketAction? _nextAction(String status) => switch (status) {
-  'new' => const _TicketAction('Accept ticket', 'accepted', Icons.done_rounded),
-  'accepted' => const _TicketAction(
-    'Start preparing',
-    'preparing',
-    Icons.play_arrow_rounded,
-  ),
-  'preparing' => const _TicketAction(
-    'Mark ticket ready',
-    'ready',
-    Icons.check_circle_outline_rounded,
-  ),
-  _ => null,
-};
 
 Color _statusColor(String status) => switch (status) {
   'new' => KitchenColors.orange,

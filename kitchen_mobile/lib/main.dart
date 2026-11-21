@@ -555,7 +555,7 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
       ..showSnackBar(SnackBar(content: Text(text)));
   }
 
-  Future<void> _updateTicket(KotTicket ticket, String status) async {
+  Future<void> _updateTicket(KotTicket ticket, {KotDish? dish}) async {
     if (_busyTicketId != null) return;
     if (!ticket.isFromKitchenDay(kitchenDayStart(DateTime.now()))) {
       await _refreshTickets(force: true);
@@ -563,12 +563,20 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
     }
     setState(() => _busyTicketId = '${ticket.id}');
     try {
-      await widget.repository.updateStatus(ticket.id, status);
+      if (dish == null) {
+        await widget.repository.acceptTicket(ticket.id);
+      } else {
+        await widget.repository.markItemReady(dish.id);
+      }
       await _refreshTickets(force: true);
       if (mounted && ticket.isFromKitchenDay(_boardDay)) {
         _scaffoldMessengerKey.currentState?.showSnackBar(
           SnackBar(
-            content: Text('${ticket.number} moved to ${_statusLabel(status)}'),
+            content: Text(
+              dish == null
+                  ? '${ticket.number} accepted'
+                  : '${dish.displayName} marked ready',
+            ),
           ),
         );
       }
@@ -675,7 +683,8 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
       boardView: _boardView,
       onBoardViewChanged: _changeBoardView,
       onKitchenChanged: _changeKitchen,
-      onStatusChange: _updateTicket,
+      onAcceptTicket: _updateTicket,
+      onItemReady: (ticket, dish) => _updateTicket(ticket, dish: dish),
       onSignOut: _signOut,
       currentPage: _boardPage,
       lastPage: _boardLastPage,
@@ -687,13 +696,6 @@ class _KitchenMobileAppState extends State<KitchenMobileApp>
     );
   }
 }
-
-String _statusLabel(String status) => switch (status) {
-  'accepted' => 'accepted',
-  'preparing' => 'preparing',
-  'ready' => 'ready',
-  _ => status,
-};
 
 class _RetrySessionScreen extends StatelessWidget {
   const _RetrySessionScreen({

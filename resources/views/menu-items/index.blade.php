@@ -23,6 +23,7 @@
                     <tr>
                         <th class="ps-4">NAME</th>
                         <th>CODE</th>
+                        <th>SHORT CODE</th>
                         <th>BRANCH</th>
                         <th>CATEGORY</th>
                         <th>TYPE</th>
@@ -40,6 +41,7 @@
                             <td>
                                 <span class="badge bg-light text-dark border font-monospace">{{ $menuItem->code }}</span>
                             </td>
+                            <td>{{ $menuItem->short_code }}</td>
                             <td>{{ $menuItem->branch?->name ?? '—' }}</td>
                             <td>{{ $menuItem->category?->name ?? '—' }}</td>
                             <td>{{ $menuItem->menuType?->name ?? '—' }}</td>
@@ -88,7 +90,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="{{ $canAction ? 8 : 7 }}" class="text-center text-muted py-5">
+                            <td colspan="{{ $canAction ? 9 : 8 }}" class="text-center text-muted py-5">
                                 <i class="bi bi-cup-hot fs-2 d-block mb-2 text-secondary opacity-50"></i>
                                 No menu items found.
                             </td>

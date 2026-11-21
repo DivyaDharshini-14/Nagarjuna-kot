@@ -32,6 +32,9 @@ class _KitchenStockScreenState extends State<KitchenStockScreen> {
   int _page = 1;
   int _lastPage = 1;
   int _total = 0;
+  bool? _canManageStockFromApi;
+
+  bool get _canManageStock => _canManageStockFromApi ?? widget.canManageStock;
 
   @override
   void initState() {
@@ -56,6 +59,7 @@ class _KitchenStockScreenState extends State<KitchenStockScreen> {
         _page = result.currentPage;
         _lastPage = result.lastPage;
         _total = result.total;
+        _canManageStockFromApi = result.canManageStock;
         _loading = false;
       });
     } on KitchenApiException catch (error) {
@@ -97,7 +101,7 @@ class _KitchenStockScreenState extends State<KitchenStockScreen> {
           await showDialog<({int quantity, String reason, String direction})>(
             context: context,
             builder: (_) => _StockAdjustmentDialog(
-              title: _adjustmentTitle(type, item.name),
+              title: _adjustmentTitle(type, item.displayName),
               allowDirection: type == 'manual_adjustment',
             ),
           );
@@ -107,7 +111,7 @@ class _KitchenStockScreenState extends State<KitchenStockScreen> {
         await store.saveUnconfirmedStock(
           userId,
           item.id,
-          '${_adjustmentTitle(type, item.name)} • ${result.quantity} portions'
+          '${_adjustmentTitle(type, item.displayName)} • ${result.quantity} portions'
           '${type == 'manual_adjustment' ? ' • ${result.direction}' : ''}'
           '\n${result.reason}',
         );
@@ -311,7 +315,7 @@ class _KitchenStockScreenState extends State<KitchenStockScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      item.name,
+                      item.displayName,
                       style: const TextStyle(
                         fontWeight: FontWeight.w800,
                         fontSize: 16,
@@ -402,7 +406,7 @@ class _KitchenStockScreenState extends State<KitchenStockScreen> {
                             child: Text('Sold out'),
                           ),
                         ],
-                        onChanged: widget.canManageStock && !busy
+                        onChanged: _canManageStock && !busy
                             ? (value) {
                                 if (value != null &&
                                     value != item.availability) {
@@ -421,7 +425,7 @@ class _KitchenStockScreenState extends State<KitchenStockScreen> {
                 ),
               ],
             ),
-            if (widget.canManageStock && item.stockTrackingEnabled) ...[
+            if (_canManageStock && item.stockTrackingEnabled) ...[
               const SizedBox(height: 7),
               Wrap(
                 spacing: 7,
@@ -528,7 +532,7 @@ class _StockHistoryDialogState extends State<_StockHistoryDialog> {
   Widget build(BuildContext context) {
     final entries = _entries;
     return _StockDialog(
-      title: Text('${widget.item.name} stock history'),
+      title: Text('${widget.item.displayName} stock history'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,

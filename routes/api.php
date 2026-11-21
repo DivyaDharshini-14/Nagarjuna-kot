@@ -115,6 +115,10 @@ Route::prefix('v1')->group(function () {
             ->middleware('permission:kot.edit')
             ->whereNumber('ticket')
             ->name('api.kitchen-mobile.kot-tickets.status');
+        Route::patch('/kot-items/{item}/ready', [MobileKitchenController::class, 'markItemReady'])
+            ->middleware('permission:kot.edit')
+            ->whereNumber('item')
+            ->name('api.kitchen-mobile.kot-items.ready');
         Route::get('/stock', [MobileKitchenController::class, 'stock'])
             ->middleware('permission:menu-item.view')
             ->name('api.kitchen-mobile.stock.index');

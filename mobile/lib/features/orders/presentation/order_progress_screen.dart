@@ -1330,7 +1330,7 @@ class _StatusPill extends StatelessWidget {
     final normalized = status.trim().toLowerCase();
     final color = switch (normalized) {
       'ready' || 'served' || 'completed' => const Color(0xFF2F7A50),
-      'preparing' || 'accepted' => const Color(0xFF536A9D),
+      'preparing' || 'accepted' || 'partially_ready' => const Color(0xFF536A9D),
       'cancelled' => AppColors.error,
       _ => AppColors.terracotta,
     };
@@ -1357,6 +1357,7 @@ class _StatusPill extends StatelessWidget {
     'new' => 'New',
     'accepted' => 'Accepted',
     'preparing' => 'Preparing',
+    'partially_ready' => 'Partially Ready',
     'ready' => 'Ready',
     'served' => 'Served',
     'cancelled' => 'Cancelled',

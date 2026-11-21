@@ -175,7 +175,7 @@
                         <label class="form-label small fw-bold text-muted mb-1">Order Status</label>
                         <select name="status" class="form-select form-select-sm">
                             <option value="all">All Statuses</option>
-                            @foreach(['new' => 'New', 'accepted' => 'Accepted', 'preparing' => 'Preparing', 'ready' => 'Ready', 'served' => 'Served', 'cancelled' => 'Cancelled'] as $stVal => $stLabel)
+                            @foreach(['new' => 'New', 'accepted' => 'Accepted', 'preparing' => 'Preparing', 'partially_ready' => 'Partially Ready', 'ready' => 'Ready', 'served' => 'Served', 'cancelled' => 'Cancelled'] as $stVal => $stLabel)
                                 <option value="{{ $stVal }}" @selected($filters['status'] === $stVal)>{{ $stLabel }}</option>
                             @endforeach
                         </select>
@@ -322,14 +322,14 @@
                                 @php
                                     $badgeClass = match(strtolower($order->status)) {
                                         'ready' => 'bg-info text-dark',
-                                        'preparing' => 'bg-warning text-dark',
+                                        'preparing', 'partially_ready' => 'bg-warning text-dark',
                                         'served', 'completed' => 'bg-success text-white',
                                         'cancelled' => 'bg-danger text-white',
                                         default => 'bg-primary text-white',
                                     };
                                 @endphp
                                 <span class="badge {{ $badgeClass }} text-capitalize px-2.5 py-1">
-                                    {{ ucfirst($order->status) }}
+                                    {{ Str::headline($order->status) }}
                                 </span>
                             </td>
                         </tr>

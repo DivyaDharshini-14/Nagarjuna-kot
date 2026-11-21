@@ -7,6 +7,14 @@
 <a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
 </p>
 
+## Nagarjuna order integration
+
+The branch-scoped KOT API supports the client's existing ordering application. The Flutter project in `mobile/` is a temporary client for testing that flow. Kitchen staff update tickets in `kitchen_mobile/`. The web Kitchen Display reflects their changes automatically.
+
+- Sign in with `POST /api/v1/auth/login` using an active branch waiter account and send `email`, `password` and `device_name`. Use the returned `data.token` as an `Authorization: Bearer` token and request JSON responses with `Accept: application/json`.
+- Use `GET /api/v1/floors` and `GET /api/v1/menu` to find table and menu item IDs. Submit to `POST /api/v1/mobile/orders` with `table_id`, `guest_count` and an `items` array containing `menu_item_id` and `quantity`. Send an `Idempotency-Key` UUID for each submission and reuse the same key and payload when retrying it.
+- Read `GET /api/v1/mobile/orders/{order}` to track the order using `data.order.status`. The API returns `partially_ready` while some items are still pending and `ready` when every remaining item has been marked ready or served.
+
 ## About Laravel
 
 Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
